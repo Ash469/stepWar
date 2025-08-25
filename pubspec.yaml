@@ -1,0 +1,64 @@
+name: stepwars_app
+description: StepWars MVP - A gamified fitness app where steps become weapons
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI & Animation
+  cupertino_icons: ^1.0.2
+  flutter_animate: ^4.2.0
+  rive: ^0.11.4
+  lottie: ^2.6.0
+  
+  # State Management
+  provider: ^6.0.5
+  
+  # Sensors & Step Tracking
+  sensors_plus: ^3.1.0
+  # pedometer: ^3.0.0
+  health: ^13.1.2
+  permission_handler: ^11.0.1
+  
+  # Firebase
+  firebase_core: ^2.15.1
+  firebase_auth: ^4.9.0
+  cloud_firestore: ^4.9.1
+  firebase_messaging: ^14.6.7
+  
+  # Utils
+  shared_preferences: ^2.2.1
+  intl: ^0.18.1
+
+  pedometer:
+    git:
+      url: https://github.com/DhruvGupta21/flutter-plugins
+      path: packages/pedometer
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # assets:
+  #   - assets/images/
+  #   - assets/fonts/
+  
+  # fonts:
+  #   - family: Roboto
+  #     fonts:
+  #       - asset: assets/fonts/Roboto-Regular.ttf
+  #       - asset: assets/fonts/Roboto-Bold.ttf
+  #         weight: 700
+  #   - family: RobotoMono
+  #     fonts:
+  #       - asset: assets/fonts/RobotoMono-Regular.ttf
+
