@@ -1,190 +1,194 @@
 import 'dart:async';
-import 'dart:collection';
-import 'package:sensors_plus/sensors_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
+import 'package:flutter_activity_recognition/flutter_activity_recognition.dart';
+import 'package:pedometer/pedometer.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-enum ActivityState {
-  unknown,
-  walking,
-  running,
-  onFoot,
-  inVehicle,
-  onBicycle,
-  still,
-  tilting,
-}
+enum ActivityState { walking, running, still, vehicle, other }
 
 class StepTrackingService {
   static final StepTrackingService _instance = StepTrackingService._internal();
   factory StepTrackingService() => _instance;
   StepTrackingService._internal();
 
-  // State variables
-  ActivityState _arState = ActivityState.unknown;
+  final _stepsController = StreamController<int>.broadcast();
+  Stream<int> get stepsStream => _stepsController.stream;
+
+  int _dailySteps = 0;
+  int get dailySteps => _dailySteps;
+
+  StreamSubscription<StepCount>? _stepSub;
+  StreamSubscription<Activity>? _activitySub;
+
+  ActivityState _activityState = ActivityState.other;
+  bool _initialized = false;
+
+  // Bout logic
   bool _boutOn = false;
   int _consecSteps = 0;
   int _lastStepTs = 0;
-  final Queue<int> _lastMinuteWindow = Queue<int>();
-  int _dailySteps = 0;
-  
-  // Configuration (can be adjusted via remote config)
-  int _nConsecutive = 6;
-  double _cadenceMin = 40.0;
-  double _cadenceMax = 220.0;
-  int _idleTimeout = 3000; // 3 seconds
-  int _vehicleLockout = 10000; // 10 seconds
-  
-  // Streams
-  final StreamController<int> _stepsController = StreamController<int>.broadcast();
-  Stream<int> get stepsStream => _stepsController.stream;
-  
-  StreamSubscription<UserAccelerometerEvent>? _accelerometerSubscription;
-  Timer? _tickTimer;
-  
-  bool _isInitialized = false;
-  bool _isTracking = false;
+  final int _nConsecutive = 6;
+  final int _minStepMs = 250;
+  final int _idleTimeout = 3000;
 
+  DateTime _lastDate = DateTime.now();
+
+  /// Initialize AR + permissions
   Future<bool> initialize() async {
-    if (_isInitialized) return true;
-    
-    // Request permissions
-    final permission = await Permission.sensors.request();
-    if (permission != PermissionStatus.granted) {
+    final arPerm = await Permission.activityRecognition.request();
+    final sensorPerm = await Permission.sensors.request();
+    if (arPerm != PermissionStatus.granted ||
+        sensorPerm != PermissionStatus.granted) {
+      if (kDebugMode) print("❌ Permissions not granted");
       return false;
     }
-    
-    _isInitialized = true;
+
+    await _loadPersistedSteps();
+
+    // Activity Recognition subscription (Android only)
+    try {
+      _activitySub =
+          FlutterActivityRecognition.instance.activityStream.listen((activity) {
+        switch (activity.type) {
+          case ActivityType.WALKING:
+            _activityState = ActivityState.walking;
+            break;
+          case ActivityType.RUNNING:
+            _activityState = ActivityState.running;
+            break;
+          case ActivityType.IN_VEHICLE:
+            _activityState = ActivityState.vehicle;
+            break;
+          case ActivityType.STILL:
+            _activityState = ActivityState.still;
+            break;
+          default:
+            _activityState = ActivityState.other;
+        }
+        if (kDebugMode) {
+          print("📡 AR update: $_activityState (raw=${activity.type})");
+        }
+      }, onError: (err) {
+        if (kDebugMode) print("AR error: $err");
+        _activityState = ActivityState.other; // fallback
+      });
+    } catch (e) {
+      if (kDebugMode) print("⚠️ AR not available: $e");
+      _activityState = ActivityState.other;
+    }
+
+    _initialized = true;
     return true;
   }
 
+  /// Start step tracking
   Future<void> startTracking() async {
-    if (!_isInitialized || _isTracking) return;
-    
-    _isTracking = true;
-    
-    // Start accelerometer listening for step detection
-    _accelerometerSubscription = userAccelerometerEvents.listen(_onAccelerometerEvent);
-    
-    // Start periodic tick for bout management
-    _tickTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      _onTick(DateTime.now().millisecondsSinceEpoch);
-    });
-    
-    // Mock activity recognition (in real app, use Google Activity Recognition)
-    _startMockActivityRecognition();
+    if (!_initialized) {
+      final ok = await initialize();
+      if (!ok) return;
+    }
+
+    _stepSub = Pedometer.stepCountStream.listen(
+      (event) => _onStepDetected(),
+      onError: (err) => kDebugMode ? print("Step stream error: $err") : null,
+    );
+
+    if (kDebugMode) print("✅ StepTrackingService started");
+  }
+
+  /// Handle each pedometer step
+void _onStepDetected() {
+  final ts = DateTime.now().millisecondsSinceEpoch;
+
+  // Reject too-fast duplicates (basic debounce)
+  if (ts - _lastStepTs < _minStepMs) return;
+
+  // ✅ compute delta BEFORE updating _lastStepTs
+  final delta = _lastStepTs == 0 ? _minStepMs : (ts - _lastStepTs);
+  _lastStepTs = ts;
+
+  // Only count if AR says walking/running OR fallback
+  if (!(_activityState == ActivityState.walking ||
+      _activityState == ActivityState.running)) {
+    if (kDebugMode) print("❌ Step ignored due to AR = $_activityState");
+    return;
+  }
+
+  if (!_boutOn) {
+    _consecSteps++;
+    if (_consecSteps >= _nConsecutive) {
+      _boutOn = true;
+      _dailySteps += _consecSteps;
+      _stepsController.add(_dailySteps);
+      if (kDebugMode) print("🚶 Bout started at step $_dailySteps");
+    }
+  } else {
+    // ✅ cadence check using delta
+    final cadence = 60000 ~/ delta.clamp(1, 5000);
+    if (cadence < 40 || cadence > 220) {
+      if (kDebugMode) print("❌ Cadence anomaly: $cadence spm");
+      return;
+    }
+
+    _dailySteps++;
+    _stepsController.add(_dailySteps);
+  }
+
+  // Bout reset after idle
+  Future.delayed(Duration(milliseconds: _idleTimeout), () {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastStepTs > _idleTimeout) {
+      _boutOn = false;
+      _consecSteps = 0;
+      if (kDebugMode) print("⏹ Bout ended (idle)");
+    }
+  });
+}
+
+
+  /// Reset steps at midnight
+  void _resetDailySteps() {
+    _dailySteps = 0;
+    _lastDate = DateTime.now();
+    _stepsController.add(_dailySteps);
+    _persistSteps();
+    if (kDebugMode) print("🔄 Daily reset done");
+  }
+
+  /// Persist step count
+  Future<void> _persistSteps() async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setInt("dailySteps", _dailySteps);
+    prefs.setString("lastDate", _lastDate.toIso8601String());
+  }
+
+  /// Load persisted step count
+  Future<void> _loadPersistedSteps() async {
+    final prefs = await SharedPreferences.getInstance();
+    _dailySteps = prefs.getInt("dailySteps") ?? 0;
+    final savedDate = prefs.getString("lastDate");
+    if (savedDate != null) {
+      _lastDate = DateTime.tryParse(savedDate) ?? DateTime.now();
+    }
+    // Reset if saved date is old
+    if (DateTime.now().day != _lastDate.day) {
+      _resetDailySteps();
+    }
+    _stepsController.add(_dailySteps);
   }
 
   void stopTracking() {
-    if (!_isTracking) return;
-    
-    _isTracking = false;
-    _accelerometerSubscription?.cancel();
-    _tickTimer?.cancel();
+    _stepSub?.cancel();
+    _stepSub = null;
+    _activitySub?.cancel();
+    _activitySub = null;
+    if (kDebugMode) print("🛑 StepTrackingService stopped");
   }
 
   void dispose() {
     stopTracking();
     _stepsController.close();
   }
-
-  // Mock activity recognition for demo
-  void _startMockActivityRecognition() {
-    Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (!_isTracking) {
-        timer.cancel();
-        return;
-      }
-      
-      // Simulate activity state changes
-      final states = [
-        ActivityState.walking,
-        ActivityState.running,
-        ActivityState.onFoot,
-        ActivityState.still,
-      ];
-      
-      _arState = states[DateTime.now().second % states.length];
-    });
-  }
-
-  void _onAccelerometerEvent(UserAccelerometerEvent event) {
-    // Simple step detection based on acceleration magnitude
-    final magnitude = math.sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
-    
-    // Threshold for step detection (tunable)
-    if (magnitude > 2.0) {
-      _onStepEvent(DateTime.now().millisecondsSinceEpoch);
-    }
-  }
-
-  void _onActivityUpdate(ActivityState state) {
-    _arState = state;
-  }
-
-  void _onStepEvent(int ts) {
-    // Gate with activity recognition
-    if (!{ActivityState.walking, ActivityState.running, ActivityState.onFoot}.contains(_arState)) {
-      return;
-    }
-
-    // Cadence calculation (rolling 60s window)
-    _lastMinuteWindow.addLast(ts);
-    while (_lastMinuteWindow.isNotEmpty && ts - _lastMinuteWindow.first > 60000) {
-      _lastMinuteWindow.removeFirst();
-    }
-    
-    final cadenceSpm = _lastMinuteWindow.length * 60000.0 / 
-        (ts - (_lastMinuteWindow.isNotEmpty ? _lastMinuteWindow.first : ts)).toDouble().clamp(1, double.infinity);
-    
-    if (cadenceSpm < _cadenceMin || cadenceSpm > _cadenceMax) {
-      // Outside plausible cadence → don't start/continue bout
-      _consecSteps = 0;
-      if (_boutOn) _boutOn = false;
-      return;
-    }
-
-    // Bout logic
-    if (!_boutOn) {
-      _consecSteps += 1;
-      if (_consecSteps >= _nConsecutive && ts - _lastStepTs <= 10000) {
-        _boutOn = true;
-        // Retro-count the seed steps
-        _dailySteps += _consecSteps;
-        _stepsController.add(_dailySteps);
-      }
-    } else {
-      _dailySteps += 1;
-      _stepsController.add(_dailySteps);
-    }
-
-    _lastStepTs = ts;
-  }
-
-  void _onTick(int ts) {
-    // End bout if idle > 3s
-    if (_boutOn && ts - _lastStepTs > _idleTimeout) {
-      _boutOn = false;
-      _consecSteps = 0;
-    }
-  }
-
-  // Getters
-  int get dailySteps => _dailySteps;
-  bool get isTracking => _isTracking;
-  ActivityState get currentActivity => _arState;
-  bool get isBoutActive => _boutOn;
-  
-  // For testing - manually add steps
-  void addTestSteps(int steps) {
-    _dailySteps += steps;
-    _stepsController.add(_dailySteps);
-  }
-  
-  // Reset daily steps (call at midnight)
-  void resetDailySteps() {
-    _dailySteps = 0;
-    _stepsController.add(_dailySteps);
-  }
 }
-

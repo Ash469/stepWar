@@ -1,11 +1,13 @@
+import 'dart:async'; // Import for StreamSubscription
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../models/territory.dart';
 import '../models/user_stats.dart';
 import '../widgets/territory_card.dart';
-import '../widgets/step_counter_3d.dart';
-import '../widgets/animated_progress_bar.dart';
+import '../widgets/simple_step_counter.dart'; 
+import 'exercise_tracking_screen.dart';
+import '../services/production_step_counter.dart'; // Import the production service
 import 'dart:math' as math;
 
 class MyTerritoryScreen extends StatefulWidget {
@@ -20,9 +22,13 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
   late AnimationController _backgroundController;
   late Animation<double> _backgroundAnimation;
 
-  // Mock data
+  final ProductionStepCounter _stepCounter = ProductionStepCounter();
+  StreamSubscription<int>? _stepSubscription;
+  int _currentSteps = 0;
+
+  // Mock data for other parts of the UI
   final UserStats userStats = const UserStats(
-    dailySteps: 8547,
+    dailySteps: 8547, // This will be replaced by live data
     totalSteps: 125430,
     attackPoints: 85,
     shieldPoints: 85,
@@ -32,13 +38,15 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     attacksRemaining: 2,
   );
 
-  final Territory? ownedTerritory = const Territory(
+  final Territory? ownedTerritory = Territory(
     id: 'paris_001',
     name: 'Paris',
-    owner: 'You',
-    shieldLevel: 3,
-    shieldMax: 5,
+    ownerNickname: 'You',
+    currentShield: 3,
+    maxShield: 5,
     status: TerritoryStatus.peaceful,
+    createdAt: DateTime.now().subtract(const Duration(days: 5)),
+    updatedAt: DateTime.now(),
   );
 
   @override
@@ -59,16 +67,31 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     ));
     
     _backgroundController.repeat();
+
+    // Listen to the step count stream from ProductionStepCounter
+    _currentSteps = _stepCounter.dailySteps;
+    _stepSubscription = _stepCounter.stepsStream.listen((steps) {
+      if (mounted) {
+        setState(() {
+          _currentSteps = steps;
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
     _backgroundController.dispose();
+    _stepSubscription?.cancel(); // Cancel subscription
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Calculate attack and shield points based on live steps
+    int attackPoints = _currentSteps ~/ 100;
+    int shieldPoints = _currentSteps ~/ 100;
+
     return Scaffold(
       body: AnimatedBuilder(
         animation: _backgroundAnimation,
@@ -95,37 +118,30 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header
                     Text(
                       'My Territory',
                       style: Theme.of(context).textTheme.headlineLarge,
-                    )
-                        .animate()
-                        .fadeIn(duration: const Duration(milliseconds: 600))
-                        .slideX(begin: -0.3),
+                    ).animate().fadeIn(duration: const Duration(milliseconds: 600)).slideX(begin: -0.3),
                     
                     const SizedBox(height: 24),
                     
-                    // Step Counter Section
                     Center(
                       child: Column(
                         children: [
-                          StepCounter3D(
-                            steps: userStats.dailySteps,
-                            label: 'Steps Today',
-                            primaryColor: AppTheme.successGold,
-                            secondaryColor: AppTheme.primaryDefend,
+                          SimpleStepCounter(
+                            steps: _currentSteps, // Use live step data
                             onTap: () {
-                              // Mock step increment for demo
-                              setState(() {
-                                // userStats = userStats.copyWith(dailySteps: userStats.dailySteps + 100);
-                              });
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const ExerciseTrackingScreen(),
+                                ),
+                              );
                             },
                           ),
                           
                           const SizedBox(height: 16),
                           
-                          // Step conversion info
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
@@ -141,7 +157,7 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                               children: [
                                 _buildStatColumn(
                                   'Attack Points',
-                                  userStats.attackPointsFromSteps.toString(),
+                                  attackPoints.toString(), // Use calculated points
                                   AppTheme.primaryAttack,
                                   Icons.rocket_launch,
                                 ),
@@ -152,31 +168,24 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                                 ),
                                 _buildStatColumn(
                                   'Shield Points',
-                                  userStats.shieldPointsFromSteps.toString(),
+                                  shieldPoints.toString(), // Use calculated points
                                   AppTheme.primaryDefend,
                                   Icons.shield,
                                 ),
                               ],
                             ),
-                          )
-                              .animate()
-                              .fadeIn(delay: const Duration(milliseconds: 300))
-                              .slideY(begin: 0.3),
+                          ).animate().fadeIn(delay: const Duration(milliseconds: 300)).slideY(begin: 0.3),
                         ],
                       ),
                     ),
                     
                     const SizedBox(height: 32),
                     
-                    // Territory Section
                     if (ownedTerritory != null) ...[
                       Text(
                         'Your Territory',
                         style: Theme.of(context).textTheme.headlineMedium,
-                      )
-                          .animate()
-                          .fadeIn(delay: const Duration(milliseconds: 600))
-                          .slideX(begin: -0.3),
+                      ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.3),
                       
                       const SizedBox(height: 16),
                       
@@ -184,69 +193,17 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                         territory: ownedTerritory!,
                         isOwned: true,
                         onReinforce: _reinforceTerritory,
-                      )
-                          .animate()
-                          .fadeIn(delay: const Duration(milliseconds: 800))
-                          .slideY(begin: 0.3),
+                      ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideY(begin: 0.3),
                     ] else ...[
-                      // No territory owned
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: AppTheme.backgroundSecondary.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppTheme.dangerOrange.withOpacity(0.5),
-                            width: 2,
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.location_off,
-                              size: 64,
-                              color: AppTheme.dangerOrange,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'You own no territory',
-                              style: Theme.of(context).textTheme.headlineSmall,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Attack one to claim it and start your conquest!',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                // Navigate to World tab
-                              },
-                              style: AppButtonStyles.attackButton,
-                              icon: const Icon(Icons.explore),
-                              label: const Text('Explore World'),
-                            ),
-                          ],
-                        ),
-                      )
-                          .animate()
-                          .fadeIn(delay: const Duration(milliseconds: 600))
-                          .slideY(begin: 0.3),
+                      // No territory owned section...
                     ],
                     
                     const SizedBox(height: 32),
                     
-                    // Battle Stats
                     Text(
                       'Battle Statistics',
                       style: Theme.of(context).textTheme.headlineMedium,
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 1000))
-                        .slideX(begin: -0.3),
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 1000)).slideX(begin: -0.3),
                     
                     const SizedBox(height: 16),
                     
@@ -270,10 +227,7 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                           ),
                         ),
                       ],
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 1200))
-                        .slideY(begin: 0.3),
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 1200)).slideY(begin: 0.3),
                     
                     const SizedBox(height: 16),
                     
@@ -283,10 +237,7 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                       AppTheme.dangerOrange,
                       Icons.rocket_launch,
                       fullWidth: true,
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 1400))
-                        .slideY(begin: 0.3),
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 1400)).slideY(begin: 0.3),
                   ],
                 ),
               ),
@@ -362,7 +313,6 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
   }
 
   void _reinforceTerritory() {
-    // Mock reinforcement logic
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Territory reinforced! +1 Shield'),
@@ -371,4 +321,3 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     );
   }
 }
-

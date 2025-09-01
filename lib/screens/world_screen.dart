@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../models/territory.dart';
+import '../models/user.dart';
+import '../services/game_manager_service.dart';
+import '../services/attack_service.dart';
 import '../widgets/territory_card.dart';
 import 'dart:math' as math;
+import 'dart:async';
 
 class WorldScreen extends StatefulWidget {
   const WorldScreen({Key? key}) : super(key: key);
@@ -19,74 +23,14 @@ class _WorldScreenState extends State<WorldScreen>
   
   String _selectedFilter = 'All';
   final List<String> _filters = ['All', 'Unowned', 'Peaceful', 'Under Attack', 'Cooldown'];
+  
+  final GameManagerService _gameManager = GameManagerService();
+  List<Territory> _territories = [];
+  GameUser? _currentUser;
+  bool _isLoading = true;
+  StreamSubscription? _territoriesSubscription;
+  StreamSubscription? _userSubscription;
 
-  // Mock territories data
-  final List<Territory> territories = [
-    const Territory(
-      id: 'tokyo_001',
-      name: 'Tokyo',
-      owner: 'ShadowStride',
-      shieldLevel: 2,
-      shieldMax: 5,
-      status: TerritoryStatus.peaceful,
-    ),
-    const Territory(
-      id: 'bhutan_001',
-      name: 'Bhutan',
-      owner: null,
-      shieldLevel: 1,
-      shieldMax: 5,
-      status: TerritoryStatus.peaceful,
-    ),
-    const Territory(
-      id: 'london_001',
-      name: 'London',
-      owner: 'WarriorQueen',
-      shieldLevel: 4,
-      shieldMax: 5,
-      status: TerritoryStatus.underAttack,
-    ),
-    const Territory(
-      id: 'newyork_001',
-      name: 'New York',
-      owner: 'StepMaster',
-      shieldLevel: 5,
-      shieldMax: 5,
-      status: TerritoryStatus.cooldown,
-    ),
-    const Territory(
-      id: 'sydney_001',
-      name: 'Sydney',
-      owner: 'FitnessGuru',
-      shieldLevel: 3,
-      shieldMax: 5,
-      status: TerritoryStatus.peaceful,
-    ),
-    const Territory(
-      id: 'cairo_001',
-      name: 'Cairo',
-      owner: null,
-      shieldLevel: 2,
-      shieldMax: 5,
-      status: TerritoryStatus.peaceful,
-    ),
-    const Territory(
-      id: 'moscow_001',
-      name: 'Moscow',
-      owner: 'IronWalker',
-      shieldLevel: 1,
-      shieldMax: 5,
-      status: TerritoryStatus.underAttack,
-    ),
-    const Territory(
-      id: 'rio_001',
-      name: 'Rio de Janeiro',
-      owner: 'BeachRunner',
-      shieldLevel: 4,
-      shieldMax: 5,
-      status: TerritoryStatus.peaceful,
-    ),
-  ];
 
   @override
   void initState() {
@@ -106,26 +50,89 @@ class _WorldScreenState extends State<WorldScreen>
     ));
     
     _backgroundController.repeat();
+    
+    _initializeGameData();
+  }
+  
+  Future<void> _initializeGameData() async {
+    try {
+      // Initialize game manager
+      await _gameManager.initialize();
+      
+      // Load current user
+      _currentUser = _gameManager.currentUser;
+      
+      // Load territories
+      await _loadTerritories();
+      
+      // Subscribe to updates
+      _territoriesSubscription = _gameManager.territoryUpdates.listen((territories) {
+        if (mounted) {
+          setState(() {
+            _territories = territories;
+          });
+        }
+      });
+      
+      _userSubscription = _gameManager.userUpdates.listen((user) {
+        if (mounted) {
+          setState(() {
+            _currentUser = user;
+          });
+        }
+      });
+      
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load game data: $e'),
+            backgroundColor: AppTheme.dangerOrange,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+  
+  Future<void> _loadTerritories() async {
+    try {
+      final territories = await _gameManager.getAllTerritories();
+      if (mounted) {
+        setState(() {
+          _territories = territories;
+        });
+      }
+    } catch (e) {
+      print('Error loading territories: $e');
+    }
   }
 
   @override
   void dispose() {
     _backgroundController.dispose();
+    _territoriesSubscription?.cancel();
+    _userSubscription?.cancel();
     super.dispose();
   }
 
   List<Territory> get filteredTerritories {
     switch (_selectedFilter) {
       case 'Unowned':
-        return territories.where((t) => t.owner == null).toList();
+        return _territories.where((t) => t.ownerNickname == null).toList();
       case 'Peaceful':
-        return territories.where((t) => t.status == TerritoryStatus.peaceful).toList();
+        return _territories.where((t) => t.status == TerritoryStatus.peaceful).toList();
       case 'Under Attack':
-        return territories.where((t) => t.status == TerritoryStatus.underAttack).toList();
+        return _territories.where((t) => t.status == TerritoryStatus.underAttack).toList();
       case 'Cooldown':
-        return territories.where((t) => t.status == TerritoryStatus.cooldown).toList();
+        return _territories.where((t) => t.status == TerritoryStatus.cooldown).toList();
       default:
-        return territories;
+        return _territories;
     }
   }
 
@@ -152,7 +159,13 @@ class _WorldScreenState extends State<WorldScreen>
               ),
             ),
             child: SafeArea(
-              child: Column(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryAttack),
+                      ),
+                    )
+                  : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Header
@@ -172,7 +185,7 @@ class _WorldScreenState extends State<WorldScreen>
                         const SizedBox(height: 8),
                         
                         Text(
-                          '${territories.length} territories available for conquest',
+                          '${_territories.length} territories available for conquest',
                           style: Theme.of(context).textTheme.bodyMedium,
                         )
                             .animate()
@@ -231,11 +244,14 @@ class _WorldScreenState extends State<WorldScreen>
                         final territory = filteredTerritories[index];
                         final isUnderAttack = territory.status == TerritoryStatus.underAttack;
                         
+                        final isOwned = _currentUser != null && territory.ownerId == _currentUser!.id;
+                        
                         return TerritoryCard(
                           territory: territory,
-                          isOwned: territory.owner == 'You',
+                          isOwned: isOwned,
                           isUnderAttack: isUnderAttack,
-                          onAttack: territory.canBeAttacked ? () => _attackTerritory(territory) : null,
+                          onAttack: territory.canBeAttacked && !isOwned ? () => _attackTerritory(territory) : null,
+                          onReinforce: isOwned && territory.currentShield < territory.maxShield ? () => _reinforceTerritory(territory) : null,
                         )
                             .animate()
                             .fadeIn(
@@ -253,50 +269,44 @@ class _WorldScreenState extends State<WorldScreen>
         },
       ),
       
-      // Floating Action Button for Quick Attack
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _quickAttack,
-        backgroundColor: AppTheme.primaryAttack,
-        foregroundColor: AppTheme.textWhite,
-        icon: const Icon(Icons.flash_on),
-        label: const Text('Quick Attack'),
-      )
-          .animate()
-          .fadeIn(delay: const Duration(milliseconds: 1000))
-          .slideY(begin: 1.0),
     );
   }
 
   void _attackTerritory(Territory territory) {
     showDialog(
       context: context,
-      builder: (context) => AttackDialog(territory: territory),
+      builder: (context) => AttackDialog(
+        territory: territory,
+        gameManager: _gameManager,
+        currentUser: _currentUser,
+      ),
+    );
+  }
+  
+  void _reinforceTerritory(Territory territory) {
+    showDialog(
+      context: context,
+      builder: (context) => ReinforceDialog(
+        territory: territory,
+        gameManager: _gameManager,
+        currentUser: _currentUser,
+      ),
     );
   }
 
-  void _quickAttack() {
-    final availableTargets = territories
-        .where((t) => t.canBeAttacked && t.owner != 'You')
-        .toList();
-    
-    if (availableTargets.isNotEmpty) {
-      final target = availableTargets.first;
-      _attackTerritory(target);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No territories available for attack'),
-          backgroundColor: AppTheme.dangerOrange,
-        ),
-      );
-    }
-  }
 }
 
 class AttackDialog extends StatefulWidget {
   final Territory territory;
+  final GameManagerService gameManager;
+  final GameUser? currentUser;
 
-  const AttackDialog({Key? key, required this.territory}) : super(key: key);
+  const AttackDialog({
+    Key? key,
+    required this.territory,
+    required this.gameManager,
+    required this.currentUser,
+  }) : super(key: key);
 
   @override
   State<AttackDialog> createState() => _AttackDialogState();
@@ -336,6 +346,9 @@ class _AttackDialogState extends State<AttackDialog>
 
   @override
   Widget build(BuildContext context) {
+    final maxAttackPoints = widget.currentUser?.attackPoints ?? 0;
+    final hasAttackPoints = maxAttackPoints > 0;
+    
     return Dialog(
       backgroundColor: AppTheme.backgroundSecondary,
       shape: RoundedRectangleBorder(
@@ -368,8 +381,12 @@ class _AttackDialogState extends State<AttackDialog>
                         style: AppTextStyles.territoryName,
                       ),
                       Text(
-                        'Owner: ${widget.territory.owner ?? 'Unowned'}',
+                        'Owner: ${widget.territory.ownerNickname ?? 'Unowned'}',
                         style: AppTextStyles.ownerName,
+                      ),
+                      Text(
+                        'Shield: ${widget.territory.currentShield}/${widget.territory.maxShield}',
+                        style: AppTextStyles.statusText,
                       ),
                     ],
                   ),
@@ -390,22 +407,49 @@ class _AttackDialogState extends State<AttackDialog>
                     color: AppTheme.primaryAttack,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Slider(
-                  value: _attackPower.toDouble(),
-                  min: 0,
-                  max: 85, // Mock max attack points
-                  divisions: 17,
-                  activeColor: AppTheme.primaryAttack,
-                  inactiveColor: AppTheme.textGray.withOpacity(0.3),
-                  onChanged: _isAttacking ? null : (value) {
-                    setState(() {
-                      _attackPower = value.round();
-                    });
-                  },
-                ),
                 Text(
-                  'Damage: ${(_attackPower / 10).floor()} shield hits',
+                  'Available: $maxAttackPoints points',
+                  style: AppTextStyles.statusText.copyWith(
+                    color: hasAttackPoints ? AppTheme.textGray : AppTheme.dangerOrange,
+                  ),
+                ),
+                if (!hasAttackPoints)
+                  Text(
+                    'Walk more to earn attack points!',
+                    style: AppTextStyles.statusText.copyWith(
+                      color: AppTheme.dangerOrange,
+                      fontSize: 12,
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                if (hasAttackPoints) 
+                  Slider(
+                    value: _attackPower.toDouble().clamp(0.0, maxAttackPoints.toDouble()),
+                    min: 0.0,
+                    max: maxAttackPoints.toDouble(),
+                    divisions: maxAttackPoints,
+                    activeColor: AppTheme.primaryAttack,
+                    inactiveColor: AppTheme.textGray.withOpacity(0.3),
+                    onChanged: _isAttacking ? null : (value) {
+                      setState(() {
+                        _attackPower = value.round().clamp(0, maxAttackPoints);
+                      });
+                    },
+                  )
+                else
+                  Container(
+                    height: 48,
+                    child: Slider(
+                      value: 0,
+                      min: 0,
+                      max: 1,
+                      activeColor: AppTheme.textGray.withOpacity(0.3),
+                      inactiveColor: AppTheme.textGray.withOpacity(0.1),
+                      onChanged: null, // Disabled
+                    ),
+                  ),
+                Text(
+                  'Damage: ${hasAttackPoints ? (_attackPower / 10).floor() : 0} shield hits',
                   style: AppTextStyles.statusText.copyWith(
                     color: AppTheme.textGray,
                   ),
@@ -487,20 +531,334 @@ class _AttackDialogState extends State<AttackDialog>
     );
   }
 
-  void _launchAttack() {
+  Future<void> _launchAttack() async {
     setState(() {
       _isAttacking = true;
     });
     
-    _attackController.forward().then((_) {
-      Navigator.pop(context);
+    try {
+      final result = await widget.gameManager.launchAttack(
+        territoryId: widget.territory.id,
+        attackPoints: _attackPower,
+      );
+      
+      _attackController.forward().then((_) {
+        Navigator.pop(context);
+        
+        String message;
+        Color backgroundColor;
+        
+        switch (result) {
+          case AttackResult.success:
+            message = '🎉 Victory! You captured ${widget.territory.name}!';
+            backgroundColor = AppTheme.successGold;
+            break;
+          case AttackResult.failed:
+            message = '💥 Attack failed but damaged ${widget.territory.name}';
+            backgroundColor = AppTheme.primaryAttack;
+            break;
+          case AttackResult.insufficientPoints:
+            message = '❌ Not enough attack points';
+            backgroundColor = AppTheme.dangerOrange;
+            break;
+          case AttackResult.dailyLimitReached:
+            message = '⏰ Daily attack limit reached';
+            backgroundColor = AppTheme.dangerOrange;
+            break;
+          case AttackResult.territoryNotAttackable:
+            message = '⛔ Territory cannot be attacked right now';
+            backgroundColor = AppTheme.dangerOrange;
+            break;
+          case AttackResult.alreadyUnderAttack:
+            message = '⚔️ Territory is already under attack';
+            backgroundColor = AppTheme.dangerOrange;
+            break;
+          default:
+            message = '❌ Attack failed';
+            backgroundColor = AppTheme.dangerOrange;
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: backgroundColor,
+          ),
+        );
+      });
+    } catch (e) {
+      setState(() {
+        _isAttacking = false;
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Attack launched on ${widget.territory.name}!'),
-          backgroundColor: AppTheme.primaryAttack,
+          content: Text('Attack failed: $e'),
+          backgroundColor: AppTheme.dangerOrange,
         ),
       );
-    });
+    }
   }
 }
 
+class ReinforceDialog extends StatefulWidget {
+  final Territory territory;
+  final GameManagerService gameManager;
+  final GameUser? currentUser;
+
+  const ReinforceDialog({
+    Key? key,
+    required this.territory,
+    required this.gameManager,
+    required this.currentUser,
+  }) : super(key: key);
+
+  @override
+  State<ReinforceDialog> createState() => _ReinforceDialogState();
+}
+
+class _ReinforceDialogState extends State<ReinforceDialog>
+    with TickerProviderStateMixin {
+  late AnimationController _shieldController;
+  late Animation<double> _shieldAnimation;
+  
+  int _shieldPoints = 0;
+  bool _isReinforcing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _shieldController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    
+    _shieldAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _shieldController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _shieldController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxAvailableShield = widget.territory.maxShield - widget.territory.currentShield;
+    final maxUserPoints = widget.currentUser?.shieldPoints ?? 0;
+    final maxPoints = math.min(maxAvailableShield, maxUserPoints);
+    
+    return Dialog(
+      backgroundColor: AppTheme.backgroundSecondary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: AppTheme.primaryDefend.withOpacity(0.5),
+          width: 2,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                Icon(
+                  Icons.shield,
+                  color: AppTheme.primaryDefend,
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reinforce ${widget.territory.name}',
+                        style: AppTextStyles.territoryName,
+                      ),
+                      Text(
+                        'Shield: ${widget.territory.currentShield}/${widget.territory.maxShield}',
+                        style: AppTextStyles.ownerName,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 24),
+            
+            // Shield Power Slider
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Shield Points: $_shieldPoints points',
+                  style: AppTextStyles.monoNumbers.copyWith(
+                    fontSize: 16,
+                    color: AppTheme.primaryDefend,
+                  ),
+                ),
+                Text(
+                  'Available: ${widget.currentUser?.shieldPoints ?? 0} points',
+                  style: AppTextStyles.statusText.copyWith(
+                    color: AppTheme.textGray,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Slider(
+                  value: _shieldPoints.toDouble(),
+                  min: 0,
+                  max: maxPoints > 0 ? maxPoints.toDouble() : 1.0,
+                  divisions: maxPoints > 0 ? maxPoints : null,
+                  activeColor: AppTheme.primaryDefend,
+                  inactiveColor: AppTheme.textGray.withOpacity(0.3),
+                  onChanged: _isReinforcing || maxPoints == 0 ? null : (value) {
+                    setState(() {
+                      _shieldPoints = value.round();
+                    });
+                  },
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Before: ${widget.territory.currentShield}',
+                      style: AppTextStyles.statusText.copyWith(
+                        color: AppTheme.textGray,
+                      ),
+                    ),
+                    Text(
+                      'After: ${widget.territory.currentShield + _shieldPoints}',
+                      style: AppTextStyles.monoNumbers.copyWith(
+                        fontSize: 14,
+                        color: AppTheme.primaryDefend,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 24),
+            
+            // Shield Animation
+            if (_isReinforcing)
+              Container(
+                height: 100,
+                child: AnimatedBuilder(
+                  animation: _shieldAnimation,
+                  builder: (context, child) {
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Shield pulse effect
+                        Transform.scale(
+                          scale: 1.0 + (_shieldAnimation.value * 0.3),
+                          child: Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppTheme.primaryDefend.withOpacity(
+                                0.6 - (_shieldAnimation.value * 0.3),
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.shield,
+                              color: AppTheme.primaryDefend.withOpacity(
+                                1.0 - (_shieldAnimation.value * 0.5),
+                              ),
+                              size: 36,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            
+            const SizedBox(height: 24),
+            
+            // Action Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: _isReinforcing ? null : () => Navigator.pop(context),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(color: AppTheme.textGray),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isReinforcing || _shieldPoints == 0 || maxPoints == 0 ? null : _reinforce,
+                    style: AppButtonStyles.defendButton,
+                    child: Text(_isReinforcing ? 'Reinforcing...' : 'Add Shields'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reinforce() async {
+    setState(() {
+      _isReinforcing = true;
+    });
+    
+    try {
+      final success = await widget.gameManager.reinforceTerritory(
+        territoryId: widget.territory.id,
+        shieldPoints: _shieldPoints,
+      );
+      
+      _shieldController.forward().then((_) {
+        Navigator.pop(context);
+        
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('🛡️ Reinforced ${widget.territory.name} with $_shieldPoints shield points!'),
+              backgroundColor: AppTheme.primaryDefend,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚠️ Could not reinforce territory'),
+              backgroundColor: AppTheme.dangerOrange,
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isReinforcing = false;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reinforcement failed: $e'),
+          backgroundColor: AppTheme.dangerOrange,
+        ),
+      );
+    }
+  }
+}

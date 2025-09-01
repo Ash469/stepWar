@@ -1,10 +1,31 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'services/production_step_counter.dart'; // Import the production service
+import 'services/step_analytics_service.dart';
+import 'services/game_manager_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/my_territory_screen.dart';
 import 'screens/world_screen.dart';
-
-void main() {
+import 'screens/user_login_screen.dart';
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize step counter immediately when app starts
+  final stepCounter = ProductionStepCounter();
+  final success = await stepCounter.initialize();
+  if (success) {
+    await stepCounter.startTracking();
+    if (kDebugMode) {
+      print('🚀 Step counter auto-started on app launch');
+    }
+  }
+  
+  // Initialize game manager
+  final gameManager = GameManagerService();
+  await gameManager.initialize();
+  
   runApp(const StepWarsApp());
 }
 
@@ -16,7 +37,7 @@ class StepWarsApp extends StatelessWidget {
     return MaterialApp(
       title: 'StepWars',
       theme: AppTheme.darkTheme,
-      home: const MainScreen(),
+      home: const UserLoginScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
@@ -35,6 +56,10 @@ class _MainScreenState extends State<MainScreen>
   late PageController _pageController;
   late AnimationController _fabController;
   late Animation<double> _fabAnimation;
+
+  final ProductionStepCounter _stepCounter = ProductionStepCounter();
+  final StepAnalyticsService _analytics = StepAnalyticsService();
+  late Future<bool> _initializationFuture;
 
   final List<Widget> _screens = [
     const MyTerritoryScreen(),
@@ -60,12 +85,39 @@ class _MainScreenState extends State<MainScreen>
     ));
     
     _fabController.forward();
+
+    // Initialize analytics
+    _analytics.initialize();
+    
+    // Initialize the production step counter and start tracking
+    _initializationFuture = _initializeAndStartTracking();
   }
+
+  Future<bool> _initializeAndStartTracking() async {
+    bool isInitialized = await _stepCounter.initialize();
+    if (isInitialized) {
+      await _stepCounter.startTracking();
+      
+      if (kDebugMode) {
+        print('🚀 Production step counter initialized and started');
+        
+        // Log analytics report periodically in debug mode
+        Timer.periodic(const Duration(minutes: 5), (timer) {
+          final report = _analytics.getReport();
+          print('📊 Analytics Report:\n${report.getSummary()}');
+        });
+      }
+    }
+    return isInitialized;
+  }
+
 
   @override
   void dispose() {
     _pageController.dispose();
     _fabController.dispose();
+    _stepCounter.dispose(); // Dispose the production step counter
+    _analytics.dispose(); // Dispose analytics
     super.dispose();
   }
 
@@ -91,17 +143,59 @@ class _MainScreenState extends State<MainScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+      body: FutureBuilder<bool>(
+        future: _initializationFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError || snapshot.data == false) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Permissions Required',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'This app needs sensor and activity recognition permissions to count your steps.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _initializationFuture = _initializeAndStartTracking();
+                        });
+                      },
+                      child: const Text('Grant Permissions'),
+                    )
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return PageView(
+            controller: _pageController,
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            children: _screens,
+          );
         },
-        children: _screens,
       ),
       
       bottomNavigationBar: Container(
+        // ... (rest of your BottomNavigationBar code)
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -154,6 +248,7 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildNavIcon(IconData icon, int index, {bool isActive = false}) {
+    // ... (rest of your _buildNavIcon code)
     return AnimatedBuilder(
       animation: _fabAnimation,
       builder: (context, child) {
@@ -186,4 +281,3 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 }
-

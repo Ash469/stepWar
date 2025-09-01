@@ -1,12 +1,15 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    namespace = "com.example.stepwars_app"
+    namespace = "com.stepwars.stepwars_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -41,4 +44,8 @@ android {
 
 flutter {
     source = "../.."
+}
+dependencies {
+    // *** ADD THIS LINE ***
+    implementation("com.google.android.gms:play-services-location:21.0.1")
 }

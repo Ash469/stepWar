@@ -15,15 +15,17 @@ dependencies:
   flutter_animate: ^4.2.0
   rive: ^0.11.4
   lottie: ^2.6.0
+  flutter_launcher_icons: ^0.14.4
   
   # State Management
   provider: ^6.0.5
   
   # Sensors & Step Tracking
   sensors_plus: ^3.1.0
-  # pedometer: ^3.0.0
   health: ^13.1.2
   permission_handler: ^11.0.1
+  flutter_activity_recognition: ^4.0.0
+  android_alarm_manager_plus: ^4.0.8
   
   # Firebase
   firebase_core: ^2.15.1
@@ -31,9 +33,14 @@ dependencies:
   cloud_firestore: ^4.9.1
   firebase_messaging: ^14.6.7
   
+  # Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  
   # Utils
   shared_preferences: ^2.2.1
   intl: ^0.18.1
+  uuid: ^4.0.0
 
   pedometer:
     git:

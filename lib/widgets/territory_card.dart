@@ -168,7 +168,7 @@ class _TerritoryCardState extends State<TerritoryCard>
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  widget.territory.owner ?? 'Unowned',
+                                  widget.territory.ownerNickname ?? 'Unowned',
                                   style: AppTextStyles.ownerName,
                                 ),
                               ],
@@ -184,7 +184,7 @@ class _TerritoryCardState extends State<TerritoryCard>
                       
                       // Shield Progress
                       AnimatedProgressBar(
-                        progress: widget.territory.shieldLevel / widget.territory.shieldMax,
+                        progress: widget.territory.currentShield / widget.territory.maxShield,
                         color: widget.isOwned ? AppTheme.primaryDefend : AppTheme.primaryAttack,
                         label: 'Shield',
                         showPercentage: true,
@@ -196,7 +196,7 @@ class _TerritoryCardState extends State<TerritoryCard>
                       Row(
                         children: [
                           Text(
-                            '${widget.territory.shieldLevel}',
+                            '${widget.territory.currentShield}',
                             style: AppTextStyles.monoNumbers.copyWith(
                               fontSize: 16,
                               color: AppTheme.primaryDefend,
@@ -210,7 +210,7 @@ class _TerritoryCardState extends State<TerritoryCard>
                             ),
                           ),
                           Text(
-                            '${widget.territory.shieldMax}',
+                            '${widget.territory.maxShield}',
                             style: AppTextStyles.monoNumbers.copyWith(
                               fontSize: 16,
                               color: AppTheme.textGray,
@@ -218,7 +218,7 @@ class _TerritoryCardState extends State<TerritoryCard>
                           ),
                           const Spacer(),
                           Text(
-                            '${widget.territory.shieldLevel} hits remaining',
+                            '${widget.territory.currentShield} hits remaining',
                             style: AppTextStyles.statusText.copyWith(
                               color: AppTheme.textGray,
                             ),

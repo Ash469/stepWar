@@ -45,5 +45,35 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<!-- Motion and Fitness Permissions -->
+	<key>NSMotionUsageDescription</key>
+	<string>StepWars needs access to motion sensors to accurately count your steps and track your fitness activity.</string>
+	
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>StepWars needs access to write step data to HealthKit for comprehensive fitness tracking.</string>
+	
+	<key>NSHealthShareUsageDescription</key>
+	<string>StepWars needs access to read step data from HealthKit to provide accurate step counting and sync across devices.</string>
+	
+	<!-- Location Permission (for enhanced activity recognition) -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>StepWars uses location to enhance step detection accuracy by determining your activity context (walking vs. driving).</string>
+	
+	<!-- Background Modes -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>background-processing</string>
+		<string>background-fetch</string>
+		<string>health-kit</string>
+	</array>
+	
+	<!-- Required device capabilities -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>accelerometer</string>
+		<string>gyroscope</string>
+	</array>
+	
 </dict>
 </plist>
