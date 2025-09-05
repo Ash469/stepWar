@@ -15,7 +15,7 @@ dependencies:
   flutter_animate: ^4.2.0
   rive: ^0.11.4
   lottie: ^2.6.0
-  flutter_launcher_icons: ^0.14.4
+  
   
   # State Management
   provider: ^6.0.5
@@ -26,12 +26,14 @@ dependencies:
   permission_handler: ^11.0.1
   flutter_activity_recognition: ^4.0.0
   android_alarm_manager_plus: ^4.0.8
+  workmanager: ^0.9.0
   
   # Firebase
-  firebase_core: ^2.15.1
-  firebase_auth: ^4.9.0
-  cloud_firestore: ^4.9.1
-  firebase_messaging: ^14.6.7
+  firebase_core: ^3.15.2
+  firebase_auth: ^5.7.0
+  firebase_database: ^11.3.10
+  firebase_messaging: ^15.2.10
+  google_sign_in: ^6.3.0
   
   # Database
   sqflite: ^2.3.0
@@ -41,6 +43,7 @@ dependencies:
   shared_preferences: ^2.2.1
   intl: ^0.18.1
   uuid: ^4.0.0
+  flutter_local_notifications: ^17.2.2
 
   pedometer:
     git:
@@ -51,6 +54,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.14.4
+flutter_icons:
+  image_path: "assets/icons/icon.png"
+  android: true
+  ios: true
 
 flutter:
   uses-material-design: true

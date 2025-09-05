@@ -7,7 +7,7 @@ import '../models/user_stats.dart';
 import '../widgets/territory_card.dart';
 import '../widgets/simple_step_counter.dart'; 
 import 'exercise_tracking_screen.dart';
-import '../services/production_step_counter.dart'; // Import the production service
+import '../services/step_tracking_service.dart'; // Import the step tracking service
 import 'dart:math' as math;
 
 class MyTerritoryScreen extends StatefulWidget {
@@ -22,20 +22,21 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
   late AnimationController _backgroundController;
   late Animation<double> _backgroundAnimation;
 
-  final ProductionStepCounter _stepCounter = ProductionStepCounter();
+  final StepTrackingService _stepCounter = StepTrackingService();
   StreamSubscription<int>? _stepSubscription;
   int _currentSteps = 0;
+  int _totalSteps = 0; // Will be updated with live data
 
-  // Mock data for other parts of the UI
-  final UserStats userStats = const UserStats(
-    dailySteps: 8547, // This will be replaced by live data
-    totalSteps: 125430,
-    attackPoints: 85,
-    shieldPoints: 85,
+  // Mock data for other parts of the UI (will be updated with real data)
+  UserStats userStats = const UserStats(
+    dailySteps: 0,
+    totalSteps: 0,
+    attackPoints: 0,
+    shieldPoints: 0,
     territoriesOwned: 1,
-    battlesWon: 12,
-    battlesLost: 3,
-    attacksRemaining: 2,
+    battlesWon: 0,
+    battlesLost: 0,
+    attacksRemaining: 3,
   );
 
   final Territory? ownedTerritory = Territory(
@@ -68,15 +69,48 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     
     _backgroundController.repeat();
 
-    // Listen to the step count stream from ProductionStepCounter
-    _currentSteps = _stepCounter.dailySteps;
-    _stepSubscription = _stepCounter.stepsStream.listen((steps) {
+    // Initialize step counter asynchronously
+    _initializeStepCounter();
+  }
+  
+  /// Initialize step counter and start tracking
+  Future<void> _initializeStepCounter() async {
+    try {
+      // Don't reinitialize - service is already initialized in main.dart
+      // Just connect to the existing service and listen to its stream
+      
+      // Get current step count from the already running service
+      _currentSteps = _stepCounter.dailySteps;
+      _totalSteps = _currentSteps; // For now, total steps equals today's steps since we're using simple tracking
+      
+      _stepSubscription = _stepCounter.stepsStream.listen((steps) {
+        if (mounted) {
+          setState(() {
+            _currentSteps = steps;
+            _totalSteps = steps; // Simple: total = today's steps
+            
+            // Update userStats with live data
+            userStats = userStats.copyWith(
+              dailySteps: steps,
+              totalSteps: _totalSteps,
+            );
+          });
+        }
+      });
+      
+      // Update UI with initial values
       if (mounted) {
         setState(() {
-          _currentSteps = steps;
+          userStats = userStats.copyWith(
+            dailySteps: _currentSteps,
+            totalSteps: _totalSteps,
+          );
         });
       }
-    });
+      
+    } catch (e) {
+      print('❌ Failed to connect to step counter: $e');
+    }
   }
 
   @override
@@ -130,6 +164,7 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                         children: [
                           SimpleStepCounter(
                             steps: _currentSteps, // Use live step data
+                            totalSteps: _totalSteps, // Pass total steps
                             onTap: () {
                               Navigator.push(
                                 context,

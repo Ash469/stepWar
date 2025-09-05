@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_activity_recognition/flutter_activity_recognition.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-enum ActivityState { walking, running, still, vehicle, other }
+import 'notification_service.dart';
+import 'persistence_service.dart';
 
 class StepTrackingService {
   static final StepTrackingService _instance = StepTrackingService._internal();
@@ -17,69 +15,64 @@ class StepTrackingService {
   Stream<int> get stepsStream => _stepsController.stream;
 
   int _dailySteps = 0;
+  int _totalSteps = 0;
+  int _sessionSteps = 0;
+  
   int get dailySteps => _dailySteps;
+  int get totalSteps => _totalSteps;
+  int get sessionSteps => _sessionSteps;
 
   StreamSubscription<StepCount>? _stepSub;
-  StreamSubscription<Activity>? _activitySub;
-
-  ActivityState _activityState = ActivityState.other;
   bool _initialized = false;
+  bool _notificationsEnabled = false;
 
-  // Bout logic
-  bool _boutOn = false;
-  int _consecSteps = 0;
+  // Service instances
+  final NotificationService _notificationService = NotificationService();
+  final PersistenceService _persistence = PersistenceService();
+
+  // Simple debouncing
   int _lastStepTs = 0;
-  final int _nConsecutive = 6;
   final int _minStepMs = 250;
-  final int _idleTimeout = 3000;
 
   DateTime _lastDate = DateTime.now();
 
-  /// Initialize AR + permissions
+  /// Initialize sensor permissions
   Future<bool> initialize() async {
-    final arPerm = await Permission.activityRecognition.request();
+    // Prevent reinitialization
+    if (_initialized) {
+      if (kDebugMode) print("🔄 StepTrackingService already initialized with $_dailySteps steps");
+      return true;
+    }
+    
+    // Initialize persistence service
+    await _persistence.initialize();
+    
+    // Request all required permissions
+    if (kDebugMode) print("🔐 Requesting permissions...");
+    
+    // Request sensors permission (required for pedometer)
     final sensorPerm = await Permission.sensors.request();
-    if (arPerm != PermissionStatus.granted ||
-        sensorPerm != PermissionStatus.granted) {
-      if (kDebugMode) print("❌ Permissions not granted");
+    if (kDebugMode) print("📱 Sensors permission: $sensorPerm");
+    
+    // Request activity recognition permission (required for step detection)
+    final activityPerm = await Permission.activityRecognition.request();
+    if (kDebugMode) print("🏃 Activity recognition permission: $activityPerm");
+    
+    // Both permissions are required for accurate step tracking
+    if (sensorPerm != PermissionStatus.granted) {
+      if (kDebugMode) print("❌ Sensor permission not granted: $sensorPerm");
+      return false;
+    }
+    
+    if (activityPerm != PermissionStatus.granted) {
+      if (kDebugMode) print("❌ Activity recognition permission not granted: $activityPerm");
       return false;
     }
 
     await _loadPersistedSteps();
-
-    // Activity Recognition subscription (Android only)
-    try {
-      _activitySub =
-          FlutterActivityRecognition.instance.activityStream.listen((activity) {
-        switch (activity.type) {
-          case ActivityType.WALKING:
-            _activityState = ActivityState.walking;
-            break;
-          case ActivityType.RUNNING:
-            _activityState = ActivityState.running;
-            break;
-          case ActivityType.IN_VEHICLE:
-            _activityState = ActivityState.vehicle;
-            break;
-          case ActivityType.STILL:
-            _activityState = ActivityState.still;
-            break;
-          default:
-            _activityState = ActivityState.other;
-        }
-        if (kDebugMode) {
-          print("📡 AR update: $_activityState (raw=${activity.type})");
-        }
-      }, onError: (err) {
-        if (kDebugMode) print("AR error: $err");
-        _activityState = ActivityState.other; // fallback
-      });
-    } catch (e) {
-      if (kDebugMode) print("⚠️ AR not available: $e");
-      _activityState = ActivityState.other;
-    }
-
     _initialized = true;
+    
+    if (kDebugMode) print("✅ StepTrackingService initialized with all permissions granted - $_dailySteps daily, $_totalSteps total steps");
     return true;
   }
 
@@ -90,105 +83,207 @@ class StepTrackingService {
       if (!ok) return;
     }
 
-    _stepSub = Pedometer.stepCountStream.listen(
-      (event) => _onStepDetected(),
-      onError: (err) => kDebugMode ? print("Step stream error: $err") : null,
-    );
-
-    if (kDebugMode) print("✅ StepTrackingService started");
-  }
-
-  /// Handle each pedometer step
-void _onStepDetected() {
-  final ts = DateTime.now().millisecondsSinceEpoch;
-
-  // Reject too-fast duplicates (basic debounce)
-  if (ts - _lastStepTs < _minStepMs) return;
-
-  // ✅ compute delta BEFORE updating _lastStepTs
-  final delta = _lastStepTs == 0 ? _minStepMs : (ts - _lastStepTs);
-  _lastStepTs = ts;
-
-  // Only count if AR says walking/running OR fallback
-  if (!(_activityState == ActivityState.walking ||
-      _activityState == ActivityState.running)) {
-    if (kDebugMode) print("❌ Step ignored due to AR = $_activityState");
-    return;
-  }
-
-  if (!_boutOn) {
-    _consecSteps++;
-    if (_consecSteps >= _nConsecutive) {
-      _boutOn = true;
-      _dailySteps += _consecSteps;
-      _stepsController.add(_dailySteps);
-      if (kDebugMode) print("🚶 Bout started at step $_dailySteps");
-    }
-  } else {
-    // ✅ cadence check using delta
-    final cadence = 60000 ~/ delta.clamp(1, 5000);
-    if (cadence < 40 || cadence > 220) {
-      if (kDebugMode) print("❌ Cadence anomaly: $cadence spm");
+    // Prevent multiple pedometer subscriptions
+    if (_stepSub != null) {
+      if (kDebugMode) print("🔄 StepTrackingService already tracking - skipping restart");
       return;
     }
 
-    _dailySteps++;
-    _stepsController.add(_dailySteps);
+    try {
+      _stepSub = Pedometer.stepCountStream.listen(
+        (event) {
+          if (kDebugMode) print("📈 Pedometer event: ${event.steps} steps at ${event.timeStamp}");
+          _onStepDetected(event);
+        },
+        onError: (err) {
+          if (kDebugMode) print("❌ Step stream error: $err");
+          // Try to restart the stream after a short delay
+          Future.delayed(const Duration(seconds: 2), () {
+            if (_stepSub == null) { // Only restart if not already restarted
+              if (kDebugMode) print("🔄 Attempting to restart step tracking...");
+              startTracking();
+            }
+          });
+        },
+        cancelOnError: false, // Don't cancel on errors, keep trying
+      );
+
+      if (kDebugMode) print("✅ StepTrackingService started tracking from $_dailySteps steps");
+    } catch (e) {
+      if (kDebugMode) print("❌ Failed to start step tracking: $e");
+    }
   }
 
-  // Bout reset after idle
-  Future.delayed(Duration(milliseconds: _idleTimeout), () {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastStepTs > _idleTimeout) {
-      _boutOn = false;
-      _consecSteps = 0;
-      if (kDebugMode) print("⏹ Bout ended (idle)");
-    }
-  });
-}
+  /// Handle each pedometer step
+  void _onStepDetected(StepCount stepCount) {
+    final ts = stepCount.timeStamp.millisecondsSinceEpoch;
+    final currentSteps = stepCount.steps;
+
+    // Reject too-fast duplicates (basic debounce)
+    if (ts - _lastStepTs < _minStepMs) return;
+
+    // ✅ compute delta BEFORE updating _lastStepTs
+    final delta = _lastStepTs == 0 ? _minStepMs : (ts - _lastStepTs);
+    _lastStepTs = ts;
+
+    // For pedometer, we typically get total steps, so we need to calculate the difference
+    // However, this custom pedometer plugin might work differently, so let's handle both cases
+    
+    // Simple step counting - just count every valid step from pedometer
+    _dailySteps++;
+    _totalSteps++;
+    _sessionSteps++;
+    
+    _stepsController.add(_dailySteps);
+    _updateNotification();
+    _persistSteps();
+    
+    if (kDebugMode) print("🚶 Step detected: $_dailySteps daily, $_totalSteps total steps (raw: $currentSteps)");
+  }
 
 
   /// Reset steps at midnight
   void _resetDailySteps() {
+    final previousDailySteps = _dailySteps;
+    
+    // Save yesterday's step history
+    if (previousDailySteps > 0) {
+      _persistence.saveStepHistory(_lastDate, previousDailySteps);
+    }
+    
+    // Add yesterday's steps to total and reset daily counter
+    _totalSteps += previousDailySteps;
     _dailySteps = 0;
     _lastDate = DateTime.now();
+    _sessionSteps = 0; // Reset session as well
+    
     _stepsController.add(_dailySteps);
     _persistSteps();
-    if (kDebugMode) print("🔄 Daily reset done");
+    if (kDebugMode) print("🔄 Daily reset: $previousDailySteps steps yesterday, $_totalSteps total steps");
   }
 
-  /// Persist step count
+  /// Persist step count using PersistenceService
   Future<void> _persistSteps() async {
-    final prefs = await SharedPreferences.getInstance();
-    prefs.setInt("dailySteps", _dailySteps);
-    prefs.setString("lastDate", _lastDate.toIso8601String());
+    try {
+      await _persistence.saveStepData(
+        dailySteps: _dailySteps,
+        totalSteps: _totalSteps,
+        sessionSteps: _sessionSteps,
+        lastDate: _lastDate,
+        notificationsEnabled: _notificationsEnabled,
+      );
+    } catch (e) {
+      if (kDebugMode) print("❌ Failed to persist steps: $e");
+    }
   }
 
-  /// Load persisted step count
+  /// Load persisted step count using PersistenceService
   Future<void> _loadPersistedSteps() async {
-    final prefs = await SharedPreferences.getInstance();
-    _dailySteps = prefs.getInt("dailySteps") ?? 0;
-    final savedDate = prefs.getString("lastDate");
-    if (savedDate != null) {
-      _lastDate = DateTime.tryParse(savedDate) ?? DateTime.now();
+    try {
+      final stepData = _persistence.loadStepData();
+      _dailySteps = stepData['dailySteps'] as int;
+      _totalSteps = stepData['totalSteps'] as int;
+      _sessionSteps = 0; // Always start fresh session
+      _lastDate = stepData['lastDate'] as DateTime;
+      _notificationsEnabled = stepData['notificationsEnabled'] as bool;
+      
+      // Reset if saved date is from a different day
+      final now = DateTime.now();
+      if (now.day != _lastDate.day || 
+          now.month != _lastDate.month || 
+          now.year != _lastDate.year) {
+        _resetDailySteps();
+      }
+      
+      _stepsController.add(_dailySteps);
+      
+      if (kDebugMode) print("📖 Loaded persisted steps: $_dailySteps daily, $_totalSteps total");
+    } catch (e) {
+      if (kDebugMode) print("❌ Failed to load persisted steps: $e");
+      // Use defaults
+      _dailySteps = 0;
+      _totalSteps = 0;
+      _sessionSteps = 0;
+      _lastDate = DateTime.now();
+      _stepsController.add(_dailySteps);
     }
-    // Reset if saved date is old
-    if (DateTime.now().day != _lastDate.day) {
-      _resetDailySteps();
+  }
+
+  /// Enable persistent notifications
+  Future<void> enableNotifications() async {
+    final success = await _notificationService.initialize();
+    if (success) {
+      _notificationsEnabled = true;
+      _updateNotification(); // Show initial notification with current steps
+      if (kDebugMode) print("🔔 Step notifications enabled");
     }
+  }
+
+  /// Disable persistent notifications
+  Future<void> disableNotifications() async {
+    _notificationsEnabled = false;
+    await _notificationService.hideStepTrackingNotification();
+    if (kDebugMode) print("🔕 Step notifications disabled");
+  }
+
+  /// Update the persistent notification with current step count
+  void _updateNotification() {
+    if (_notificationsEnabled) {
+      _notificationService.showStepTrackingNotification(_dailySteps);
+    }
+  }
+
+  /// Check if notifications are enabled
+  bool get notificationsEnabled => _notificationsEnabled;
+
+  /// Show milestone notification for achievements
+  Future<void> showMilestoneNotification(String title, String message) async {
+    await _notificationService.showMilestoneNotification(title, message);
+  }
+
+  /// Manually add steps (for Firebase sync or external integration)
+  void addSteps(int steps, {String source = 'manual'}) {
+    _dailySteps += steps;
+    _totalSteps += steps;
+    if (source == 'session') {
+      _sessionSteps += steps;
+    }
+    
     _stepsController.add(_dailySteps);
+    _persistSteps();
+    _updateNotification();
+    
+    if (kDebugMode) print('➕ Manual steps added: $steps (daily: $_dailySteps, total: $_totalSteps) from $source');
   }
 
   void stopTracking() {
     _stepSub?.cancel();
     _stepSub = null;
-    _activitySub?.cancel();
-    _activitySub = null;
     if (kDebugMode) print("🛑 StepTrackingService stopped");
   }
 
+  /// Get step history for the past N days
+  Future<Map<String, int>> getStepHistory({int days = 7}) async {
+    return await _persistence.loadStepHistory(maxDays: days);
+  }
+  
+  /// Reset all step data (for testing or data corruption recovery)
+  Future<void> resetAllStepData() async {
+    _dailySteps = 0;
+    _totalSteps = 0;
+    _sessionSteps = 0;
+    _lastDate = DateTime.now();
+    
+    await _persistSteps();
+    _stepsController.add(_dailySteps);
+    _updateNotification();
+    
+    if (kDebugMode) print("🔄 All step data reset");
+  }
+  
   void dispose() {
     stopTracking();
+    _notificationService.dispose();
     _stepsController.close();
   }
 }

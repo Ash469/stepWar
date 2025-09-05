@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'step_analytics_service.dart';
 import 'step_detection_algorithm.dart';
 import 'step_counter_types.dart';
+import 'workmanager_background_service.dart';
 
 /// Production-grade step counter with multi-layered filtering
 /// Implements the layered filtering approach for accurate step detection
@@ -25,9 +26,10 @@ class ProductionStepCounter {
 
   // Core state
   int _dailySteps = 0;
+  int _totalSteps = 0; // Cumulative steps across all days
   int _sessionSteps = 0;
   int get dailySteps => _dailySteps;
-  int get totalSteps => _dailySteps;
+  int get totalSteps => _totalSteps;
   int get sessionSteps => _sessionSteps;
   bool _initialized = false;
   bool _isTracking = false;
@@ -59,6 +61,10 @@ class ProductionStepCounter {
 
   // Advanced step detection (fallback)
   final StepDetectionAlgorithm _stepDetector = StepDetectionAlgorithm();
+  
+  // Background step service
+  final BackgroundStepService _backgroundService = BackgroundStepService();
+  StreamSubscription<Map<String, dynamic>?>? _backgroundStepSub;
 
   // Date tracking
   DateTime _lastDate = DateTime.now();
@@ -87,6 +93,9 @@ class ProductionStepCounter {
 
       // Initialize sensor streams
       await _initializeSensorStreams();
+      
+      // Initialize background step service
+      await _initializeBackgroundService();
 
       _initialized = true;
       _analytics.logEvent('step_counter_initialized');
@@ -105,22 +114,117 @@ class ProductionStepCounter {
       Permission.sensors,
     ];
 
-    Map<Permission, PermissionStatus> statuses = await permissions.request();
+    // First check current status
+    Map<Permission, PermissionStatus> currentStatuses = await permissions.request();
     
-    bool allGranted = statuses.values.every(
+    // Check if all permissions are already granted
+    bool allGranted = currentStatuses.values.every(
       (status) => status == PermissionStatus.granted
     );
-
+    
+    if (kDebugMode) {
+      print('🔍 Permission check results:');
+      currentStatuses.forEach((permission, status) {
+        print('  $permission: $status');
+      });
+      print('  All granted: $allGranted');
+    }
+    
+    // If not all granted, check if any are permanently denied
     if (!allGranted) {
+      bool hasPermanentlyDenied = currentStatuses.values.any(
+        (status) => status == PermissionStatus.permanentlyDenied
+      );
+      
+      if (hasPermanentlyDenied) {
+        if (kDebugMode) {
+          print('⚠️ Some permissions permanently denied - user needs to enable in settings');
+        }
+        // Still return true if at least one critical permission (sensors) is available
+        return currentStatuses[Permission.sensors] == PermissionStatus.granted;
+      }
+      
+      // Try requesting again for denied permissions
+      final retryStatuses = <Permission, PermissionStatus>{};
+      for (final permission in permissions) {
+        if (currentStatuses[permission] != PermissionStatus.granted) {
+          retryStatuses[permission] = await permission.request();
+        } else {
+          retryStatuses[permission] = currentStatuses[permission]!;
+        }
+      }
+      
+      allGranted = retryStatuses.values.every(
+        (status) => status == PermissionStatus.granted
+      );
+      
       if (kDebugMode) {
-        print('❌ Required permissions not granted:');
-        statuses.forEach((permission, status) {
+        print('🔄 After retry:');
+        retryStatuses.forEach((permission, status) {
           print('  $permission: $status');
         });
+        print('  All granted: $allGranted');
       }
+    }
+    
+    // For step counting, sensors permission is most critical
+    // Activity recognition helps but isn't strictly required
+    final sensorsGranted = currentStatuses[Permission.sensors] == PermissionStatus.granted;
+    if (sensorsGranted && !allGranted) {
+      if (kDebugMode) {
+        print('✅ Sensors permission granted - can proceed with limited functionality');
+      }
+      return true; // Can work with just sensors
     }
 
     return allGranted;
+  }
+  
+  /// Initialize background step service
+  Future<void> _initializeBackgroundService() async {
+    try {
+      final success = await _backgroundService.initialize();
+      if (success) {
+        // Listen to background step updates
+        _backgroundStepSub = _backgroundService.backgroundStepStream.listen((update) {
+          if (update == null) return;
+          
+          final backgroundSteps = update['steps'] as int? ?? 0;
+          if (backgroundSteps > _dailySteps) {
+            final difference = backgroundSteps - _dailySteps;
+            if (kDebugMode) print('🔄 Received $difference steps from background service');
+            
+            _dailySteps = backgroundSteps;
+            _emitStepUpdate();
+          }
+        });
+        
+        // Sync with background steps on initialization
+        await _syncWithBackgroundService();
+        
+        if (kDebugMode) print('✅ Background step service integrated');
+      }
+    } catch (e) {
+      if (kDebugMode) print('⚠️ Background service integration failed: $e');
+      // Continue without background service
+    }
+  }
+  
+  /// Sync with background step service
+  Future<void> _syncWithBackgroundService() async {
+    try {
+      final backgroundSteps = await _backgroundService.getBackgroundSteps();
+      if (backgroundSteps > _dailySteps) {
+        final difference = backgroundSteps - _dailySteps;
+        if (kDebugMode) print('🔄 Syncing $difference steps from background');
+        
+        _dailySteps = backgroundSteps;
+        _sessionSteps += difference;
+        _emitStepUpdate();
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ Background sync failed: $e');
+    }
   }
 
   /// Initialize activity recognition service
@@ -247,58 +351,35 @@ class ProductionStepCounter {
     if (kDebugMode) print('🚗 Vehicle detected - step counting paused');
   }
   
-  /// Handle pedometer step events - primary step detection method
+  /// Handle pedometer step events - simplified approach like StepTrackingService
   void _onPedometerStep(StepCount stepCount) {
     if (!_isTracking) return;
     
     final now = DateTime.now().millisecondsSinceEpoch;
-    final currentPedometerSteps = stepCount.steps;
     
-    // Initialize baseline on first reading
-    if (_pedometerBaseline == 0) {
-      _pedometerBaseline = currentPedometerSteps - _dailySteps;
-      _lastPedometerSteps = currentPedometerSteps;
-      if (kDebugMode) print('📊 Pedometer baseline set: $_pedometerBaseline');
-      return;
-    }
+    // Simple debouncing - reject too-fast duplicates
+    if (now - _lastStepTimestamp < 250) return; // 250ms minimum between steps
     
-    // Calculate new steps since last reading
-    final newSteps = currentPedometerSteps - _lastPedometerSteps;
-    _lastPedometerSteps = currentPedometerSteps;
+    _lastStepTimestamp = now;
     
-    if (newSteps <= 0) return; // No new steps
+    // Simple step counting - just count every valid step from pedometer like StepTrackingService
+    _dailySteps++;
+    _sessionSteps++;
     
-    // Apply minimal filtering for very rapid bursts
-    if (newSteps > 10) {
-      // Likely a pedometer reset or anomaly - reject
-      if (kDebugMode) print('❌ Pedometer anomaly detected: $newSteps steps at once');
-      return;
-    }
+    final stepEvent = StepEvent(
+      timestamp: now,
+      totalSteps: _dailySteps,
+      activityState: _activityState,
+      boutActive: true,
+    );
     
-    // Add the new steps
-    for (int i = 0; i < newSteps; i++) {
-      // Use minimal filtering - pedometer is already quite accurate
-      if (_passesMinimalFiltering(now)) {
-        _dailySteps++;
-        _sessionSteps++;
-        _lastStepTimestamp = now;
-        
-        final stepEvent = StepEvent(
-          timestamp: now,
-          totalSteps: _dailySteps,
-          activityState: _activityState,
-          boutActive: true,
-        );
-        
-        _stepEventController.add(stepEvent);
-        _analytics.logValidStep(_dailySteps, _activityState);
-      }
-    }
+    _stepEventController.add(stepEvent);
+    _analytics.logValidStep(_dailySteps, _activityState);
     
     _emitStepUpdate();
     
-    if (kDebugMode && newSteps > 0) {
-      print('🚶 Pedometer: +$newSteps steps (total: $_dailySteps)');
+    if (kDebugMode) {
+      print('🚶 Step detected: $_dailySteps total steps today');
     }
   }
   
@@ -456,6 +537,19 @@ class ProductionStepCounter {
     if (_isTracking) return;
 
     _isTracking = true;
+    
+    // Start background step counting
+    try {
+      final backgroundStarted = await _backgroundService.startBackgroundCounting();
+      if (backgroundStarted) {
+        if (kDebugMode) print('✅ Background step counting started');
+      } else {
+        if (kDebugMode) print('⚠️ Background step counting failed to start');
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ Background step service error: $e');
+    }
+    
     _analytics.logEvent('tracking_started');
     
     if (kDebugMode) print('✅ Production step counter started');
@@ -466,19 +560,40 @@ class ProductionStepCounter {
     _isTracking = false;
     _analytics.logEvent('tracking_stopped');
     
-    if (kDebugMode) print('🛑 Production step counter stopped');
+    // Note: We don't stop background service here as it should continue running
+    // even when the main app is stopped. Call stopBackgroundCounting() explicitly if needed.
+    
+    if (kDebugMode) print('🛑 Production step counter stopped (background continues)');
+  }
+  
+  /// Stop background step counting (call this only when user explicitly disables it)
+  Future<void> stopBackgroundCounting() async {
+    try {
+      await _backgroundService.stopBackgroundCounting();
+      if (kDebugMode) print('🛑 Background step counting stopped');
+    } catch (e) {
+      if (kDebugMode) print('❌ Failed to stop background counting: $e');
+    }
+  }
+  
+  /// Check if background service is running
+  Future<bool> isBackgroundServiceRunning() async {
+    return await _backgroundService.isBackgroundServiceRunning();
   }
 
   /// Reset daily steps at midnight
   void _resetDailySteps() {
-    final previousSteps = _dailySteps;
+    final previousDailySteps = _dailySteps;
+    
+    // Add yesterday's steps to total before resetting daily counter
+    _totalSteps += previousDailySteps;
     _dailySteps = 0;
     _lastDate = DateTime.now();
     
     _emitStepUpdate();
-    _analytics.logDailyReset(previousSteps);
+    _analytics.logDailyReset(previousDailySteps);
     
-    if (kDebugMode) print('🔄 Daily reset: $previousSteps steps yesterday');
+    if (kDebugMode) print('🔄 Daily reset: $previousDailySteps steps yesterday, new total: $_totalSteps');
   }
 
   /// Check if daily reset is needed
@@ -496,6 +611,7 @@ class ProductionStepCounter {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('daily_steps', _dailySteps);
+      await prefs.setInt('total_steps', _totalSteps);
       await prefs.setString('last_date', _lastDate.toIso8601String());
       // Remove bout-related persistence
     } catch (e) {
@@ -510,6 +626,7 @@ class ProductionStepCounter {
       final prefs = await SharedPreferences.getInstance();
       
       _dailySteps = prefs.getInt('daily_steps') ?? 0;
+      _totalSteps = prefs.getInt('total_steps') ?? 0;
       
       final savedDate = prefs.getString('last_date');
       if (savedDate != null) {
@@ -524,7 +641,7 @@ class ProductionStepCounter {
       // Emit initial step count
       _stepsController.add(_dailySteps);
       
-      if (kDebugMode) print('📖 Loaded persisted data: $_dailySteps steps');
+      if (kDebugMode) print('📖 Loaded persisted data: $_dailySteps today steps, $_totalSteps total steps');
     } catch (e) {
       _analytics.logError('load_persisted_failed', e.toString());
       if (kDebugMode) print('❌ Failed to load persisted data: $e');
@@ -552,6 +669,34 @@ class ProductionStepCounter {
     
     if (kDebugMode) print('➕ Manual steps added: $steps (total: $_dailySteps)');
   }
+  
+  /// Reset all step data and start fresh (clears persisted data)
+  Future<void> resetAllStepData() async {
+    try {
+      // Clear in-memory data
+      _dailySteps = 0;
+      _totalSteps = 0;
+      _sessionSteps = 0;
+      _lastDate = DateTime.now();
+      
+      // Clear persisted data
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('daily_steps');
+      await prefs.remove('total_steps');
+      await prefs.remove('last_date');
+      
+      // Also clear old keys that might be lingering
+      await prefs.remove('dailySteps'); // Old key from StepTrackingService
+      await prefs.remove('lastDate'); // Old key from StepTrackingService
+      
+      // Emit updated step count
+      _emitStepUpdate();
+      
+      if (kDebugMode) print('🔄 All step data reset - starting fresh');
+    } catch (e) {
+      if (kDebugMode) print('❌ Failed to reset step data: $e');
+    }
+  }
 
   /// Debug method to inject accelerometer data for testing
   void debugInjectAccelerometerData(double x, double y, double z) {
@@ -568,10 +713,12 @@ class ProductionStepCounter {
     _activitySub?.cancel();
     _accelerometerSub?.cancel();
     _pedometerSub?.cancel();
+    _backgroundStepSub?.cancel();
     _stepDetector.dispose();
     _stepsController.close();
     _stepEventController.close();
     _analytics.dispose();
+    _backgroundService.dispose(); // Background service continues running
   }
 }
 
