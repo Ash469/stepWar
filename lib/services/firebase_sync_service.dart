@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../models/user.dart';
 import 'step_tracking_service.dart';
+import 'step_state_manager.dart';
 import 'auth_service.dart';
 
 /// Service to sync step data with Firebase Realtime Database
@@ -16,6 +17,7 @@ class FirebaseStepSyncService {
   late FirebaseDatabase _database;
   final AuthService _authService = AuthService();
   final StepTrackingService _stepCounter = StepTrackingService();
+  final StepStateManager _stateManager = StepStateManager();
   
   StreamSubscription<int>? _stepSubscription;
   StreamSubscription<User?>? _authSubscription;
@@ -73,15 +75,18 @@ class FirebaseStepSyncService {
     _currentUserId = userId;
 
     try {
-      // Get current step count
+      // IMPORTANT: Initialize steps based on Firebase data for proper login behavior
+      if (kDebugMode) {
+        print('🔄 Initializing step data from Firebase for user: $userId');
+      }
+      await _initializeStepsFromFirebase(userId);
+      
+      // Get current step count after Firebase initialization
       final currentSteps = _stepCounter.dailySteps;
       _lastSyncedSteps = currentSteps;
 
-      // Sync current steps immediately
-      await _syncStepsToFirebase(currentSteps);
-
-      // Listen to step updates
-      _stepSubscription = _stepCounter.stepsStream.listen(_onStepsChanged);
+      // Listen to step updates from the state manager instead of individual service
+      _stepSubscription = _stateManager.dailyStepsStream.listen(_onStepsChanged);
 
       // Set up periodic sync (every 30 seconds as backup)
       _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -89,7 +94,7 @@ class FirebaseStepSyncService {
       });
 
       if (kDebugMode) {
-        print('🔄 Started step sync for user: $userId');
+        print('🔄 Started step sync for user: $userId with $_lastSyncedSteps steps');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -232,6 +237,53 @@ class FirebaseStepSyncService {
     }
   }
 
+  /// Initialize steps from Firebase on login - this ensures proper behavior for new vs existing users
+  Future<void> _initializeStepsFromFirebase(String userId) async {
+    try {
+      final firebaseData = await getStepsFromFirebase(userId);
+      
+      if (firebaseData == null) {
+        // New user - no Firebase data exists, start with 0 steps
+        _stateManager.initializeSteps(
+          dailySteps: 0,
+          totalSteps: 0,
+          sessionSteps: 0,
+          source: 'firebase_new_user',
+        );
+        
+        if (kDebugMode) {
+          print('🆕 New user - initialized with 0 steps from Firebase');
+        }
+      } else {
+        // Existing user - load their Firebase step data
+        final firebaseTodaySteps = firebaseData['today_steps'] ?? 0;
+        final firebaseTotalSteps = firebaseData['total_steps'] ?? 0;
+        
+        _stateManager.initializeSteps(
+          dailySteps: firebaseTodaySteps,
+          totalSteps: firebaseTotalSteps,
+          sessionSteps: 0,
+          source: 'firebase_existing_user',
+        );
+        
+        if (kDebugMode) {
+          print('👤 Existing user - loaded Firebase steps: Today: $firebaseTodaySteps, Total: $firebaseTotalSteps');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Failed to initialize steps from Firebase: $e');
+      }
+      // Fallback to zero initialization
+      _stateManager.initializeSteps(
+        dailySteps: 0,
+        totalSteps: 0,
+        sessionSteps: 0,
+        source: 'firebase_init_fallback',
+      );
+    }
+  }
+
   /// Sync steps from Firebase to local (useful when app starts or user switches devices)
   Future<void> syncStepsFromFirebase() async {
     if (_currentUserId == null) return;
@@ -311,6 +363,16 @@ class FirebaseStepSyncService {
     final currentSteps = _stepCounter.dailySteps;
     await _syncStepsToFirebase(currentSteps);
     _lastSyncedSteps = currentSteps;
+  }
+
+  /// Clear all user-related data (for sign out)
+  Future<void> clearUserData() async {
+    _stopSync();
+    _lastSyncedSteps = 0;
+    
+    if (kDebugMode) {
+      print('🗑️ Firebase sync service user data cleared');
+    }
   }
 
   /// Get sync status

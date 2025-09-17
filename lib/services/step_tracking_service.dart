@@ -2,47 +2,59 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'notification_service.dart';
 import 'persistence_service.dart';
+import 'step_state_manager.dart';
+import 'foreground_step_service.dart';
+import 'auth_service.dart';
 
 class StepTrackingService {
   static final StepTrackingService _instance = StepTrackingService._internal();
   factory StepTrackingService() => _instance;
   StepTrackingService._internal();
 
-  final _stepsController = StreamController<int>.broadcast();
-  Stream<int> get stepsStream => _stepsController.stream;
-
-  int _dailySteps = 0;
-  int _totalSteps = 0;
-  int _sessionSteps = 0;
+  // Use centralized state manager instead of local state
+  final StepStateManager _stateManager = StepStateManager();
   
-  int get dailySteps => _dailySteps;
-  int get totalSteps => _totalSteps;
-  int get sessionSteps => _sessionSteps;
+  // Expose streams from state manager
+  Stream<int> get stepsStream => _stateManager.dailyStepsStream;
+  Stream<StepUpdateEvent> get stepUpdateStream => _stateManager.stepUpdateStream;
+
+  // Expose getters from state manager
+  int get dailySteps => _stateManager.dailySteps;
+  int get totalSteps => _stateManager.totalSteps;
+  int get sessionSteps => _stateManager.sessionSteps;
 
   StreamSubscription<StepCount>? _stepSub;
+  StreamSubscription<User?>? _authSubscription;
   bool _initialized = false;
   bool _notificationsEnabled = false;
+  bool _isAuthenticated = false;
 
   // Service instances
   final NotificationService _notificationService = NotificationService();
+  final ForegroundStepService _foregroundService = ForegroundStepService();
   final PersistenceService _persistence = PersistenceService();
+  final AuthService _authService = AuthService();
 
   // Simple debouncing
   int _lastStepTs = 0;
   final int _minStepMs = 250;
 
   DateTime _lastDate = DateTime.now();
+  StreamSubscription<StepUpdateEvent>? _stateSubscription;
 
   /// Initialize sensor permissions
   Future<bool> initialize() async {
     // Prevent reinitialization
     if (_initialized) {
-      if (kDebugMode) print("🔄 StepTrackingService already initialized with $_dailySteps steps");
+      if (kDebugMode) print("🔄 StepTrackingService already initialized with ${_stateManager.dailySteps} steps");
       return true;
     }
+    
+    // Register this service with state manager
+    _stateManager.registerService('StepTrackingService');
     
     // Initialize persistence service
     await _persistence.initialize();
@@ -70,9 +82,23 @@ class StepTrackingService {
     }
 
     await _loadPersistedSteps();
+    
+    // Listen to authentication state changes
+    await _authService.initialize();
+    _authSubscription = _authService.authStateChanges.listen(_onAuthStateChanged);
+    
+    // Check current authentication state
+    _isAuthenticated = _authService.isSignedIn;
+    
+    // Listen to state manager updates for persistence and notifications
+    _stateSubscription = _stateManager.stepUpdateStream.listen(_onStateUpdate);
+    
     _initialized = true;
     
-    if (kDebugMode) print("✅ StepTrackingService initialized with all permissions granted - $_dailySteps daily, $_totalSteps total steps");
+    if (kDebugMode) {
+      print("✅ StepTrackingService initialized with all permissions granted - ${_stateManager.dailySteps} daily, ${_stateManager.totalSteps} total steps");
+      print("🔐 Authentication status: ${_isAuthenticated ? 'Authenticated' : 'Not authenticated'}");
+    }
     return true;
   }
 
@@ -108,9 +134,33 @@ class StepTrackingService {
         cancelOnError: false, // Don't cancel on errors, keep trying
       );
 
-      if (kDebugMode) print("✅ StepTrackingService started tracking from $_dailySteps steps");
+      if (kDebugMode) print("✅ StepTrackingService started tracking from ${_stateManager.dailySteps} steps");
     } catch (e) {
       if (kDebugMode) print("❌ Failed to start step tracking: $e");
+    }
+  }
+
+  /// Handle authentication state changes
+  void _onAuthStateChanged(User? user) {
+    final wasAuthenticated = _isAuthenticated;
+    _isAuthenticated = user != null;
+    
+    if (kDebugMode) {
+      print('🔐 Authentication state changed: ${_isAuthenticated ? 'Authenticated' : 'Not authenticated'}');
+    }
+    
+    if (_isAuthenticated && !wasAuthenticated) {
+      // User just logged in - Firebase sync service will handle step initialization
+      if (kDebugMode) print('✅ User logged in - step tracking now active');
+    } else if (!_isAuthenticated && wasAuthenticated) {
+      // User just logged out - reset step data locally
+      _stateManager.initializeSteps(
+        dailySteps: 0,
+        totalSteps: 0,
+        sessionSteps: 0,
+        source: 'logout_reset',
+      );
+      if (kDebugMode) print('🗑️ User logged out - steps reset to 0');
     }
   }
 
@@ -119,6 +169,12 @@ class StepTrackingService {
     final ts = stepCount.timeStamp.millisecondsSinceEpoch;
     final currentSteps = stepCount.steps;
 
+    // ONLY COUNT STEPS IF USER IS AUTHENTICATED
+    if (!_isAuthenticated) {
+      if (kDebugMode) print('🚫 Step ignored - user not authenticated');
+      return;
+    }
+
     // Reject too-fast duplicates (basic debounce)
     if (ts - _lastStepTs < _minStepMs) return;
 
@@ -126,64 +182,65 @@ class StepTrackingService {
     final delta = _lastStepTs == 0 ? _minStepMs : (ts - _lastStepTs);
     _lastStepTs = ts;
 
-    // For pedometer, we typically get total steps, so we need to calculate the difference
-    // However, this custom pedometer plugin might work differently, so let's handle both cases
+    // Use state manager to add step - this will handle debouncing and broadcasting
+    _stateManager.addSteps(1, source: 'pedometer');
     
-    // Simple step counting - just count every valid step from pedometer
-    _dailySteps++;
-    _totalSteps++;
-    _sessionSteps++;
-    
-    _stepsController.add(_dailySteps);
-    _updateNotification();
-    _persistSteps();
-    
-    if (kDebugMode) print("🚶 Step detected: $_dailySteps daily, $_totalSteps total steps (raw: $currentSteps)");
+    if (kDebugMode) print("🚶 Step detected: ${_stateManager.dailySteps} daily, ${_stateManager.totalSteps} total steps (raw: $currentSteps)");
   }
 
 
+  /// Handle state updates from the centralized manager
+  void _onStateUpdate(StepUpdateEvent event) {
+    // Only handle updates from sources other than this service to avoid loops
+    if (event.source == 'pedometer') return;
+    
+    if (kDebugMode) {
+      print('📡 Step state update received: ${event.dailySteps} daily, ${event.totalSteps} total (from: ${event.source})');
+    }
+    
+    // Update notification and persistence when state changes
+    _updateNotification();
+    _persistStepsFromState();
+  }
+
   /// Reset steps at midnight
   void _resetDailySteps() {
-    final previousDailySteps = _dailySteps;
+    final previousDailySteps = _stateManager.dailySteps;
     
     // Save yesterday's step history
     if (previousDailySteps > 0) {
       _persistence.saveStepHistory(_lastDate, previousDailySteps);
     }
     
-    // Add yesterday's steps to total and reset daily counter
-    _totalSteps += previousDailySteps;
-    _dailySteps = 0;
+    // Use state manager to reset
+    _stateManager.resetDailySteps(source: 'midnight_reset');
     _lastDate = DateTime.now();
-    _sessionSteps = 0; // Reset session as well
     
-    _stepsController.add(_dailySteps);
-    _persistSteps();
-    if (kDebugMode) print("🔄 Daily reset: $previousDailySteps steps yesterday, $_totalSteps total steps");
+    if (kDebugMode) print('🔄 Daily reset: $previousDailySteps steps yesterday, ${_stateManager.totalSteps} total steps');
   }
 
-  /// Persist step count using PersistenceService
-  Future<void> _persistSteps() async {
+  /// Persist step count using PersistenceService from state manager
+  Future<void> _persistStepsFromState() async {
     try {
       await _persistence.saveStepData(
-        dailySteps: _dailySteps,
-        totalSteps: _totalSteps,
-        sessionSteps: _sessionSteps,
+        dailySteps: _stateManager.dailySteps,
+        totalSteps: _stateManager.totalSteps,
+        sessionSteps: _stateManager.sessionSteps,
         lastDate: _lastDate,
         notificationsEnabled: _notificationsEnabled,
       );
+      if (kDebugMode) print('💾 Step data saved: daily=${_stateManager.dailySteps}, total=${_stateManager.totalSteps}');
     } catch (e) {
-      if (kDebugMode) print("❌ Failed to persist steps: $e");
+      if (kDebugMode) print('❌ Failed to persist steps: $e');
     }
   }
 
-  /// Load persisted step count using PersistenceService
+  /// Load persisted step count and initialize state manager
   Future<void> _loadPersistedSteps() async {
     try {
       final stepData = _persistence.loadStepData();
-      _dailySteps = stepData['dailySteps'] as int;
-      _totalSteps = stepData['totalSteps'] as int;
-      _sessionSteps = 0; // Always start fresh session
+      final dailySteps = stepData['dailySteps'] as int;
+      final totalSteps = stepData['totalSteps'] as int;
       _lastDate = stepData['lastDate'] as DateTime;
       _notificationsEnabled = stepData['notificationsEnabled'] as bool;
       
@@ -192,36 +249,61 @@ class StepTrackingService {
       if (now.day != _lastDate.day || 
           now.month != _lastDate.month || 
           now.year != _lastDate.year) {
-        _resetDailySteps();
+        // New day - reset daily steps but keep total
+        _stateManager.initializeSteps(
+          dailySteps: 0,
+          totalSteps: totalSteps + dailySteps, // Add yesterday's steps to total
+          sessionSteps: 0,
+          source: 'new_day_initialization',
+        );
+        _lastDate = now;
+      } else {
+        // Same day - restore saved state
+        _stateManager.initializeSteps(
+          dailySteps: dailySteps,
+          totalSteps: totalSteps,
+          sessionSteps: 0, // Always start fresh session
+          source: 'persistence_restore',
+        );
       }
       
-      _stepsController.add(_dailySteps);
-      
-      if (kDebugMode) print("📖 Loaded persisted steps: $_dailySteps daily, $_totalSteps total");
+      if (kDebugMode) print('📆 Loaded persisted steps: ${_stateManager.dailySteps} daily, ${_stateManager.totalSteps} total');
     } catch (e) {
-      if (kDebugMode) print("❌ Failed to load persisted steps: $e");
+      if (kDebugMode) print('❌ Failed to load persisted steps: $e');
       // Use defaults
-      _dailySteps = 0;
-      _totalSteps = 0;
-      _sessionSteps = 0;
+      _stateManager.initializeSteps(
+        dailySteps: 0,
+        totalSteps: 0,
+        sessionSteps: 0,
+        source: 'default_initialization',
+      );
       _lastDate = DateTime.now();
-      _stepsController.add(_dailySteps);
     }
   }
 
-  /// Enable persistent notifications
+  /// Enable persistent notifications using foreground service
   Future<void> enableNotifications() async {
-    final success = await _notificationService.initialize();
+    // Start foreground service for truly sticky notification
+    final success = await _foregroundService.startForegroundService();
     if (success) {
       _notificationsEnabled = true;
       _updateNotification(); // Show initial notification with current steps
-      if (kDebugMode) print("🔔 Step notifications enabled");
+      if (kDebugMode) print("🔔 Step notifications enabled with foreground service");
+    } else {
+      // Fallback to regular notification service
+      final fallbackSuccess = await _notificationService.initialize();
+      if (fallbackSuccess) {
+        _notificationsEnabled = true;
+        _updateNotification();
+        if (kDebugMode) print("🔔 Step notifications enabled with fallback service");
+      }
     }
   }
 
   /// Disable persistent notifications
   Future<void> disableNotifications() async {
     _notificationsEnabled = false;
+    await _foregroundService.stopForegroundService();
     await _notificationService.hideStepTrackingNotification();
     if (kDebugMode) print("🔕 Step notifications disabled");
   }
@@ -229,7 +311,11 @@ class StepTrackingService {
   /// Update the persistent notification with current step count
   void _updateNotification() {
     if (_notificationsEnabled) {
-      _notificationService.showStepTrackingNotification(_dailySteps);
+      if (_foregroundService.isRunning) {
+        _foregroundService.updateNotification(_stateManager.dailySteps);
+      } else {
+        _notificationService.showStepTrackingNotification(_stateManager.dailySteps);
+      }
     }
   }
 
@@ -243,17 +329,8 @@ class StepTrackingService {
 
   /// Manually add steps (for Firebase sync or external integration)
   void addSteps(int steps, {String source = 'manual'}) {
-    _dailySteps += steps;
-    _totalSteps += steps;
-    if (source == 'session') {
-      _sessionSteps += steps;
-    }
-    
-    _stepsController.add(_dailySteps);
-    _persistSteps();
-    _updateNotification();
-    
-    if (kDebugMode) print('➕ Manual steps added: $steps (daily: $_dailySteps, total: $_totalSteps) from $source');
+    _stateManager.addSteps(steps, source: source);
+    if (kDebugMode) print('➕ Manual steps added: $steps (daily: ${_stateManager.dailySteps}, total: ${_stateManager.totalSteps}) from $source');
   }
 
   void stopTracking() {
@@ -269,21 +346,24 @@ class StepTrackingService {
   
   /// Reset all step data (for testing or data corruption recovery)
   Future<void> resetAllStepData() async {
-    _dailySteps = 0;
-    _totalSteps = 0;
-    _sessionSteps = 0;
+    _stateManager.initializeSteps(
+      dailySteps: 0,
+      totalSteps: 0,
+      sessionSteps: 0,
+      source: 'manual_reset',
+    );
     _lastDate = DateTime.now();
     
-    await _persistSteps();
-    _stepsController.add(_dailySteps);
-    _updateNotification();
-    
-    if (kDebugMode) print("🔄 All step data reset");
+    if (kDebugMode) print('🔄 All step data reset');
   }
   
   void dispose() {
     stopTracking();
+    _stateSubscription?.cancel();
+    _authSubscription?.cancel();
+    _stateManager.unregisterService('StepTrackingService');
+    _foregroundService.dispose();
     _notificationService.dispose();
-    _stepsController.close();
+    if (kDebugMode) print('🗑️ StepTrackingService disposed');
   }
 }

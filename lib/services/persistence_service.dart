@@ -439,13 +439,28 @@ class PersistenceService {
       await clearAuthState();
       await clearGameSession();
       
-      // Clear step data keys but preserve history
+      // Clear ALL step data on logout
       await prefs.remove('steps_daily');
       await prefs.remove('steps_total');
       await prefs.remove('steps_session');
-      // Keep last_date and notifications preference
+      await prefs.remove('steps_last_date');
+      await prefs.remove('steps_notifications_enabled');
       
-      if (kDebugMode) print('🗑️ All user data cleared');
+      // Clear step history as well for complete logout
+      final savedDates = prefs.getStringList('step_history_dates') ?? <String>[];
+      for (final dateString in savedDates) {
+        final parts = dateString.split('-');
+        if (parts.length == 3) {
+          final year = int.parse(parts[0]);
+          final month = int.parse(parts[1]);
+          final day = int.parse(parts[2]);
+          final dateKey = 'step_history_${year}_${month}_$day';
+          await prefs.remove(dateKey);
+        }
+      }
+      await prefs.remove('step_history_dates');
+      
+      if (kDebugMode) print('🗑️ All user data and step data cleared on logout');
     } catch (e) {
       if (kDebugMode) print('❌ Failed to clear all data: $e');
     }

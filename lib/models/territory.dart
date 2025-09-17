@@ -90,6 +90,34 @@ class Territory {
     );
   }
 
+  // Firestore-specific factory constructor
+  factory Territory.fromFirestoreMap(Map<String, dynamic> map) {
+    return Territory(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      ownerId: map['owner_id'] as String?,
+      ownerNickname: map['owner_nickname'] as String?,
+      currentShield: map['current_shield'] as int,
+      maxShield: map['max_shield'] as int,
+      status: TerritoryStatus.values.firstWhere(
+        (e) => e.toString().split('.').last == map['status'] as String,
+        orElse: () => TerritoryStatus.peaceful,
+      ),
+      cooldownUntil: map['cooldown_until'] != null 
+          ? (map['cooldown_until'] as dynamic).toDate()
+          : null,
+      attackerId: map['attacker_id'] as String?,
+      attackStarted: map['attack_started'] != null
+          ? (map['attack_started'] as dynamic).toDate()
+          : null,
+      createdAt: (map['created_at'] as dynamic).toDate(),
+      updatedAt: (map['updated_at'] as dynamic).toDate(),
+      baseShieldOnCapture: map['base_shield_on_capture'] as int? ?? 1,
+      latitude: map['latitude'] as double?,
+      longitude: map['longitude'] as double?,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -104,6 +132,27 @@ class Territory {
       'attack_started': attackStarted?.millisecondsSinceEpoch,
       'created_at': createdAt.millisecondsSinceEpoch,
       'updated_at': updatedAt.millisecondsSinceEpoch,
+      'base_shield_on_capture': baseShieldOnCapture,
+      'latitude': latitude,
+      'longitude': longitude,
+    };
+  }
+
+  // Firestore-specific map (uses Timestamp instead of milliseconds)
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'id': id,
+      'name': name,
+      'owner_id': ownerId,
+      'owner_nickname': ownerNickname,
+      'current_shield': currentShield,
+      'max_shield': maxShield,
+      'status': status.toString().split('.').last,
+      'cooldown_until': cooldownUntil,
+      'attacker_id': attackerId,
+      'attack_started': attackStarted,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
       'base_shield_on_capture': baseShieldOnCapture,
       'latitude': latitude,
       'longitude': longitude,

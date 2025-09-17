@@ -76,11 +76,11 @@ class NotificationService {
     try {
       final calories = _calculateCaloriesFromSteps(steps);
       
-      // Android notification details
+      // Android notification details - Making it truly non-dismissible
       final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'step_tracking_channel',
-        'Step Tracking',
-        channelDescription: 'Shows current step count and calories burned',
+        'step_tracking_persistent',
+        'Step Tracking (Persistent)',
+        channelDescription: 'Persistent step counter - cannot be dismissed',
         importance: Importance.low,
         priority: Priority.low,
         ongoing: true, // Makes it persistent
@@ -88,12 +88,19 @@ class NotificationService {
         showWhen: false,
         enableVibration: false,
         playSound: false,
+        silent: true,
         icon: '@mipmap/ic_launcher',
-        largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
-        styleInformation: BigTextStyleInformation(
-          'Keep walking to conquer more territories in StepWars! Every step counts towards your fitness goals.',
-          contentTitle: '$steps steps today • ${calories.toStringAsFixed(0)} calories',
-        ),
+        // Make notification completely non-dismissible using category
+        category: AndroidNotificationCategory.service,
+        visibility: NotificationVisibility.public,
+        setAsGroupSummary: false,
+        onlyAlertOnce: true,
+        actions: <AndroidNotificationAction>[
+          // Empty actions list but keeps notification structure for service-like behavior
+        ],
+        // This ensures it behaves like a foreground service
+        channelShowBadge: false,
+        ticker: '🚶‍♂️ $steps steps today',
       );
 
       // iOS notification details

@@ -71,6 +71,25 @@ class GameConfig {
     );
   }
 
+  // Firestore-specific factory constructor
+  factory GameConfig.fromFirestoreMap(Map<String, dynamic> map) {
+    return GameConfig(
+      id: map['id'] as String,
+      stepsPerAttackPoint: map['steps_per_attack_point'] as int? ?? 100,
+      attackPointsPerShieldHit: map['attack_points_per_shield_hit'] as int? ?? 10,
+      stepsPerShieldPoint: map['steps_per_shield_point'] as int? ?? 100,
+      dailyAttackLimit: map['daily_attack_limit'] as int? ?? 3,
+      newUserStartingShieldMin: map['new_user_starting_shield_min'] as int? ?? 1,
+      newUserStartingShieldMax: map['new_user_starting_shield_max'] as int? ?? 2,
+      baseShieldOnCapture: map['base_shield_on_capture'] as int? ?? 1,
+      cooldownHours: map['cooldown_hours'] as int? ?? 24,
+      maxTerritories: map['max_territories'] as int? ?? 100,
+      allowUnownedTerritories: map['allow_unowned_territories'] as bool? ?? true,
+      createdAt: (map['created_at'] as dynamic).toDate(),
+      updatedAt: (map['updated_at'] as dynamic).toDate(),
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -86,6 +105,25 @@ class GameConfig {
       'allow_unowned_territories': allowUnownedTerritories ? 1 : 0,
       'created_at': createdAt.millisecondsSinceEpoch,
       'updated_at': updatedAt.millisecondsSinceEpoch,
+    };
+  }
+
+  // Firestore-specific map (uses Timestamp instead of milliseconds)
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'id': id,
+      'steps_per_attack_point': stepsPerAttackPoint,
+      'attack_points_per_shield_hit': attackPointsPerShieldHit,
+      'steps_per_shield_point': stepsPerShieldPoint,
+      'daily_attack_limit': dailyAttackLimit,
+      'new_user_starting_shield_min': newUserStartingShieldMin,
+      'new_user_starting_shield_max': newUserStartingShieldMax,
+      'base_shield_on_capture': baseShieldOnCapture,
+      'cooldown_hours': cooldownHours,
+      'max_territories': maxTerritories,
+      'allow_unowned_territories': allowUnownedTerritories,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
     };
   }
 

@@ -111,7 +111,7 @@ class _RealTimeStepCounterState extends State<RealTimeStepCounter>
                   scale: _pulseAnimation.value,
                   child: Text(
                     '$_currentSteps',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.bold,
                       color: AppTheme.successGold,
@@ -125,7 +125,7 @@ class _RealTimeStepCounterState extends State<RealTimeStepCounter>
             const SizedBox(height: 8),
             
             // Label
-            Text(
+            const Text(
               'Daily Steps',
               style: TextStyle(
                 fontSize: 16,
@@ -151,7 +151,7 @@ class _RealTimeStepCounterState extends State<RealTimeStepCounter>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.trending_up,
                       size: 16,
                       color: AppTheme.successGreen,
@@ -159,7 +159,7 @@ class _RealTimeStepCounterState extends State<RealTimeStepCounter>
                     const SizedBox(width: 4),
                     Text(
                       '+${_currentSteps - _lastSteps}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.successGreen,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,

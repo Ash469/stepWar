@@ -71,7 +71,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                   0.2 * (2 * _backgroundAnimation.value - 1),
                 ),
                 radius: 1.5,
-                colors: [
+                colors: const [
                   AppTheme.backgroundDark,
                   AppTheme.backgroundSecondary,
                   AppTheme.backgroundDark,
@@ -88,7 +88,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                     // Logo/Title Section
                     Column(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.flag,
                           size: 80,
                           color: AppTheme.successGold,
@@ -151,7 +151,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                             decoration: InputDecoration(
                               hintText: 'Enter your nickname',
                               hintStyle: TextStyle(color: AppTheme.textGray),
-                              prefixIcon: Icon(
+                              prefixIcon: const Icon(
                                 Icons.person,
                                 color: AppTheme.successGold,
                               ),
@@ -171,7 +171,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
+                                borderSide: const BorderSide(
                                   color: AppTheme.successGold,
                                   width: 2,
                                 ),
@@ -231,7 +231,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                           width: 1,
                         ),
                       ),
-                      child: Column(
+                      child: const Column(
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -241,7 +241,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                                 color: AppTheme.primaryAttack,
                                 size: 20,
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               Text(
                                 'How it Works',
                                 style: TextStyle(
@@ -251,7 +251,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           Text(
                             '• Walk to earn attack and shield points\n'
                             '• Capture territories from other players\n'
@@ -341,7 +341,6 @@ class _GameMainScreenState extends State<GameMainScreen>
   late AnimationController _fabController;
   late Animation<double> _fabAnimation;
 
-  final GameManagerService _gameManager = GameManagerService();
 
   final List<Widget> _screens = [
     const MyTerritoryScreen(),
@@ -431,15 +430,6 @@ class _GameMainScreenState extends State<GameMainScreen>
           type: BottomNavigationBarType.fixed,
           selectedItemColor: AppTheme.successGold,
           unselectedItemColor: AppTheme.textGray,
-          selectedLabelStyle: const TextStyle(
-            fontFamily: 'Roboto',
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
-          ),
-          unselectedLabelStyle: const TextStyle(
-            fontFamily: 'Roboto',
-            fontSize: 12,
-          ),
           items: [
             BottomNavigationBarItem(
               icon: _buildNavIcon(Icons.home, 0),

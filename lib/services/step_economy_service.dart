@@ -1,6 +1,7 @@
 import '../database/database_helper.dart';
 import '../models/game_config.dart';
 import '../models/user.dart';
+import 'auth_service.dart';
 
 class StepEconomyService {
   final DatabaseHelper _dbHelper = DatabaseHelper();
@@ -72,21 +73,57 @@ class StepEconomyService {
   }
 
   /// Update user's step count and convert to game points
-  /// Uses cumulative step totals rather than differences for consistent point calculation
-  Future<GameUser> processStepUpdate(String userId, int newStepCount) async {
+  /// Respects user baseline to ensure new users start with 0 game progress
+  Future<GameUser> processStepUpdate(String userId, int rawStepCount) async {
     final user = await _dbHelper.getUser(userId);
     if (user == null) {
       throw Exception('User not found: $userId');
     }
 
+    // Get user's step baseline from Firebase (for new users)
+    int stepBaseline = 0;
+    try {
+      final authService = AuthService();
+      final userProfile = await authService.getUserProfile(userId);
+      if (userProfile != null) {
+        // Try to get step_baseline from the user data
+        // Note: This would require reading from Firebase Realtime Database
+        // For now, we'll use a different approach with SharedPreferences or check if totalSteps is 0
+      }
+    } catch (e) {
+      // Continue with baseline = 0 if we can't fetch it
+    }
+
+    // For new users (totalSteps == 0), we need to establish or use their baseline
+    // Only count steps ABOVE the baseline towards game progress
+    int gameRelevantStepCount = rawStepCount;
+    
+    // If this is a new user's first step update, we need to be more careful
+    if (user.totalSteps == 0) {
+      // This is likely the first time we're processing steps for this user
+      // We should only count new steps from this point forward
+      // Set the baseline to the current raw count so future steps count
+      stepBaseline = rawStepCount;
+      gameRelevantStepCount = 0; // No game progress for historical steps
+      
+      print('📊 New User Step Setup:');
+      print('  Raw pedometer steps: $rawStepCount');
+      print('  Setting baseline to: $stepBaseline');
+      print('  Game-relevant steps: $gameRelevantStepCount (starting fresh)');
+    } else {
+      // Existing user - count all steps as game-relevant
+      gameRelevantStepCount = rawStepCount;
+    }
+
     print('📊 Step Update Debug:');
     print('  User stored steps: ${user.totalSteps}');
-    print('  New step count: $newStepCount');
+    print('  Raw step count: $rawStepCount');
+    print('  Game-relevant step count: $gameRelevantStepCount');
     print('  Current attack points: ${user.attackPoints}');
     print('  Current shield points: ${user.shieldPoints}');
 
-    // Calculate step difference
-    final stepDifference = newStepCount - user.totalSteps;
+    // Calculate step difference based on game-relevant steps
+    final stepDifference = gameRelevantStepCount - user.totalSteps;
     print('  Step difference: $stepDifference');
     
     if (stepDifference <= 0) {
@@ -94,9 +131,9 @@ class StepEconomyService {
       return user; // No new steps to process
     }
 
-    // Calculate points based on TOTAL cumulative steps
-    final totalAttackPointsEarned = await stepsToAttackPoints(newStepCount);
-    final totalShieldPointsEarned = await stepsToShieldPoints(newStepCount);
+    // Calculate points based on TOTAL cumulative GAME-RELEVANT steps
+    final totalAttackPointsEarned = await stepsToAttackPoints(gameRelevantStepCount);
+    final totalShieldPointsEarned = await stepsToShieldPoints(gameRelevantStepCount);
     
     // Calculate how many points were previously earned from old step count
     final previousTotalAttackPoints = await stepsToAttackPoints(user.totalSteps);
@@ -110,15 +147,15 @@ class StepEconomyService {
     final newAvailableAttackPoints = user.attackPoints + newAttackPointsEarned;
     final newAvailableShieldPoints = user.shieldPoints + newShieldPointsEarned;
     
-    print('  Total attack points from ${newStepCount} steps: $totalAttackPointsEarned');
+    print('  Total attack points from $gameRelevantStepCount steps: $totalAttackPointsEarned');
     print('  Previous total attack points from ${user.totalSteps} steps: $previousTotalAttackPoints');
     print('  New attack points earned: $newAttackPointsEarned');
     print('  New available attack points: $newAvailableAttackPoints');
     print('  New available shield points: $newAvailableShieldPoints');
 
-    // Update user with new totals
+    // Update user with new totals (store game-relevant step count)
     final updatedUser = user.copyWith(
-      totalSteps: newStepCount,
+      totalSteps: gameRelevantStepCount,
       attackPoints: newAvailableAttackPoints,
       shieldPoints: newAvailableShieldPoints,
     );

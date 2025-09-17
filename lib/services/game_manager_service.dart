@@ -6,8 +6,8 @@ import '../services/production_step_counter.dart';
 import '../database/database_helper.dart';
 import '../services/auth_service.dart';
 import 'step_economy_service.dart';
-import 'territory_service.dart';
-import 'attack_service.dart';
+import 'territory_service.dart' as territory_svc;
+import 'attack_service.dart' as attack_svc;
 import 'user_service.dart';
 import 'persistence_service.dart';
 
@@ -19,8 +19,8 @@ class GameManagerService {
 
   final ProductionStepCounter _stepCounter = ProductionStepCounter();
   final StepEconomyService _economyService = StepEconomyService();
-  final TerritoryService _territoryService = TerritoryService();
-  final AttackService _attackService = AttackService();
+  final territory_svc.TerritoryService _territoryService = territory_svc.TerritoryService();
+  final attack_svc.AttackService _attackService = attack_svc.AttackService();
   final UserService _userService = UserService();
   final PersistenceService _persistence = PersistenceService();
 
@@ -143,6 +143,11 @@ class GameManagerService {
 
       _currentUserId = user.id;
       _currentUser = user;
+
+      // For new users (totalSteps == 0), establish step baseline to ensure they start fresh
+      if (user.totalSteps == 0) {
+        await _establishStepBaseline(user);
+      }
 
       // Start step tracking integration
       await _startStepIntegration();
@@ -274,11 +279,11 @@ class GameManagerService {
   }
 
   /// Launch an attack on a territory
-  Future<AttackResult> launchAttack({
+  Future<attack_svc.AttackResult> launchAttack({
     required String territoryId,
     required int attackPoints,
   }) async {
-    if (_currentUserId == null) return AttackResult.userNotFound;
+    if (_currentUserId == null) return attack_svc.AttackResult.userNotFound;
 
     final result = await _attackService.launchAttack(
       attackerId: _currentUserId!,
@@ -550,6 +555,34 @@ class GameManagerService {
     }
   }
   
+  /// Establish step baseline for new users to ensure they start with 0 game steps
+  /// This prevents new users from getting credit for steps taken before registration
+  Future<void> _establishStepBaseline(GameUser user) async {
+    try {
+      // Initialize step counter to get current device step count
+      await _stepCounter.initialize();
+      
+      // Get current pedometer reading - this becomes the baseline
+      final currentDeviceSteps = _stepCounter.totalSteps;
+      
+      // Store this baseline in SharedPreferences for this user
+      final authService = AuthService();
+      await authService.updateUserFields(user.id, {
+        'step_baseline': currentDeviceSteps,
+        'baseline_established_at': DateTime.now().millisecondsSinceEpoch,
+      });
+      
+      if (kDebugMode) {
+        print('📍 Step baseline established for new user ${user.nickname}: $currentDeviceSteps steps');
+        print('   Only steps taken after this point will count towards game progress');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Failed to establish step baseline: $e');
+      }
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _stepUpdateTimer?.cancel();

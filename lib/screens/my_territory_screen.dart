@@ -1,13 +1,11 @@
 import 'dart:async'; // Import for StreamSubscription
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../models/territory.dart';
 import '../models/user_stats.dart';
 import '../widgets/territory_card.dart';
-import '../widgets/simple_step_counter.dart'; 
-import 'exercise_tracking_screen.dart';
-import '../services/step_tracking_service.dart'; // Import the step tracking service
 import 'dart:math' as math;
 
 class MyTerritoryScreen extends StatefulWidget {
@@ -22,33 +20,51 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
   late AnimationController _backgroundController;
   late Animation<double> _backgroundAnimation;
 
-  final StepTrackingService _stepCounter = StepTrackingService();
-  StreamSubscription<int>? _stepSubscription;
-  int _currentSteps = 0;
-  int _totalSteps = 0; // Will be updated with live data
-
-  // Mock data for other parts of the UI (will be updated with real data)
+  // Territory and battle data (will be updated with real data from Firebase)
   UserStats userStats = const UserStats(
     dailySteps: 0,
     totalSteps: 0,
-    attackPoints: 0,
-    shieldPoints: 0,
-    territoriesOwned: 1,
-    battlesWon: 0,
-    battlesLost: 0,
-    attacksRemaining: 3,
+    attackPoints: 150,
+    shieldPoints: 120,
+    territoriesOwned: 3,
+    battlesWon: 12,
+    battlesLost: 4,
+    attacksRemaining: 2,
   );
 
-  final Territory? ownedTerritory = Territory(
-    id: 'paris_001',
-    name: 'Paris',
-    ownerNickname: 'You',
-    currentShield: 3,
-    maxShield: 5,
-    status: TerritoryStatus.peaceful,
-    createdAt: DateTime.now().subtract(const Duration(days: 5)),
-    updatedAt: DateTime.now(),
-  );
+  // User's territories
+  final List<Territory> ownedTerritories = [
+    Territory(
+      id: 'paris_001',
+      name: 'Paris',
+      ownerNickname: 'You',
+      currentShield: 4,
+      maxShield: 5,
+      status: TerritoryStatus.peaceful,
+      createdAt: DateTime.now().subtract(const Duration(days: 5)),
+      updatedAt: DateTime.now(),
+    ),
+    Territory(
+      id: 'london_002',
+      name: 'London',
+      ownerNickname: 'You',
+      currentShield: 2,
+      maxShield: 5,
+      status: TerritoryStatus.underAttack,
+      createdAt: DateTime.now().subtract(const Duration(days: 2)),
+      updatedAt: DateTime.now(),
+    ),
+    Territory(
+      id: 'tokyo_003',
+      name: 'Tokyo',
+      ownerNickname: 'You',
+      currentShield: 5,
+      maxShield: 5,
+      status: TerritoryStatus.peaceful,
+      createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      updatedAt: DateTime.now(),
+    ),
+  ];
 
   @override
   void initState() {
@@ -69,63 +85,35 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     
     _backgroundController.repeat();
 
-    // Initialize step counter asynchronously
-    _initializeStepCounter();
+    // Initialize territory data
+    _loadTerritoryData();
   }
   
-  /// Initialize step counter and start tracking
-  Future<void> _initializeStepCounter() async {
+  /// Load territory data from Firebase
+  Future<void> _loadTerritoryData() async {
     try {
-      // Don't reinitialize - service is already initialized in main.dart
-      // Just connect to the existing service and listen to its stream
-      
-      // Get current step count from the already running service
-      _currentSteps = _stepCounter.dailySteps;
-      _totalSteps = _currentSteps; // For now, total steps equals today's steps since we're using simple tracking
-      
-      _stepSubscription = _stepCounter.stepsStream.listen((steps) {
-        if (mounted) {
-          setState(() {
-            _currentSteps = steps;
-            _totalSteps = steps; // Simple: total = today's steps
-            
-            // Update userStats with live data
-            userStats = userStats.copyWith(
-              dailySteps: steps,
-              totalSteps: _totalSteps,
-            );
-          });
-        }
-      });
-      
-      // Update UI with initial values
+      // TODO: Load territory data from Firebase
+      // For now using mock data
       if (mounted) {
         setState(() {
-          userStats = userStats.copyWith(
-            dailySteps: _currentSteps,
-            totalSteps: _totalSteps,
-          );
+          // Territory data already initialized above
         });
       }
       
+      if (kDebugMode) print('📊 Territory data loaded');
     } catch (e) {
-      print('❌ Failed to connect to step counter: $e');
+      if (kDebugMode) print('❌ Failed to load territory data: $e');
     }
   }
 
   @override
   void dispose() {
     _backgroundController.dispose();
-    _stepSubscription?.cancel(); // Cancel subscription
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Calculate attack and shield points based on live steps
-    int attackPoints = _currentSteps ~/ 100;
-    int shieldPoints = _currentSteps ~/ 100;
-
     return Scaffold(
       body: AnimatedBuilder(
         animation: _backgroundAnimation,
@@ -159,79 +147,74 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                     
                     const SizedBox(height: 24),
                     
-                    Center(
-                      child: Column(
+                    // Territory Stats Overview
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.backgroundSecondary.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.successGold.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
-                          SimpleStepCounter(
-                            steps: _currentSteps, // Use live step data
-                            totalSteps: _totalSteps, // Pass total steps
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ExerciseTrackingScreen(),
-                                ),
-                              );
-                            },
+                          _buildStatColumn(
+                            'Attack Points',
+                            userStats.attackPoints.toString(),
+                            AppTheme.primaryAttack,
+                            Icons.rocket_launch,
                           ),
-                          
-                          const SizedBox(height: 16),
-                          
                           Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AppTheme.backgroundSecondary.withOpacity(0.8),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: AppTheme.successGold.withOpacity(0.3),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                _buildStatColumn(
-                                  'Attack Points',
-                                  attackPoints.toString(), // Use calculated points
-                                  AppTheme.primaryAttack,
-                                  Icons.rocket_launch,
-                                ),
-                                Container(
-                                  width: 1,
-                                  height: 40,
-                                  color: AppTheme.textGray.withOpacity(0.3),
-                                ),
-                                _buildStatColumn(
-                                  'Shield Points',
-                                  shieldPoints.toString(), // Use calculated points
-                                  AppTheme.primaryDefend,
-                                  Icons.shield,
-                                ),
-                              ],
-                            ),
-                          ).animate().fadeIn(delay: const Duration(milliseconds: 300)).slideY(begin: 0.3),
+                            width: 1,
+                            height: 40,
+                            color: AppTheme.textGray.withOpacity(0.3),
+                          ),
+                          _buildStatColumn(
+                            'Shield Points',
+                            userStats.shieldPoints.toString(),
+                            AppTheme.primaryDefend,
+                            Icons.shield,
+                          ),
+                          Container(
+                            width: 1,
+                            height: 40,
+                            color: AppTheme.textGray.withOpacity(0.3),
+                          ),
+                          _buildStatColumn(
+                            'Territories',
+                            userStats.territoriesOwned.toString(),
+                            AppTheme.successGold,
+                            Icons.flag,
+                          ),
                         ],
                       ),
-                    ),
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 300)).slideY(begin: 0.3),
                     
                     const SizedBox(height: 32),
                     
-                    if (ownedTerritory != null) ...[
-                      Text(
-                        'Your Territory',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.3),
-                      
-                      const SizedBox(height: 16),
-                      
-                      TerritoryCard(
-                        territory: ownedTerritory!,
-                        isOwned: true,
-                        onReinforce: _reinforceTerritory,
-                      ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideY(begin: 0.3),
-                    ] else ...[
-                      // No territory owned section...
-                    ],
+                    Text(
+                      'Your Territories',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.3),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Territory Cards
+                    ...ownedTerritories.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final territory = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: TerritoryCard(
+                          territory: territory,
+                          isOwned: true,
+                          onReinforce: () => _reinforceTerritory(territory.name),
+                        ).animate().fadeIn(delay: Duration(milliseconds: 800 + (index * 200))).slideY(begin: 0.3),
+                      );
+                    }).toList(),
                     
                     const SizedBox(height: 32),
                     
@@ -347,10 +330,10 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     );
   }
 
-  void _reinforceTerritory() {
+  void _reinforceTerritory(String territoryName) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Territory reinforced! +1 Shield'),
+        content: Text('$territoryName reinforced! +1 Shield'),
         backgroundColor: AppTheme.primaryDefend,
       ),
     );

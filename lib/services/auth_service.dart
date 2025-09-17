@@ -202,12 +202,14 @@ class AuthService {
             ? user.displayName! 
             : user.email?.split('@').first ?? 'Player';
             
+        // For new users, we need to establish a baseline from the current pedometer reading
+        // so that only NEW steps after registration count towards game progress
         final gameUser = GameUser(
           id: user.uid,
           nickname: nickname,
           email: user.email,
           photoURL: user.photoURL,
-          totalSteps: 0,
+          totalSteps: 0, // New users start with 0 game steps
           attackPoints: 0,
           shieldPoints: 0,
           attacksUsedToday: 0,

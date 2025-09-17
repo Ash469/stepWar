@@ -30,12 +30,12 @@ class SimpleStepCounter extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [
               AppTheme.backgroundSecondary,
-              AppTheme.backgroundSecondary.withOpacity(0.8),
+              AppTheme.backgroundSecondary.withValues(alpha: 0.8),
             ],
           ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: AppTheme.successGold.withOpacity(0.5),
+            color: AppTheme.successGold.withValues(alpha: 0.5),
             width: 2,
           ),
         ),
@@ -45,10 +45,10 @@ class SimpleStepCounter extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(vertical: 12),
               decoration: BoxDecoration(
-                color: AppTheme.backgroundDark.withOpacity(0.3),
+                color: AppTheme.backgroundDark.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: AppTheme.primaryAttack.withOpacity(0.3),
+                  color: AppTheme.primaryAttack.withValues(alpha: 0.3),
                   width: 1,
                 ),
               ),
@@ -88,7 +88,7 @@ class SimpleStepCounter extends StatelessWidget {
                       Container(
                         width: 1,
                         height: 30,
-                        color: AppTheme.textGray.withOpacity(0.3),
+                        color: AppTheme.textGray.withValues(alpha: 0.3),
                       ),
                       Column(
                         children: [
@@ -158,7 +158,7 @@ class SimpleStepCounter extends StatelessWidget {
                 Container(
                   width: 1,
                   height: 40,
-                  color: AppTheme.textGray.withOpacity(0.3),
+                  color: AppTheme.textGray.withValues(alpha: 0.3),
                 ),
                 _buildTodayStatColumn(
                   '${distanceToday.toStringAsFixed(2)}km',
@@ -175,14 +175,14 @@ class SimpleStepCounter extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: AppTheme.successGold.withOpacity(0.1),
+                color: AppTheme.successGold.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: AppTheme.successGold.withOpacity(0.3),
+                  color: AppTheme.successGold.withValues(alpha: 0.3),
                   width: 1,
                 ),
               ),
-              child: Row(
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
@@ -190,8 +190,8 @@ class SimpleStepCounter extends StatelessWidget {
                     size: 16,
                     color: AppTheme.successGold,
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
+                  SizedBox(width: 8),
+                  Text(
                     'Tap to start workout',
                     style: TextStyle(
                       color: AppTheme.successGold,
@@ -199,7 +199,7 @@ class SimpleStepCounter extends StatelessWidget {
                       fontSize: 12,
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Icon(
                     Icons.arrow_forward_ios,
                     size: 12,

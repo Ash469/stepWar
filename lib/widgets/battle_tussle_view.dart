@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../models/territory.dart';
 import '../widgets/animated_progress_bar.dart';
@@ -33,7 +32,7 @@ class _BattleTussleViewState extends State<BattleTussleView>
   late Animation<double> _pulseAnimation;
   
   int _playerSteps = 3420;
-  int _enemySteps = 2890;
+  final int _enemySteps = 2890;
   bool _isConverting = false;
   
   @override
@@ -194,7 +193,7 @@ class _BattleTussleViewState extends State<BattleTussleView>
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.shield,
                                   size: 40,
                                   color: AppTheme.primaryDefend,
@@ -221,7 +220,7 @@ class _BattleTussleViewState extends State<BattleTussleView>
                               ),
                               child: Transform.rotate(
                                 angle: 0.5,
-                                child: Icon(
+                                child: const Icon(
                                   Icons.rocket,
                                   color: AppTheme.primaryAttack,
                                   size: 24,
@@ -298,7 +297,7 @@ class _BattleTussleViewState extends State<BattleTussleView>
                   const SizedBox(width: 16),
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       color: AppTheme.backgroundSecondary,
                     ),

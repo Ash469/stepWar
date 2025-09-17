@@ -6,7 +6,6 @@ import '../theme/app_theme.dart';
 import '../services/firebase_sync_service.dart';
 import '../services/step_tracking_service.dart';
 import '../models/user.dart';
-import 'background_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -195,12 +194,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           end: Alignment.bottomRight,
                           colors: [
                             AppTheme.backgroundSecondary,
-                            AppTheme.backgroundSecondary.withOpacity(0.8),
+                            AppTheme.backgroundSecondary.withValues(alpha: 0.8),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.successGold.withOpacity(0.3),
+                          color: AppTheme.successGold.withValues(alpha: 0.3),
                           width: 1,
                         ),
                       ),
@@ -250,7 +249,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(8),
                                         borderSide: BorderSide(
-                                          color: AppTheme.successGold.withOpacity(0.5),
+                                          color: AppTheme.successGold.withValues(alpha: 0.5),
                                         ),
                                       ),
                                       focusedBorder: OutlineInputBorder(
@@ -332,7 +331,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.primaryAttack.withOpacity(0.3),
+                          color: AppTheme.primaryAttack.withValues(alpha: 0.3),
                           width: 1,
                         ),
                       ),
@@ -366,7 +365,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.backgroundSecondary.withOpacity(0.3),
+                          color: AppTheme.backgroundSecondary.withValues(alpha: 0.3),
                           width: 1,
                         ),
                       ),
@@ -385,7 +384,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           
                           _buildAccountRow('Member Since', _formatDate(user.createdAt), Icons.calendar_today),
                           _buildAccountRow('Last Updated', _formatDate(user.updatedAt), Icons.update),
-                          _buildAccountRow('User ID', user.id.substring(0, 8) + '...', Icons.fingerprint),
+                          _buildAccountRow('User ID', _formatUserId(user.id), Icons.fingerprint),
                           
                           const SizedBox(height: 20),
                           
@@ -423,7 +422,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               // Logout confirmation overlay
               if (_showLogoutConfirmation)
                 Container(
-                  color: Colors.black.withOpacity(0.7),
+                  color: Colors.black.withValues(alpha: 0.7),
                   child: Center(
                     child: Container(
                       margin: const EdgeInsets.all(24),
@@ -432,7 +431,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.primaryAttack.withOpacity(0.5),
+                          color: AppTheme.primaryAttack.withValues(alpha: 0.5),
                           width: 1,
                         ),
                       ),
@@ -478,7 +477,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     backgroundColor: AppTheme.backgroundDark,
                                     foregroundColor: AppTheme.textWhite,
                                     side: BorderSide(
-                                      color: AppTheme.textGray.withOpacity(0.5),
+                                      color: AppTheme.textGray.withValues(alpha: 0.5),
                                     ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
@@ -525,7 +524,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           end: Alignment.bottomRight,
           colors: [
             AppTheme.successGold,
-            AppTheme.successGold.withOpacity(0.8),
+            AppTheme.successGold.withValues(alpha: 0.8),
           ],
         ),
       ),
@@ -608,6 +607,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '${date.day}/${date.month}/${date.year}';
   }
 
+  String _formatUserId(String? id) {
+    if (id == null || id.isEmpty) {
+      return 'No ID';
+    }
+    if (id.length <= 8) {
+      return id; // Return the full ID if it's short
+    }
+    return '${id.substring(0, 8)}...';
+  }
+
   /// Build real-time step stats widget
   Widget _buildRealTimeStepStats(GameUser user) {
     final stepCounter = StepTrackingService();
@@ -620,13 +629,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppTheme.successGreen.withOpacity(0.1),
-            AppTheme.successGreen.withOpacity(0.05),
+            AppTheme.successGreen.withValues(alpha: 0.1),
+            AppTheme.successGreen.withValues(alpha: 0.05),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppTheme.successGreen.withOpacity(0.3),
+          color: AppTheme.successGreen.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -658,8 +667,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: isSyncing 
-                          ? AppTheme.successGreen.withOpacity(0.2)
-                          : AppTheme.dangerOrange.withOpacity(0.2),
+                          ? AppTheme.successGreen.withValues(alpha: 0.2)
+                          : AppTheme.dangerOrange.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isSyncing ? AppTheme.successGreen : AppTheme.dangerOrange,
@@ -706,10 +715,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppTheme.backgroundSecondary.withOpacity(0.5),
+                      color: AppTheme.backgroundSecondary.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: AppTheme.successGreen.withOpacity(0.2),
+                        color: AppTheme.successGreen.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Row(
@@ -784,10 +793,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryDefend.withOpacity(0.1),
+                      color: AppTheme.primaryDefend.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: AppTheme.primaryDefend.withOpacity(0.3),
+                        color: AppTheme.primaryDefend.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
@@ -913,7 +922,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
                       value: progress,
-                      backgroundColor: AppTheme.textGray.withOpacity(0.3),
+                      backgroundColor: AppTheme.textGray.withValues(alpha: 0.3),
                       valueColor: AlwaysStoppedAnimation<Color>(
                         progress >= 1.0 ? AppTheme.successGreen : AppTheme.successGold,
                       ),

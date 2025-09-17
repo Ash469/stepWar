@@ -1,7 +1,6 @@
 import 'dart:math';
 import '../database/database_helper.dart';
 import '../models/user.dart';
-import '../models/territory.dart';
 import 'step_economy_service.dart';
 import 'territory_service.dart';
 

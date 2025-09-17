@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import '../theme/app_theme.dart';
 import '../services/step_tracking_service.dart';
 

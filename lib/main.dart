@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'services/step_analytics_service.dart';
@@ -10,30 +11,35 @@ import 'services/game_manager_service.dart';
 import 'services/step_tracking_service.dart';
 import 'services/firebase_sync_service.dart';
 import 'services/persistence_service.dart';
-import 'providers/auth_provider.dart';
+import 'services/firestore_service.dart';
+import 'providers/auth_provider.dart' as app_auth;
 import 'providers/game_provider.dart';
 import 'theme/app_theme.dart';
+import 'screens/home_screen.dart';
 import 'screens/my_territory_screen.dart';
 import 'screens/world_screen.dart';
+import 'screens/track_workout_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/profile_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'debug/step_counter_debug.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
-  // Initialize persistence service first - this is crucial for data restoration
+  // Initialize Firestore service
+  final firestoreService = FirestoreService();
+  final firestoreInitialized = await firestoreService.initialize();
+  if (firestoreInitialized) {
+    // Test Firestore connection
+    await firestoreService.testConnection();
+  }
+  
   final persistenceService = PersistenceService();
   await persistenceService.initialize();
-  
-  // Record app launch for analytics
   await persistenceService.recordAppLaunch();
-  
   if (kDebugMode) {
     print('📦 App persistence initialized');
   }
@@ -63,7 +69,7 @@ class StepWarsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => app_auth.AuthProvider()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
       ],
       child: MaterialApp(
@@ -95,8 +101,10 @@ class _MainScreenState extends State<MainScreen>
   late Future<bool> _initializationFuture;
 
   final List<Widget> _screens = [
-    const MyTerritoryScreen(),
+    const HomeScreen(),
     const WorldScreen(),
+    const TrackWorkoutScreen(),
+    const MyTerritoryScreen(),
     const ProfileScreen(),
   ];
 
@@ -123,7 +131,6 @@ class _MainScreenState extends State<MainScreen>
     // Initialize analytics
     _analytics.initialize();
     
-    // Initialize the production step counter and start tracking
     _initializationFuture = _initializeAndStartTracking();
   }
 
@@ -132,12 +139,53 @@ class _MainScreenState extends State<MainScreen>
     // we just need to ensure it's running properly
     bool isInitialized = true;
       
-    // Initialize Firebase sync service
+    // Test Firestore write operations and user data fetching after user authentication
+    final firestoreService = FirestoreService();
+    try {
+      await firestoreService.testWriteOperation();
+      if (kDebugMode) {
+        print('✅ Firestore write test completed successfully');
+      }
+      
+      // Test user data fetching and display
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        if (kDebugMode) {
+          print('👤 [Main] Testing Firestore user data fetching...');
+        }
+        
+        final gameUser = await firestoreService.fetchOrCreateUser(currentUser);
+        if (gameUser != null) {
+          firestoreService.displayUserData(gameUser);
+          
+          final statsSummary = firestoreService.getUserStatsSummary(gameUser);
+          if (kDebugMode) {
+            print('📈 [Main] User Stats Summary JSON:');
+            print(statsSummary);
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Firestore user test failed: $e');
+      }
+      // Continue without user test
+    }
+    
+    // Initialize Firebase sync service and ensure it loads existing data
     final firebaseSyncService = FirebaseStepSyncService();
     try {
       await firebaseSyncService.initialize();
       if (kDebugMode) {
         print('🔄 Firebase sync service initialized');
+      }
+      
+      // Give a moment for the sync service to load existing data
+      // The Firebase sync service will automatically load data when it detects an authenticated user
+      await Future.delayed(const Duration(milliseconds: 1000));
+      
+      if (kDebugMode) {
+        print('📊 Current step count after Firebase sync: ${_stepTrackingService.dailySteps}');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -200,16 +248,16 @@ class _MainScreenState extends State<MainScreen>
 
           if (snapshot.hasError || snapshot.data == false) {
             return Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0.0, 0.0),
+                  center: Alignment(0.0, 0.0),
                   radius: 1.5,
                   colors: [
                     AppTheme.backgroundDark,
                     AppTheme.backgroundSecondary,
                     AppTheme.backgroundDark,
                   ],
-                  stops: const [0.0, 0.4, 1.0],
+                  stops: [0.0, 0.4, 1.0],
                 ),
               ),
               child: Center(
@@ -354,19 +402,18 @@ class _MainScreenState extends State<MainScreen>
       ),
       
       bottomNavigationBar: Container(
-        // ... (rest of your BottomNavigationBar code)
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              AppTheme.backgroundDark.withOpacity(0.8),
+              AppTheme.backgroundDark.withValues(alpha: 0.8),
               AppTheme.backgroundDark,
             ],
           ),
           boxShadow: [
             BoxShadow(
-              color: AppTheme.primaryAttack.withOpacity(0.1),
+              color: AppTheme.primaryAttack.withValues(alpha: 0.1),
               blurRadius: 20,
               offset: const Offset(0, -5),
             ),
@@ -393,7 +440,7 @@ class _MainScreenState extends State<MainScreen>
             BottomNavigationBarItem(
               icon: _buildNavIcon(Icons.home, 0),
               activeIcon: _buildNavIcon(Icons.home, 0, isActive: true),
-              label: 'My Territory',
+              label: 'Home',
             ),
             BottomNavigationBarItem(
               icon: _buildNavIcon(Icons.public, 1),
@@ -401,8 +448,18 @@ class _MainScreenState extends State<MainScreen>
               label: 'World',
             ),
             BottomNavigationBarItem(
-              icon: _buildNavIcon(Icons.person, 2),
-              activeIcon: _buildNavIcon(Icons.person, 2, isActive: true),
+              icon: _buildNavIcon(Icons.fitness_center, 2),
+              activeIcon: _buildNavIcon(Icons.fitness_center, 2, isActive: true),
+              label: 'Track',
+            ),
+            BottomNavigationBarItem(
+              icon: _buildNavIcon(Icons.shield, 3),
+              activeIcon: _buildNavIcon(Icons.shield, 3, isActive: true),
+              label: 'Territory',
+            ),
+            BottomNavigationBarItem(
+              icon: _buildNavIcon(Icons.person, 4),
+              activeIcon: _buildNavIcon(Icons.person, 4, isActive: true),
               label: 'Profile',
             ),
           ],
@@ -412,7 +469,6 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildNavIcon(IconData icon, int index, {bool isActive = false}) {
-    // ... (rest of your _buildNavIcon code)
     return AnimatedBuilder(
       animation: _fabAnimation,
       builder: (context, child) {
@@ -427,10 +483,10 @@ class _MainScreenState extends State<MainScreen>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isActive ? 
-                  AppTheme.successGold.withOpacity(0.2) : 
+                  AppTheme.successGold.withValues(alpha: 0.2) : 
                   Colors.transparent,
               border: isActive ? Border.all(
-                color: AppTheme.successGold.withOpacity(0.5),
+                color: AppTheme.successGold.withValues(alpha: 0.5),
                 width: 2,
               ) : null,
             ),
@@ -468,13 +524,13 @@ class _MainScreenState extends State<MainScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: granted 
-            ? AppTheme.successGreen.withOpacity(0.1)
-            : AppTheme.dangerOrange.withOpacity(0.1),
+            ? AppTheme.successGreen.withValues(alpha: 0.1)
+            : AppTheme.dangerOrange.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: granted 
-              ? AppTheme.successGreen.withOpacity(0.3)
-              : AppTheme.dangerOrange.withOpacity(0.3),
+              ? AppTheme.successGreen.withValues(alpha: 0.3)
+              : AppTheme.dangerOrange.withValues(alpha: 0.3),
         ),
       ),
       child: Row(
@@ -616,3 +672,5 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 }
+
+//this file is completed 
