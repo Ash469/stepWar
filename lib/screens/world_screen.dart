@@ -5,6 +5,7 @@ import '../models/territory.dart';
 import '../models/user.dart';
 import '../services/game_manager_service.dart';
 import '../services/attack_service.dart';
+import '../services/firebase_game_database.dart';
 import '../widgets/territory_card.dart';
 import 'dart:math' as math;
 import 'dart:async';
@@ -25,9 +26,12 @@ class _WorldScreenState extends State<WorldScreen>
   final List<String> _filters = ['All', 'Unowned', 'Peaceful', 'Under Attack', 'Cooldown'];
   
   final GameManagerService _gameManager = GameManagerService();
+  final FirebaseGameDatabase _firebaseDB = FirebaseGameDatabase();
   List<Territory> _territories = [];
   GameUser? _currentUser;
   bool _isLoading = true;
+  bool _hasError = false;
+  String? _errorMessage;
   StreamSubscription? _territoriesSubscription;
   StreamSubscription? _userSubscription;
 
@@ -56,24 +60,48 @@ class _WorldScreenState extends State<WorldScreen>
   
   Future<void> _initializeGameData() async {
     try {
+      // Initialize Firebase database
+      await _firebaseDB.initialize();
+      
       // Initialize game manager
       await _gameManager.initialize();
       
       // Load current user
       _currentUser = _gameManager.currentUser;
       
-      // Load territories
-      await _loadTerritories();
+      // Subscribe to Firestore territory updates (real-time)
+      _territoriesSubscription = _firebaseDB.listenToAllTerritories().listen(
+        (territories) {
+          if (mounted) {
+            setState(() {
+              _territories = territories;
+              _hasError = false;
+              _errorMessage = null;
+            });
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+              _errorMessage = 'Failed to load territories: $error';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to load territories: $error'),
+                backgroundColor: AppTheme.dangerOrange,
+                action: SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: _retryLoadingTerritories,
+                ),
+              ),
+            );
+          }
+        },
+      );
       
-      // Subscribe to updates
-      _territoriesSubscription = _gameManager.territoryUpdates.listen((territories) {
-        if (mounted) {
-          setState(() {
-            _territories = territories;
-          });
-        }
-      });
-      
+      // Subscribe to user updates from game manager
       _userSubscription = _gameManager.userUpdates.listen((user) {
         if (mounted) {
           setState(() {
@@ -100,16 +128,51 @@ class _WorldScreenState extends State<WorldScreen>
     }
   }
   
-  Future<void> _loadTerritories() async {
+
+  Future<void> _retryLoadingTerritories() async {
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+      _errorMessage = null;
+    });
+    
     try {
-      final territories = await _gameManager.getAllTerritories();
+      // Cancel existing subscription
+      _territoriesSubscription?.cancel();
+      
+      // Re-subscribe to territories
+      _territoriesSubscription = _firebaseDB.listenToAllTerritories().listen(
+        (territories) {
+          if (mounted) {
+            setState(() {
+              _territories = territories;
+              _hasError = false;
+              _errorMessage = null;
+            });
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+              _errorMessage = 'Failed to load territories: $error';
+            });
+          }
+        },
+      );
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _territories = territories;
+          _hasError = true;
+          _errorMessage = 'Failed to retry loading territories: $e';
         });
       }
-    } catch (e) {
-      print('Error loading territories: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -165,7 +228,9 @@ class _WorldScreenState extends State<WorldScreen>
                         valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryAttack),
                       ),
                     )
-                  : Column(
+                  : _hasError
+                      ? _buildErrorState()
+                      : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Header
@@ -290,6 +355,51 @@ class _WorldScreenState extends State<WorldScreen>
         territory: territory,
         gameManager: _gameManager,
         currentUser: _currentUser,
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: AppTheme.dangerOrange,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Failed to Load Territories',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: AppTheme.dangerOrange,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'An unexpected error occurred',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppTheme.textGray,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _retryLoadingTerritories,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryAttack,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

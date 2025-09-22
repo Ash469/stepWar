@@ -3,21 +3,23 @@ import '../models/user.dart';
 import '../models/territory.dart';
 import '../services/game_manager_service.dart';
 import '../services/persistence_service.dart';
+import '../services/firebase_game_database.dart';
+import '../services/territory_service.dart';
+import 'dart:async';
 
 class GameProvider extends ChangeNotifier {
   final GameManagerService _gameManager = GameManagerService();
   final PersistenceService _persistence = PersistenceService();
-  
+  final FirebaseGameDatabase _firebaseDB = FirebaseGameDatabase();
+  final TerritoryService _territoryService = TerritoryService(); 
   bool _isGameInitialized = false;
   bool _isLoading = false;
   String? _errorMessage;
-  
-  // Game state
   GameUser? _currentUser;
   List<Territory> _territories = [];
   List<Territory> _userTerritories = [];
-  
-  // Getters
+  StreamSubscription<List<Territory>>? _territoriesSubscription;
+  StreamSubscription<List<Territory>>? _userTerritoriesSubscription;
   bool get isGameInitialized => _isGameInitialized;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -25,35 +27,29 @@ class GameProvider extends ChangeNotifier {
   List<Territory> get territories => _territories;
   List<Territory> get userTerritories => _userTerritories;
   bool get isUserLoggedIn => _gameManager.isUserLoggedIn;
-  
-  // Step counts
   int get currentStepCount => _gameManager.getCurrentStepCount();
   int get sessionStepCount => _gameManager.getSessionStepCount();
 
   GameProvider() {
     _initialize();
   }
-
   /// Initialize the game provider
   Future<void> _initialize() async {
-    _setLoading(true);
-    
+    _setLoading(true);   
     try {
-      // Initialize persistence service
       await _persistence.initialize();
-      
-      // Load persisted game session data
+      await _firebaseDB.initialize();
       _loadPersistedGameSession();
-      
       _isGameInitialized = await _gameManager.initialize();
-      
       if (_isGameInitialized) {
-        // Subscribe to game manager streams
+        _territoriesSubscription = _firebaseDB.listenToAllTerritories().listen(
+          _onTerritoryUpdate,
+          onError: (error) {
+            _setError('Failed to load territories: $error');
+          },
+        );
         _gameManager.userUpdates.listen(_onUserUpdate);
-        _gameManager.territoryUpdates.listen(_onTerritoryUpdate);
         _gameManager.gameEvents.listen(_onGameEvent);
-        
-        // If we had a persisted game session, try to restore it
         await _restoreGameSessionIfNeeded();
       }
     } catch (e) {
@@ -67,17 +63,11 @@ class GameProvider extends ChangeNotifier {
   Future<bool> startGameSession(String firebaseUserId) async {
     _setLoading(true);
     _clearError();
-    
     try {
       final success = await _gameManager.loginUserWithFirebaseId(firebaseUserId);
-      
       if (success) {
-        // Load initial game data
         await _loadInitialGameData();
-        
-        // Persist game session
         await _persistGameSession();
-        
         if (kDebugMode) {
           print('🎮 Game session started for user: $firebaseUserId');
         }
@@ -92,35 +82,13 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
-  /// End current game session
-  Future<void> endGameSession() async {
-    await _gameManager.logoutUser();
-    _currentUser = null;
-    _territories = [];
-    _userTerritories = [];
-    
-    // Clear persisted game session
-    await _persistence.clearGameSession();
-    
-    notifyListeners();
-    
-    if (kDebugMode) {
-      print('🎮 Game session ended');
-    }
-  }
 
   /// Load initial game data
   Future<void> _loadInitialGameData() async {
     try {
-      // Load all territories
       _territories = await _gameManager.getAllTerritories();
-      
-      // Load user territories
       _userTerritories = await _gameManager.getCurrentUserTerritories();
-      
-      // Persist the loaded game data
       await _persistGameSession();
-      
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -129,47 +97,19 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
-  /// Launch an attack on a territory
-  // Future<AttackResult> launchAttack(String territoryId, int attackPoints) async {
-  //   _setLoading(true);
-  //   _clearError();
-    
-  //   try {
-  //     final result = await _gameManager.launchAttack(
-  //       territoryId: territoryId,
-  //       attackPoints: attackPoints,
-  //     );
-      
-  //     // Refresh user territories after attack
-  //     _userTerritories = await _gameManager.getCurrentUserTerritories();
-      
-  //     return result;
-  //   } catch (e) {
-  //     _setError('Attack failed: $e');
-  //     // return AttackResult.error;
-  //   } finally {
-  //     _setLoading(false);
-  //   }
-  // }
-
   /// Defend a territory
   Future<bool> defendTerritory(String territoryId, int shieldPoints) async {
     _setLoading(true);
-    _clearError();
-    
+    _clearError(); 
     try {
       final success = await _gameManager.defendTerritory(
         territoryId: territoryId,
         shieldPoints: shieldPoints,
       );
-      
       if (success) {
-        // Refresh user territories after defense
         _userTerritories = await _gameManager.getCurrentUserTerritories();
-        // Update persisted data
         await _persistGameSession();
       }
-      
       return success;
     } catch (e) {
       _setError('Defense failed: $e');
@@ -183,17 +123,13 @@ class GameProvider extends ChangeNotifier {
   Future<bool> reinforceTerritory(String territoryId, int shieldPoints) async {
     _setLoading(true);
     _clearError();
-    
     try {
       final success = await _gameManager.reinforceTerritory(
         territoryId: territoryId,
         shieldPoints: shieldPoints,
       );
-      
       if (success) {
-        // Refresh user territories after reinforcement
         _userTerritories = await _gameManager.getCurrentUserTerritories();
-        // Update persisted data
         await _persistGameSession();
       }
       
@@ -283,14 +219,12 @@ class GameProvider extends ChangeNotifier {
   // Event handlers
   void _onUserUpdate(GameUser user) {
     _currentUser = user;
-    _persistGameSession(); // Don't await to avoid blocking
+    _persistGameSession();
     notifyListeners();
   }
 
   void _onTerritoryUpdate(List<Territory> territories) {
     _territories = territories;
-    
-    // Update user territories if user is logged in
     if (_gameManager.isUserLoggedIn) {
       _gameManager.getCurrentUserTerritories().then((userTerritories) {
         _userTerritories = userTerritories;
@@ -305,22 +239,19 @@ class GameProvider extends ChangeNotifier {
     if (kDebugMode) {
       print('🎮 Game Event: ${event['type']}');
     }
-    
-    // Handle specific game events if needed
     switch (event['type']) {
       case 'user_login':
         _currentUser = event['user'] as GameUser?;
-        _persistGameSession(); // Don't await to avoid blocking
+        _persistGameSession();
         break;
       case 'user_logout':
         _currentUser = null;
         _userTerritories = [];
-        _persistence.clearGameSession(); // Don't await to avoid blocking
+        _persistence.clearGameSession(); 
         break;
       case 'attack_launched':
       case 'territory_defended':
       case 'territory_reinforced':
-        // These will trigger territory updates automatically
         break;
     }
     
@@ -354,7 +285,6 @@ class GameProvider extends ChangeNotifier {
       final gameData = _persistence.loadGameSession();
       final wasGameActive = gameData['isGameActive'] as bool;
       final currentUser = gameData['currentUser'] as GameUser?;
-      
       if (wasGameActive && currentUser != null) {
         _currentUser = currentUser;
         if (kDebugMode) print('📖 Restored game session for user: ${currentUser.nickname}');
@@ -370,13 +300,11 @@ class GameProvider extends ChangeNotifier {
   Future<void> _restoreGameSessionIfNeeded() async {
     if (_currentUser != null && _currentUser!.id.isNotEmpty) {
       try {
-        // Try to restore the game session with Firebase user ID (the id field is the Firebase UID)
         final success = await startGameSession(_currentUser!.id);
         if (success) {
           if (kDebugMode) print('✅ Game session restored successfully');
         } else {
           if (kDebugMode) print('⚠️ Failed to restore game session');
-          // Clear invalid persisted data
           await _persistence.clearGameSession();
         }
       } catch (e) {
@@ -400,9 +328,10 @@ class GameProvider extends ChangeNotifier {
       if (kDebugMode) print('❌ Failed to persist game session: $e');
     }
   }
-
   @override
   void dispose() {
+    _territoriesSubscription?.cancel();
+    _userTerritoriesSubscription?.cancel();
     _gameManager.dispose();
     super.dispose();
   }

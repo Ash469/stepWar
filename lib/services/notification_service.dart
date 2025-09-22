@@ -136,9 +136,7 @@ class NotificationService {
 
   /// Calculate estimated calories burned from step count
   double _calculateCaloriesFromSteps(int steps) {
-    // Standard calculation: ~0.04-0.05 calories per step for average adult
-    // This can be customized based on user weight/height if available
-    const double caloriesPerStep = 0.045; // Average for 70kg adult
+    const double caloriesPerStep = 0.045; 
     return steps * caloriesPerStep;
   }
 
@@ -160,7 +158,6 @@ class NotificationService {
     }
 
     try {
-      // Android notification details for milestone
       const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
         'milestone_channel',
         'Milestones & Achievements',
@@ -173,7 +170,6 @@ class NotificationService {
         styleInformation: BigTextStyleInformation(''),
       );
 
-      // iOS notification details for milestone
       const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
@@ -181,13 +177,11 @@ class NotificationService {
         threadIdentifier: 'milestones',
       );
 
-      // Combined notification details
       const NotificationDetails notificationDetails = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
 
-      // Show milestone notification with unique ID
       final milestoneId = DateTime.now().millisecondsSinceEpoch % 100000;
       await _notifications.show(
         milestoneId,

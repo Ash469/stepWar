@@ -150,9 +150,22 @@ class FirebaseGameDatabase {
   /// Get territories owned by a user
   Future<List<Territory>> getUserTerritories(String userId) async {
     try {
+      if (kDebugMode) {
+        print('🔍 [GameDB] Querying territories for user: $userId');
+        print('🎯 [GameDB] Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
+      }
+      
       final snapshot = await _territories
           .where('owner_id', isEqualTo: userId)
           .get();
+      
+      if (kDebugMode) {
+        print('📊 [GameDB] Found ${snapshot.docs.length} territories for user $userId');
+        for (final doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          print('   • ${data['name']} (owner_id: ${data['owner_id']})');
+        }
+      }
       
       return snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
@@ -180,6 +193,32 @@ class FirebaseGameDatabase {
         .where('status', isEqualTo: status.toString().split('.').last)
         .snapshots()
         .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Territory.fromFirestoreMap(data);
+      }).toList();
+    });
+  }
+
+  /// Listen to territories owned by a user
+  Stream<List<Territory>> listenToUserTerritories(String userId) {
+    if (kDebugMode) {
+      print('🔍 [GameDB] Setting up stream for user territories: $userId');
+      print('🎯 [GameDB] Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
+    }
+    
+    return _territories
+        .where('owner_id', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) {
+      if (kDebugMode) {
+        print('📊 [GameDB] Stream update: Found ${snapshot.docs.length} territories for user $userId');
+        for (final doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          print('   • ${data['name']} (owner_id: ${data['owner_id']})');
+        }
+      }
+      
       return snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         return Territory.fromFirestoreMap(data);

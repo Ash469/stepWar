@@ -3,6 +3,7 @@ import '../models/territory.dart';
 import '../models/user.dart';
 import '../models/battle.dart';
 import 'firebase_game_database.dart';
+import 'user_territory_service.dart';
 
 class TerritoryService {
   static final TerritoryService _instance = TerritoryService._internal();
@@ -10,6 +11,7 @@ class TerritoryService {
   TerritoryService._internal();
 
   final FirebaseGameDatabase _gameDB = FirebaseGameDatabase();
+  final UserTerritoryService _userTerritoryService = UserTerritoryService();
 
   // ==========================================================================
   // TERRITORY LIFECYCLE METHODS
@@ -363,6 +365,24 @@ class TerritoryService {
     return _gameDB.listenToTerritoriesByStatus(status);
   }
 
+  /// Listen to territories owned by a specific user
+  Stream<List<Territory>> listenToUserTerritories(String userId) {
+    return _gameDB.listenToUserTerritories(userId);
+  }
+
+  /// Listen to attackable territories for a user
+  Stream<List<Territory>> listenToAttackableTerritories(String userId) {
+    return _gameDB.listenToAllTerritories().map((territories) {
+      return territories.where((territory) {
+        // Can't attack your own territory
+        if (territory.ownerId == userId) return false;
+        
+        // Territory must be attackable
+        return territory.canBeAttacked;
+      }).toList();
+    });
+  }
+
   // ==========================================================================
   // MISSING METHODS - Added for compatibility
   // ==========================================================================
@@ -431,6 +451,48 @@ class TerritoryService {
     }
   }
 
+  // ==========================================================================
+  // HELPER METHODS - Using Stored User Data
+  // ==========================================================================
+  
+  /// Get current user's territories using stored authentication data
+  /// This is the main method that fulfills the requirement
+  Future<List<Territory>> getMyTerritories() async {
+    return await _userTerritoryService.getUserTerritoriesFromStoredData();
+  }
+  
+  /// Find territories owned by current user using cached data
+  Future<List<Territory>> findMyTerritories() async {
+    return await _userTerritoryService.findUserTerritoriesFromCache();
+  }
+  
+  
+  /// Get territories that need the current user's attention
+  Future<List<Territory>> getMyTerritoriesNeedingAttention() async {
+    return await _userTerritoryService.getTerritoriesNeedingAttention();
+  }
+  
+  /// Refresh current user's territory cache
+  Future<void> refreshMyTerritoryCache() async {
+    await _userTerritoryService.refreshTerritoryCache();
+  }
+  
+  /// Clear current user's territory cache
+  Future<void> clearMyTerritoryCache() async {
+    await _userTerritoryService.clearTerritoryCache();
+  }
+  
+  /// Get cache status for current user's territories
+  TerritoryCacheStatus getMyCacheStatus() {
+    return _userTerritoryService.getCacheStatus();
+  }
+  
+  /// Check if user has any territories needing immediate attention
+  Future<bool> hasTerritoriesNeedingAttention() async {
+    final territories = await getMyTerritoriesNeedingAttention();
+    return territories.isNotEmpty;
+  }
+  
   // ==========================================================================
   // UTILITY METHODS
   // ==========================================================================

@@ -1,24 +1,22 @@
 class GameConfig {
   final String id;
-  
-  // Step Economy Settings (from game rules: 3.4)
-  final int stepsPerAttackPoint; // Default: 100 steps = 1 Attack Point
-  final int attackPointsPerShieldHit; // Default: 10 Attack Points = 1 Shield Hit
-  final int stepsPerShieldPoint; // Default: 100 steps = 1 Shield Point (for defending)
-  
+  final int stepsPerAttackPoint;
+  final int attackPointsPerShieldHit;
+  final int stepsPerShieldPoint;
+
   // Daily Limits (from game rules: 3.2)
-  final int dailyAttackLimit; // Default: 3 attacks per day
-  
+  final int dailyAttackLimit;
+
   // Territory Settings (from game rules: 3.1, 3.5)
-  final int newUserStartingShieldMin; // Default: 1 hit
-  final int newUserStartingShieldMax; // Default: 2 hits
-  final int baseShieldOnCapture; // Default: 1 hit when territory is captured
-  final int cooldownHours; // Default: 24 hours protection after capture
+  final int newUserStartingShieldMin;
+  final int newUserStartingShieldMax;
+  final int baseShieldOnCapture;
+  final int cooldownHours;
   
   // Territory Generation
-  final int maxTerritories; // Maximum territories in the game
-  final bool allowUnownedTerritories; // Whether unowned territories can exist
-  
+  final int maxTerritories;
+  final bool allowUnownedTerritories;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -39,7 +37,7 @@ class GameConfig {
   });
 
   // Computed properties based on the step economy rules
-  int get stepsPerShieldHit => stepsPerAttackPoint * attackPointsPerShieldHit; // 1,000 steps = 1 shield hit
+  int get stepsPerShieldHit => stepsPerAttackPoint * attackPointsPerShieldHit; 
   
   Duration get cooldownDuration => Duration(hours: cooldownHours);
 

@@ -16,7 +16,7 @@ class DailyActivity {
   final int shieldPointsUsedToday;
   
   // Territory status for the day
-  final String? ownedTerritoryIdToday; // Territory owned at end of day
+  final String? ownedTerritoryIdToday; 
   final String? ownedTerritoryNameToday;
   final bool gainedTerritoryToday; // True if user captured a territory today
   final bool lostTerritoryToday; // True if user lost a territory today

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../services/game_manager_service.dart';
+import '../services/auth_service.dart';
 import 'my_territory_screen.dart';
 import 'world_screen.dart';
 
@@ -16,6 +17,7 @@ class _UserLoginScreenState extends State<UserLoginScreen>
     with TickerProviderStateMixin {
   final TextEditingController _nicknameController = TextEditingController();
   final GameManagerService _gameManager = GameManagerService();
+  final AuthService _authService = AuthService();
   
   late AnimationController _backgroundController;
   late Animation<double> _backgroundAnimation;
@@ -48,6 +50,35 @@ class _UserLoginScreenState extends State<UserLoginScreen>
 
   Future<void> _initializeGameManager() async {
     await _gameManager.initialize();
+    
+    // Check if user is already logged in with stored Firestore user ID
+    await _checkExistingLogin();
+  }
+
+  Future<void> _checkExistingLogin() async {
+    try {
+      final storedUserId = await _authService.getStoredFirestoreUserId();
+      final isLoggedIn = await _authService.getStoredLoginState();
+      
+      if (isLoggedIn && storedUserId != null) {
+        print('🔄 Found stored Firestore user ID: $storedUserId');
+        print('🎯 Attempting automatic login...');
+        
+        final success = await _gameManager.loginUserWithFirebaseId(storedUserId);
+        if (success && mounted) {
+          print('✅ Automatic login successful!');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => const GameMainScreen(),
+            ),
+          );
+        } else {
+          print('❌ Automatic login failed, showing login screen');
+        }
+      }
+    } catch (e) {
+      print('❌ Error checking existing login: $e');
+    }
   }
 
   @override
@@ -214,6 +245,24 @@ class _UserLoginScreenState extends State<UserLoginScreen>
                                     ),
                                   ),
                           ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          // Google Sign-In Button
+                          ElevatedButton.icon(
+                            onPressed: _isLoading ? null : _handleGoogleSignIn,
+                            icon: const Icon(Icons.login, size: 20),
+                            label: const Text('Sign in with Google'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAttack,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 4,
+                            ),
+                          ),
                         ],
                       ),
                     ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideY(begin: 0.5),
@@ -318,6 +367,52 @@ class _UserLoginScreenState extends State<UserLoginScreen>
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to create account. Please try again.';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      print('🔄 Starting Google Sign-In...');
+      final userCredential = await _authService.signInWithGoogle();
+      
+      if (userCredential?.user != null) {
+        final firebaseUserId = userCredential!.user!.uid;
+        print('✅ Google Sign-In successful: $firebaseUserId');
+        
+        // Login to game with Firebase user ID
+        final success = await _gameManager.loginUserWithFirebaseId(firebaseUserId);
+        
+        if (success && mounted) {
+          print('✅ Game login successful!');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => const GameMainScreen(),
+            ),
+          );
+        } else {
+          setState(() {
+            _errorMessage = 'Failed to login to game. Please try again.';
+          });
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Google Sign-In was cancelled or failed.';
+        });
+      }
+    } catch (e) {
+      print('❌ Google Sign-In error: $e');
+      setState(() {
+        _errorMessage = 'Google Sign-In failed. Please try again.';
       });
     } finally {
       setState(() {

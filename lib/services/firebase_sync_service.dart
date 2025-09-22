@@ -69,9 +69,9 @@ class FirebaseStepSyncService {
 
   /// Start syncing step data for a specific user
   Future<void> _startSyncForUser(String userId) async {
-    if (_currentUserId == userId) return; // Already syncing for this user
+    if (_currentUserId == userId) return; 
 
-    _stopSync(); // Stop any existing sync
+    _stopSync(); 
     _currentUserId = userId;
 
     try {

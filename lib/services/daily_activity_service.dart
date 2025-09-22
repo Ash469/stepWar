@@ -9,10 +9,6 @@ class DailyActivityService {
 
   final FirebaseGameDatabase _gameDB = FirebaseGameDatabase();
 
-  // ==========================================================================
-  // DAILY ACTIVITY TRACKING
-  // ==========================================================================
-
   /// Get or create today's activity record for user
   Future<DailyActivity> getTodayActivity(String userId, String userNickname) async {
     try {
@@ -20,7 +16,6 @@ class DailyActivityService {
     } catch (e) {
       if (kDebugMode) print('❌ [DailyActivity] Error getting today activity: $e');
       
-      // Return default activity on error
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       return DailyActivity(

@@ -135,29 +135,18 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<bool> _initializeAndStartTracking() async {
-    // Since step tracking service is already initialized in main(), 
-    // we just need to ensure it's running properly
-    bool isInitialized = true;
-      
+    bool isInitialized = true;   
     // Test Firestore write operations and user data fetching after user authentication
     final firestoreService = FirestoreService();
     try {
-      await firestoreService.testWriteOperation();
-      if (kDebugMode) {
-        print('✅ Firestore write test completed successfully');
-      }
-      
-      // Test user data fetching and display
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser != null) {
         if (kDebugMode) {
           print('👤 [Main] Testing Firestore user data fetching...');
         }
-        
         final gameUser = await firestoreService.fetchOrCreateUser(currentUser);
         if (gameUser != null) {
           firestoreService.displayUserData(gameUser);
-          
           final statsSummary = firestoreService.getUserStatsSummary(gameUser);
           if (kDebugMode) {
             print('📈 [Main] User Stats Summary JSON:');
@@ -169,7 +158,6 @@ class _MainScreenState extends State<MainScreen>
       if (kDebugMode) {
         print('⚠️ Firestore user test failed: $e');
       }
-      // Continue without user test
     }
     
     // Initialize Firebase sync service and ensure it loads existing data
@@ -179,9 +167,6 @@ class _MainScreenState extends State<MainScreen>
       if (kDebugMode) {
         print('🔄 Firebase sync service initialized');
       }
-      
-      // Give a moment for the sync service to load existing data
-      // The Firebase sync service will automatically load data when it detects an authenticated user
       await Future.delayed(const Duration(milliseconds: 1000));
       
       if (kDebugMode) {
@@ -191,13 +176,10 @@ class _MainScreenState extends State<MainScreen>
       if (kDebugMode) {
         print('⚠️ Firebase sync service failed to initialize: $e');
       }
-      // Continue without Firebase sync
     }
     
     if (kDebugMode) {
       print('🚀 Step tracking service initialized and started');
-      
-      // Log analytics report periodically in debug mode
       Timer.periodic(const Duration(minutes: 5), (timer) {
         final report = _analytics.getReport();
         print('📊 Analytics Report:\n${report.getSummary()}');
@@ -212,8 +194,8 @@ class _MainScreenState extends State<MainScreen>
   void dispose() {
     _pageController.dispose();
     _fabController.dispose();
-    _stepTrackingService.dispose(); // Dispose the step tracking service
-    _analytics.dispose(); // Dispose analytics
+    _stepTrackingService.dispose();
+    _analytics.dispose();
     super.dispose();
   }
 
@@ -221,17 +203,12 @@ class _MainScreenState extends State<MainScreen>
     setState(() {
       _currentIndex = index;
     });
-    
     _pageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
-    
-    // Haptic feedback
     HapticFeedback.lightImpact();
-    
-    // FAB animation
     _fabController.reset();
     _fabController.forward();
   }
@@ -245,7 +222,6 @@ class _MainScreenState extends State<MainScreen>
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError || snapshot.data == false) {
             return Container(
               decoration: const BoxDecoration(
@@ -292,7 +268,6 @@ class _MainScreenState extends State<MainScreen>
                         ),
                       ),
                       const SizedBox(height: 32),
-                      
                       // Permission status check
                       FutureBuilder<Map<String, bool>>(
                         future: _checkPermissionStatuses(),
@@ -302,20 +277,16 @@ class _MainScreenState extends State<MainScreen>
                               valueColor: AlwaysStoppedAnimation<Color>(AppTheme.successGold),
                             );
                           }
-                          
                           final permissions = permSnapshot.data ?? {};
                           final sensorsGranted = permissions['sensors'] ?? false;
                           final activityGranted = permissions['activity'] ?? false;
                           
                           return Column(
                             children: [
-                              // Permission status indicators
                               _buildPermissionStatus('Motion & Fitness Sensors', sensorsGranted),
                               const SizedBox(height: 8),
                               _buildPermissionStatus('Activity Recognition', activityGranted),
                               const SizedBox(height: 24),
-                              
-                              // Action buttons
                               if (!sensorsGranted || !activityGranted) ...[
                                 SizedBox(
                                   width: double.infinity,

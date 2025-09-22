@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import '../models/territory.dart';
 
 /// Centralized persistence service for managing all app data using SharedPreferences
 /// This service handles auth state, step counts, game data, and user preferences
@@ -30,8 +31,6 @@ class PersistenceService {
     }
     return _prefs!;
   }
-
-  // MARK: - Authentication Data
   
   /// Save authentication state
   Future<void> saveAuthState({
@@ -431,6 +430,112 @@ class PersistenceService {
     }
   }
 
+  // MARK: - Territory Data
+  
+  /// Save user territories to local storage
+  Future<void> saveUserTerritories(String userId, List<Territory> territories) async {
+    try {
+      // Create a key for this specific user's territories
+      final territoryKey = 'user_territories_$userId';
+      final lastUpdatedKey = 'user_territories_updated_$userId';
+      
+      // Serialize territories to JSON
+      final territoriesJson = territories.map((territory) => territory.toMap()).toList();
+      final territoryDataJson = jsonEncode(territoriesJson);
+      
+      // Save territories and timestamp
+      await prefs.setString(territoryKey, territoryDataJson);
+      await prefs.setString(lastUpdatedKey, DateTime.now().toIso8601String());
+      
+      if (kDebugMode) {
+        print('💾 [Territory-Cache] Saved ${territories.length} territories for user: $userId');
+        for (final territory in territories) {
+          print('   • ${territory.name} (Status: ${territory.status})');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Failed to save territories: $e');
+    }
+  }
+  
+  /// Load user territories from local storage
+  Future<List<Territory>> loadUserTerritories(String userId) async {
+    try {
+      final territoryKey = 'user_territories_$userId';
+      final territoryDataJson = prefs.getString(territoryKey);
+      
+      if (territoryDataJson == null) {
+        if (kDebugMode) print('📝 [Territory-Cache] No cached territories found for user: $userId');
+        return [];
+      }
+      
+      // Deserialize territories from JSON
+      final territoriesData = jsonDecode(territoryDataJson) as List<dynamic>;
+      final territories = territoriesData
+          .map((territoryMap) => Territory.fromMap(territoryMap as Map<String, dynamic>))
+          .toList();
+      
+      if (kDebugMode) {
+        print('📝 [Territory-Cache] Loaded ${territories.length} cached territories for user: $userId');
+        for (final territory in territories) {
+          print('   • ${territory.name} (Status: ${territory.status})');
+        }
+      }
+      
+      return territories;
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Failed to load territories: $e');
+      return [];
+    }
+  }
+  
+  /// Get the last time territories were updated for a user
+  DateTime? getUserTerritoriesLastUpdated(String userId) {
+    try {
+      final lastUpdatedKey = 'user_territories_updated_$userId';
+      final lastUpdatedString = prefs.getString(lastUpdatedKey);
+      
+      if (lastUpdatedString != null) {
+        return DateTime.tryParse(lastUpdatedString);
+      }
+      
+      return null;
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Failed to get last updated time: $e');
+      return null;
+    }
+  }
+  
+  /// Clear user territories from cache
+  Future<void> clearUserTerritories(String userId) async {
+    try {
+      final territoryKey = 'user_territories_$userId';
+      final lastUpdatedKey = 'user_territories_updated_$userId';
+      
+      await prefs.remove(territoryKey);
+      await prefs.remove(lastUpdatedKey);
+      
+      if (kDebugMode) print('🗑️ [Territory-Cache] Cleared territories for user: $userId');
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Failed to clear territories: $e');
+    }
+  }
+  
+  /// Check if cached territories are still fresh (within specified minutes)
+  bool areUserTerritoriesFresh(String userId, {int maxAgeMinutes = 5}) {
+    final lastUpdated = getUserTerritoriesLastUpdated(userId);
+    if (lastUpdated == null) return false;
+    
+    final age = DateTime.now().difference(lastUpdated);
+    final isFresh = age.inMinutes < maxAgeMinutes;
+    
+    if (kDebugMode) {
+      print('🕰️ [Territory-Cache] Cache age: ${age.inMinutes} minutes (fresh: $isFresh)');
+    }
+    
+    return isFresh;
+  }
+  
   // MARK: - Utility Methods
   
   /// Clear all app data (for logout or reset)
@@ -460,7 +565,15 @@ class PersistenceService {
       }
       await prefs.remove('step_history_dates');
       
-      if (kDebugMode) print('🗑️ All user data and step data cleared on logout');
+      // Clear territory caches for all users
+      final allKeys = prefs.getKeys();
+      for (final key in allKeys) {
+        if (key.startsWith('user_territories_')) {
+          await prefs.remove(key);
+        }
+      }
+      
+      if (kDebugMode) print('🗑️ All user data, step data, and territory caches cleared on logout');
     } catch (e) {
       if (kDebugMode) print('❌ Failed to clear all data: $e');
     }

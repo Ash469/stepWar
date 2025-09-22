@@ -1,13 +1,13 @@
 class GameUser {
-  final String id; // Firebase UID
+  final String id; 
   final String nickname;
-  final String? email; // Firebase email
-  final String? photoURL; // Firebase profile photo
+  final String? email;
+  final String? photoURL;
   final int totalSteps;
-  final int attackPoints; // Accumulated attack points (100 steps = 1 attack point)
-  final int shieldPoints; // Points available for defending (100 steps = 1 shield point)
+  final int attackPoints;
+  final int shieldPoints;
   final int attacksUsedToday;
-  final DateTime lastAttackReset; // For daily attack limit tracking
+  final DateTime lastAttackReset; 
   final DateTime createdAt;
   final DateTime updatedAt;
   
@@ -19,7 +19,7 @@ class GameUser {
   
   // Settings
   final bool notificationsEnabled;
-  final String? deviceToken; // For push notifications
+  final String? deviceToken;
 
   const GameUser({
     required this.id,
@@ -42,7 +42,7 @@ class GameUser {
   });
 
   // Computed properties
-  bool get canAttackToday => attacksUsedToday < 3; // Default daily limit
+  bool get canAttackToday => attacksUsedToday < 3; 
   
   bool get needsAttackReset {
     final now = DateTime.now();

@@ -4,7 +4,7 @@ import '../models/user.dart';
 import '../models/territory.dart';
 import '../services/production_step_counter.dart';
 import '../database/database_helper.dart';
-import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 import 'step_economy_service.dart';
 import 'territory_service.dart' as territory_svc;
 import 'attack_service.dart' as attack_svc;
@@ -129,16 +129,24 @@ class GameManagerService {
   /// Login user with Firebase authentication
   Future<bool> loginUserWithFirebaseId(String firebaseUserId) async {
     try {
-      final authService = AuthService();
+      final firestoreService = FirestoreService();
+      await firestoreService.initialize();
       
-      // Get user profile from Firebase
-      GameUser? user = await authService.getUserProfile(firebaseUserId);
+      // Get user profile from Firestore
+      GameUser? user = await firestoreService.getFirestoreUser(firebaseUserId);
       
       if (user == null) {
         if (kDebugMode) {
           print('❌ User profile not found in Firestore for Firebase user: $firebaseUserId');
+          print('🎯 Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
         }
         return false;
+      }
+
+      if (kDebugMode) {
+        print('✅ User profile loaded from Firestore: ${user.nickname} (ID: ${user.id})');
+        print('🎯 Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
+        print('🔍 User ID matches expected: ${user.id == "ttIkh7ZY8ENdUsmVIH4h0m4DCl82"}');
       }
 
       _currentUserId = user.id;
@@ -187,15 +195,16 @@ class GameManagerService {
     if (_currentUser == null) return;
     
     try {
-      final authService = AuthService();
-      await authService.updateUserProfile(_currentUser!);
+      final firestoreService = FirestoreService();
+      await firestoreService.initialize();
+      await firestoreService.updateFirestoreUser(_currentUser!);
       
       if (kDebugMode) {
-        print('🔄 User data synced with Firebase');
+        print('🔄 User data synced with Firestore');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Firebase sync failed: $e');
+        print('❌ Firestore sync failed: $e');
       }
     }
   }
@@ -565,12 +574,19 @@ class GameManagerService {
       // Get current pedometer reading - this becomes the baseline
       final currentDeviceSteps = _stepCounter.totalSteps;
       
-      // Store this baseline in SharedPreferences for this user
-      final authService = AuthService();
-      await authService.updateUserFields(user.id, {
-        'step_baseline': currentDeviceSteps,
-        'baseline_established_at': DateTime.now().millisecondsSinceEpoch,
-      });
+      // Store this baseline in Firestore for this user
+      final firestoreService = FirestoreService();
+      await firestoreService.initialize();
+      
+      final updatedUser = user.copyWith(
+        totalSteps: 0, // Reset to 0 for new users
+        updatedAt: DateTime.now(),
+      );
+      
+      await firestoreService.updateFirestoreUser(updatedUser);
+      
+      // Update the current user reference
+      _currentUser = updatedUser;
       
       if (kDebugMode) {
         print('📍 Step baseline established for new user ${user.nickname}: $currentDeviceSteps steps');

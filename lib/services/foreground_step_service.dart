@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 /// Foreground service that creates a truly non-removable notification
-/// This runs in a separate isolate and keeps the notification persistent
 class ForegroundStepService {
   static final ForegroundStepService _instance = ForegroundStepService._internal();
   factory ForegroundStepService() => _instance;

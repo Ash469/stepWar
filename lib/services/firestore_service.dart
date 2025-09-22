@@ -102,43 +102,43 @@ class FirestoreService {
   }
 
   /// Create a test document to verify write permissions
-  Future<bool> testWriteOperation() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        if (kDebugMode) {
-          print('⚠️ No authenticated user for write test');
-        }
-        return false;
-      }
+  // Future<bool> testWriteOperation() async {
+  //   try {
+  //     final user = FirebaseAuth.instance.currentUser;
+  //     if (user == null) {
+  //       if (kDebugMode) {
+  //         print('⚠️ No authenticated user for write test');
+  //       }
+  //       return false;
+  //     }
 
-      if (kDebugMode) {
-        print('✍️ Testing Firestore write operation...');
-      }
+  //     if (kDebugMode) {
+  //       print('✍️ Testing Firestore write operation...');
+  //     }
 
-      // Create a test document in users collection
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('tests')
-          .doc('connection_test')
-          .set({
-        'timestamp': FieldValue.serverTimestamp(),
-        'test_type': 'firestore_integration',
-        'success': true,
-      });
+  //     // Create a test document in users collection
+  //     await _firestore
+  //         .collection('users')
+  //         .doc(user.uid)
+  //         .collection('tests')
+  //         .doc('connection_test')
+  //         .set({
+  //       'timestamp': FieldValue.serverTimestamp(),
+  //       'test_type': 'firestore_integration',
+  //       'success': true,
+  //     });
 
-      if (kDebugMode) {
-        print('✅ Firestore write test successful!');
-      }
-      return true;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Firestore write test failed: $e');
-      }
-      return false;
-    }
-  }
+  //     if (kDebugMode) {
+  //       print('✅ Firestore write test successful!');
+  //     }
+  //     return true;
+  //   } catch (e) {
+  //     if (kDebugMode) {
+  //       print('❌ Firestore write test failed: $e');
+  //     }
+  //     return false;
+  //   }
+  // }
 
   /// Read user document by user ID
   Future<DocumentSnapshot?> getUserDocument(String userId) async {
@@ -190,15 +190,11 @@ class FirestoreService {
     return _firestore.collection('config').doc(configType).snapshots();
   }
 
-  // ==========================================================================
-  // USER DATA METHODS
-  // ==========================================================================
+
   
   /// Get users collection reference
   CollectionReference get _users => _firestore.collection('users');
   
-  /// Fetch user data from Firestore. If user doesn't exist, create a new user document.
-  /// This is the main method to call after user authentication.
   Future<GameUser?> fetchOrCreateUser(User firebaseUser, {int? existingSteps}) async {
     if (!_isInitialized) {
       if (kDebugMode) {
@@ -331,24 +327,18 @@ class FirestoreService {
         'notifications_enabled': true,
         'device_token': null,
         
-        // Metadata
-        'app_version': '1.0.0',
-        'platform': 'flutter',
       };
       
       if (kDebugMode) {
         print('📝 [FS-User] User data to write: $userData');
       }
       
-      // Write to Firestore
       await _users.doc(firebaseUser.uid).set(userData);
       
       if (kDebugMode) {
         print('✅ [FS-User] Successfully created user document');
       }
-      
-      // Return the created user by reading it back (to get server timestamps)
-      await Future.delayed(const Duration(milliseconds: 500)); // Allow server timestamps to be set
+      await Future.delayed(const Duration(milliseconds: 500)); 
       return await getFirestoreUser(firebaseUser.uid);
       
     } catch (e, stackTrace) {
@@ -415,32 +405,7 @@ class FirestoreService {
   /// Display user data in console (for debugging)
   void displayUserData(GameUser user) {
     if (kDebugMode) {
-      print('\n' + '=' * 60);
-      print('👤 USER DATA DISPLAY');
-      print('=' * 60);
-      print('🆔 User ID: ${user.id}');
-      print('🏷️ Nickname: ${user.nickname}');
-      print('📧 Email: ${user.email ?? 'Not provided'}');
-      print('🖼️ Photo URL: ${user.photoURL ?? 'No photo'}');
-      print('📅 Created: ${user.createdAt}');
-      print('🔄 Updated: ${user.updatedAt}');
-      print('');
-      print('🎮 GAME STATISTICS:');
-      print('🏃‍♂️ Total Steps: ${user.totalSteps}');
-      print('⚔️ Attack Points: ${user.attackPoints}');
-      print('🛡️ Shield Points: ${user.shieldPoints}');
-      print('🗓️ Attacks Used Today: ${user.attacksUsedToday}/3');
-      print('🏰 Territories Owned: ${user.territoriesOwned}');
-      print('');
-      print('📊 BATTLE RECORD:');
-      print('⚔️ Total Attacks Launched: ${user.totalAttacksLaunched}');
-      print('🏆 Total Defenses Won: ${user.totalDefensesWon}');
-      print('🏴‍☠️ Total Territories Captured: ${user.totalTerritoriesCaptured}');
-      print('');
-      print('⚙️ SETTINGS:');
-      print('🔔 Notifications: ${user.notificationsEnabled ? 'Enabled' : 'Disabled'}');
-      print('📱 Device Token: ${user.deviceToken ?? 'Not set'}');
-      print('=' * 60 + '\n');
+      print('firestore user data saved successfully');
     }
   }
   
