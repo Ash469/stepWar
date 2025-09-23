@@ -30,6 +30,7 @@ class StepEconomyService {
   /// Rule: 100 steps = 1 Attack Point (configurable)
   Future<int> stepsToAttackPoints(int steps) async {
     final config = await getGameConfig();
+    if (config.stepsPerAttackPoint <= 0) return 0; // Avoid division by zero
     return steps ~/ config.stepsPerAttackPoint;
   }
 
@@ -37,6 +38,7 @@ class StepEconomyService {
   /// Rule: 10 Attack Points = 1 Shield Hit (configurable)
   Future<int> attackPointsToShieldHits(int attackPoints) async {
     final config = await getGameConfig();
+    if (config.attackPointsPerShieldHit <= 0) return 0;
     return attackPoints ~/ config.attackPointsPerShieldHit;
   }
 
@@ -44,6 +46,7 @@ class StepEconomyService {
   /// Rule: 1,000 steps = 1 shield hit (100 steps → 1 attack point → 1/10 shield hit)
   Future<int> stepsToShieldHits(int steps) async {
     final config = await getGameConfig();
+    if (config.stepsPerShieldHit <= 0) return 0;
     return steps ~/ config.stepsPerShieldHit;
   }
 
@@ -51,6 +54,7 @@ class StepEconomyService {
   /// Rule: 100 steps = 1 Shield Point (configurable)
   Future<int> stepsToShieldPoints(int steps) async {
     final config = await getGameConfig();
+    if (config.stepsPerShieldPoint <= 0) return 0;
     return steps ~/ config.stepsPerShieldPoint;
   }
 
@@ -72,100 +76,52 @@ class StepEconomyService {
     return shieldPoints * config.stepsPerShieldPoint;
   }
 
-  /// Update user's step count and convert to game points
-  /// Respects user baseline to ensure new users start with 0 game progress
-  Future<GameUser> processStepUpdate(String userId, int rawStepCount) async {
-    final user = await _dbHelper.getUser(userId);
-    if (user == null) {
-      throw Exception('User not found: $userId');
-    }
-
-    // Get user's step baseline from Firebase (for new users)
-    int stepBaseline = 0;
-    try {
-      final authService = AuthService();
-      final userProfile = await authService.getUserProfile(userId);
-      if (userProfile != null) {
-        // Try to get step_baseline from the user data
-        // Note: This would require reading from Firebase Realtime Database
-        // For now, we'll use a different approach with SharedPreferences or check if totalSteps is 0
-      }
-    } catch (e) {
-      // Continue with baseline = 0 if we can't fetch it
-    }
-
-    // For new users (totalSteps == 0), we need to establish or use their baseline
-    // Only count steps ABOVE the baseline towards game progress
-    int gameRelevantStepCount = rawStepCount;
+  /// Update user's step count and convert to game points.
+  /// This now accepts the full GameUser object to avoid incorrect DB lookups.
+  Future<GameUser> processStepUpdate(GameUser user, int rawStepCount) async {
+    // FIX: The logic here was flawed. 'user.totalSteps' is being used as the last
+    // synced *daily* step count. The original logic had a bug that prevented
+    // new users (with 0 steps) from ever getting points. This revised logic is robust.
     
-    // If this is a new user's first step update, we need to be more careful
-    if (user.totalSteps == 0) {
-      // This is likely the first time we're processing steps for this user
-      // We should only count new steps from this point forward
-      // Set the baseline to the current raw count so future steps count
-      stepBaseline = rawStepCount;
-      gameRelevantStepCount = 0; // No game progress for historical steps
-      
-      print('📊 New User Step Setup:');
-      print('  Raw pedometer steps: $rawStepCount');
-      print('  Setting baseline to: $stepBaseline');
-      print('  Game-relevant steps: $gameRelevantStepCount (starting fresh)');
-    } else {
-      // Existing user - count all steps as game-relevant
-      gameRelevantStepCount = rawStepCount;
-    }
+    // 'rawStepCount' is the current total daily steps from the device.
+    // 'user.totalSteps' is the last daily step count we synced for this user.
+    final stepDifference = rawStepCount - user.totalSteps;
 
-    print('📊 Step Update Debug:');
-    print('  User stored steps: ${user.totalSteps}');
-    print('  Raw step count: $rawStepCount');
-    print('  Game-relevant step count: $gameRelevantStepCount');
-    print('  Current attack points: ${user.attackPoints}');
-    print('  Current shield points: ${user.shieldPoints}');
-
-    // Calculate step difference based on game-relevant steps
-    final stepDifference = gameRelevantStepCount - user.totalSteps;
-    print('  Step difference: $stepDifference');
-    
     if (stepDifference <= 0) {
-      print('  No new steps to process (difference <= 0)');
-      return user; // No new steps to process
+      // No new steps to process, or the counter was reset (new day).
+      // Return the user object as is, without changing points.
+      return user;
     }
 
-    // Calculate points based on TOTAL cumulative GAME-RELEVANT steps
-    final totalAttackPointsEarned = await stepsToAttackPoints(gameRelevantStepCount);
-    final totalShieldPointsEarned = await stepsToShieldPoints(gameRelevantStepCount);
-    
-    // Calculate how many points were previously earned from old step count
-    final previousTotalAttackPoints = await stepsToAttackPoints(user.totalSteps);
-    final previousTotalShieldPoints = await stepsToShieldPoints(user.totalSteps);
-    
-    // Calculate the new points earned from the step difference
-    final newAttackPointsEarned = totalAttackPointsEarned - previousTotalAttackPoints;
-    final newShieldPointsEarned = totalShieldPointsEarned - previousTotalShieldPoints;
-    
-    // Add newly earned points to existing available points
-    final newAvailableAttackPoints = user.attackPoints + newAttackPointsEarned;
-    final newAvailableShieldPoints = user.shieldPoints + newShieldPointsEarned;
-    
-    print('  Total attack points from $gameRelevantStepCount steps: $totalAttackPointsEarned');
-    print('  Previous total attack points from ${user.totalSteps} steps: $previousTotalAttackPoints');
-    print('  New attack points earned: $newAttackPointsEarned');
-    print('  New available attack points: $newAvailableAttackPoints');
-    print('  New available shield points: $newAvailableShieldPoints');
+    // Calculate total points that *should* have been awarded for all of today's steps.
+    final totalAttackPointsFromAllSteps = await stepsToAttackPoints(rawStepCount);
+    final totalShieldPointsFromAllSteps = await stepsToShieldPoints(rawStepCount);
 
-    // Update user with new totals (store game-relevant step count)
-    final updatedUser = user.copyWith(
-      totalSteps: gameRelevantStepCount,
-      attackPoints: newAvailableAttackPoints,
-      shieldPoints: newAvailableShieldPoints,
-    );
-    
-    print('  Final attack points: ${updatedUser.attackPoints}');
-    print('  Final shield points: ${updatedUser.shieldPoints}');
+    // Calculate points that were *already* awarded based on the previous step count.
+    final previouslyAwardedAttackPoints = await stepsToAttackPoints(user.totalSteps);
+    final previouslyAwardedShieldPoints = await stepsToShieldPoints(user.totalSteps);
 
-    await _dbHelper.updateUser(updatedUser);
-    return updatedUser;
+    // The new points to add are the difference between the total deserved and what was already given.
+    // This correctly handles fractional steps (e.g., earning 1 point after 18 steps if 10 steps = 1 point).
+    final newAttackPointsToAdd = totalAttackPointsFromAllSteps - previouslyAwardedAttackPoints;
+    final newShieldPointsToAdd = totalShieldPointsFromAllSteps - previouslyAwardedShieldPoints;
+
+    // Only create a new user object if something actually changed.
+    if (newAttackPointsToAdd > 0 || newShieldPointsToAdd > 0) {
+        final updatedUser = user.copyWith(
+            // Update 'totalSteps' to the latest daily count for the next sync cycle.
+            totalSteps: rawStepCount,
+            attackPoints: user.attackPoints + newAttackPointsToAdd,
+            shieldPoints: user.shieldPoints + newShieldPointsToAdd,
+        );
+        return updatedUser;
+    } else {
+        // Even if no new points were earned (e.g., walked 9 steps, needs 10 for a point),
+        // we should still update the step count in the user object for the next sync.
+        return user.copyWith(totalSteps: rawStepCount);
+    }
   }
+
 
   /// Spend attack points (returns updated user or null if insufficient points)
   Future<GameUser?> spendAttackPoints(String userId, int pointsToSpend) async {

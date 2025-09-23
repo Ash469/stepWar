@@ -66,25 +66,29 @@ class UserTerritoryService {
   }
 
   /// Get user territories using stored user data from local storage
-  /// This is the main method that fulfills the requirement
   Future<List<Territory>> getUserTerritoriesFromStoredData() async {
     try {
       // Load stored auth state to get user ID
       final authData = _persistence.loadAuthState();
       final userId = authData['userId'] as String?;
+      final firebaseUserId = authData['firebaseUserId'] as String?;
       
-      if (userId == null) {
-        if (kDebugMode) print('⚠️ [UserTerritory] No user ID found in stored data');
+      final effectiveUserId = userId ?? firebaseUserId;
+      
+      if (effectiveUserId == null) {
+        if (kDebugMode) {
+          print('⚠️ [UserTerritory] No user ID found in stored data');
+          print('📝 Auth Data: $authData');
+        }
         return [];
       }
       
       if (kDebugMode) {
-        print('📊 [UserTerritory] Using stored user ID: $userId');
-        print('firestore user data saved successfully in local storage');
+        print('🔍 [UserTerritory] Getting territories for stored user ID: $effectiveUserId');
       }
       
       // Get territories for this user
-      return await getUserTerritories(userId);
+      return await getUserTerritories(effectiveUserId);
       
     } catch (e) {
       if (kDebugMode) print('❌ [UserTerritory] Error getting territories from stored data: $e');
@@ -215,8 +219,6 @@ class UserTerritoryService {
         if (kDebugMode) print('⚠️ [UserTerritory] No user ID for cache clearing');
         return;
       }
-      
-      await _persistence.clearUserTerritories(actualUserId);
       
     } catch (e) {
       if (kDebugMode) print('❌ [UserTerritory] Error clearing territory cache: $e');

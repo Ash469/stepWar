@@ -8,6 +8,8 @@ import 'persistence_service.dart';
 import 'step_state_manager.dart';
 import 'foreground_step_service.dart';
 import 'auth_service.dart';
+import 'game_manager_service.dart';
+import 'firestore_service.dart';
 
 class StepTrackingService {
   static final StepTrackingService _instance = StepTrackingService._internal();
@@ -37,6 +39,8 @@ class StepTrackingService {
   final ForegroundStepService _foregroundService = ForegroundStepService();
   final PersistenceService _persistence = PersistenceService();
   final AuthService _authService = AuthService();
+  final FirestoreService _firestoreService = FirestoreService();
+  final GameManagerService _gameManager = GameManagerService();
 
   // Simple debouncing
   int _lastStepTs = 0;
@@ -45,6 +49,11 @@ class StepTrackingService {
   DateTime _lastDate = DateTime.now();
   StreamSubscription<StepUpdateEvent>? _stateSubscription;
 
+  Future<void> _initializeServices() async {
+    await _firestoreService.initialize();
+    await _gameManager.initialize();
+  }
+
   /// Initialize sensor permissions
   Future<bool> initialize() async {
     // Prevent reinitialization
@@ -52,6 +61,8 @@ class StepTrackingService {
       if (kDebugMode) print("🔄 StepTrackingService already initialized with ${_stateManager.dailySteps} steps");
       return true;
     }
+    
+    await _initializeServices();
     
     // Register this service with state manager
     _stateManager.registerService('StepTrackingService');
@@ -331,6 +342,68 @@ class StepTrackingService {
   void addSteps(int steps, {String source = 'manual'}) {
     _stateManager.addSteps(steps, source: source);
     if (kDebugMode) print('➕ Manual steps added: $steps (daily: ${_stateManager.dailySteps}, total: ${_stateManager.totalSteps}) from $source');
+  }
+
+  /// Convert steps to attack points
+  Future<bool> convertStepsToAttackPoints(int stepsToConvert) async {
+    if (!_isAuthenticated) return false;
+    
+    try {
+      // Check if we have enough steps
+      if (stepsToConvert > _stateManager.dailySteps) {
+        if (kDebugMode) print('⚠️ Not enough steps to convert: ${_stateManager.dailySteps} available');
+        return false;
+      }
+
+      // Calculate attack points (10 steps = 1 attack point)
+      final attackPoints = stepsToConvert ~/ 10;
+
+      if (attackPoints > 0) {
+        // Use state manager to deduct steps
+        final success = await _stateManager.convertStepsToAttackPoints(stepsToConvert);
+        
+        if (success) {
+          if (kDebugMode) {
+            print('✅ Converted $stepsToConvert steps to $attackPoints attack points');
+            print('   Remaining steps: ${_stateManager.dailySteps}');
+          }
+          
+          // Update persistence and sync
+          await _persistStepsFromState();
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      if (kDebugMode) print('❌ Error converting steps to attack points: $e');
+      return false;
+    }
+  }
+
+  /// Convert attack points to shield points
+  Future<int> convertAttackPointsToShield(int attackPointsToConvert) async {
+    if (!_isAuthenticated) return 0;
+    
+    try {
+      final gameManager = GameManagerService();
+      final currentUser = await gameManager.getCurrentUser();
+      if (currentUser == null) return 0;
+      
+      final shieldPoints = await gameManager.convertAttackPointsToShield(
+        currentUser.id,
+        attackPointsToConvert,
+      );
+      
+      if (kDebugMode && shieldPoints > 0) {
+        print('✅ Converted $attackPointsToConvert attack points to $shieldPoints shield points');
+      }
+      
+      return shieldPoints;
+    } catch (e) {
+      if (kDebugMode) print('❌ Error converting attack points to shield: $e');
+      return 0;
+    }
   }
 
   void stopTracking() {

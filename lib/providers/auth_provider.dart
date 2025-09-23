@@ -286,14 +286,21 @@ class AuthProvider extends ChangeNotifier {
   /// Persist current authentication state
   Future<void> _persistAuthState() async {
     try {
+      final firebaseUser = _authService.currentUser;
       await _persistence.saveAuthState(
         isAuthenticated: _authState == AuthState.authenticated,
         userId: _currentUser?.id,
-        firebaseUserId: _authService.currentUser?.uid,
+        firebaseUserId: firebaseUser?.uid,
         user: _currentUser,
       );
+      
+      if (kDebugMode) {
+        print('💾 [Auth] Persisted auth state:');
+        print('   • User ID: ${_currentUser?.id}');
+        print('   • Firebase ID: ${firebaseUser?.uid}');
+      }
     } catch (e) {
-      if (kDebugMode) print('❌ Failed to persist auth state: $e');
+      if (kDebugMode) print('❌ [Auth] Failed to persist auth state: $e');
     }
   }
 

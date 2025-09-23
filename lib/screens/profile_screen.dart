@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/firebase_sync_service.dart';
 import '../services/step_tracking_service.dart';
 import '../models/user.dart';
+import '../providers/game_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -55,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _handleUpdateNickname() async {
     final newNickname = _nicknameController.text.trim();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+
     if (newNickname.isEmpty || newNickname.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -70,9 +71,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final updatedUser = authProvider.currentUser!.copyWith(
         nickname: newNickname,
       );
-      
+
       final success = await authProvider.updateUserProfile(updatedUser);
-      
+
       if (success) {
         setState(() {
           _isEditingNickname = false;
@@ -99,7 +100,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _isEditingNickname = !_isEditingNickname;
       if (!_isEditingNickname) {
         // Reset to current nickname if cancelling
-        _nicknameController.text = Provider.of<AuthProvider>(context, listen: false).currentUser?.nickname ?? '';
+        _nicknameController.text =
+            Provider.of<AuthProvider>(context, listen: false)
+                    .currentUser
+                    ?.nickname ??
+                '';
       }
     });
   }
@@ -132,7 +137,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: Consumer<AuthProvider>(
         builder: (context, authProvider, child) {
           final user = authProvider.currentUser;
-          
+
           if (user == null) {
             // If authenticated but no user profile, show a fallback
             if (authProvider.isAuthenticated) {
@@ -173,7 +178,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             } else {
               return const Center(
                 child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.successGold),
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(AppTheme.successGold),
                 ),
               );
             }
@@ -194,12 +200,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           end: Alignment.bottomRight,
                           colors: [
                             AppTheme.backgroundSecondary,
-                            AppTheme.backgroundSecondary.withValues(alpha: 0.8),
+                            AppTheme.backgroundSecondary.withOpacity(0.8),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.successGold.withValues(alpha: 0.3),
+                          color: AppTheme.successGold.withOpacity(0.3),
                           width: 1,
                         ),
                       ),
@@ -221,16 +227,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ? Image.network(
                                       user.photoURL!,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
                                         return _buildDefaultAvatar();
                                       },
                                     )
                                   : _buildDefaultAvatar(),
                             ),
-                          ).animate().scale(delay: const Duration(milliseconds: 200)),
-                          
+                          ).animate().scale(
+                              delay: const Duration(milliseconds: 200)),
+
                           const SizedBox(height: 16),
-                          
+
                           // Nickname with edit functionality
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -249,7 +257,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(8),
                                         borderSide: BorderSide(
-                                          color: AppTheme.successGold.withValues(alpha: 0.5),
+                                          color: AppTheme.successGold
+                                              .withOpacity(0.5),
                                         ),
                                       ),
                                       focusedBorder: OutlineInputBorder(
@@ -259,7 +268,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           width: 2,
                                         ),
                                       ),
-                                      contentPadding: const EdgeInsets.symmetric(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
                                         horizontal: 12,
                                         vertical: 8,
                                       ),
@@ -289,7 +299,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     fontWeight: FontWeight.bold,
                                     color: AppTheme.textWhite,
                                   ),
-                                ).animate().fadeIn(delay: const Duration(milliseconds: 300)),
+                                ).animate().fadeIn(
+                                    delay: const Duration(milliseconds: 300)),
                                 const SizedBox(width: 8),
                                 IconButton(
                                   icon: const Icon(
@@ -302,28 +313,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ],
                             ],
                           ),
-                          
+
                           const SizedBox(height: 8),
-                          
+
                           // Email
                           Text(
                             user.email ?? 'No email',
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 16,
                               color: AppTheme.textGray,
                             ),
-                          ).animate().fadeIn(delay: const Duration(milliseconds: 400)),
+                          ).animate().fadeIn(
+                              delay: const Duration(milliseconds: 400)),
                         ],
                       ),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 100)).slideY(begin: 0.3),
-                    
+                    )
+                        .animate()
+                        .fadeIn(delay: const Duration(milliseconds: 100))
+                        .slideY(begin: 0.3),
+
                     const SizedBox(height: 24),
-                    
+
                     // Real-time Step Tracking Stats
                     _buildRealTimeStepStats(user),
-                    
+
                     const SizedBox(height: 24),
-                    
+
                     // Battle Stats
                     Container(
                       padding: const EdgeInsets.all(20),
@@ -331,7 +346,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.primaryAttack.withValues(alpha: 0.3),
+                          color: AppTheme.primaryAttack.withOpacity(0.3),
                           width: 1,
                         ),
                       ),
@@ -340,24 +355,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           Text(
                             'Battle Stats',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: AppTheme.successGold,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: AppTheme.successGold,
+                                  fontWeight: FontWeight.bold,
+                                ),
                           ),
-                          
                           const SizedBox(height: 16),
-                          
-                          _buildStatRow('Shield Points', user.shieldPoints.toString(), Icons.shield, AppTheme.primaryDefend),
-                          _buildStatRow('Territories Owned', user.territoriesOwned.toString(), Icons.flag, AppTheme.successGold),
-                          _buildStatRow('Attacks Launched', user.totalAttacksLaunched.toString(), Icons.rocket_launch),
-                          _buildStatRow('Defenses Won', user.totalDefensesWon.toString(), Icons.security),
+                          _buildStatRow('Shield Points',
+                              user.shieldPoints.toString(), Icons.shield, AppTheme.primaryDefend),
+                          _buildStatRow(
+                              'Territories Owned',
+                              user.territoriesOwned.toString(),
+                              Icons.flag,
+                              AppTheme.successGold),
+                          _buildStatRow('Attacks Launched',
+                              user.totalAttacksLaunched.toString(), Icons.rocket_launch),
+                          _buildStatRow('Defenses Won',
+                              user.totalDefensesWon.toString(), Icons.security),
                         ],
                       ),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 200)).slideY(begin: 0.3),
-                    
+                    )
+                        .animate()
+                        .fadeIn(delay: const Duration(milliseconds: 200))
+                        .slideY(begin: 0.3),
+
                     const SizedBox(height: 24),
-                    
+
                     // Account Section
                     Container(
                       padding: const EdgeInsets.all(20),
@@ -365,7 +391,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.backgroundSecondary.withValues(alpha: 0.3),
+                          color: AppTheme.backgroundSecondary.withOpacity(0.3),
                           width: 1,
                         ),
                       ),
@@ -374,20 +400,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           Text(
                             'Account',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: AppTheme.textWhite,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: AppTheme.textWhite,
+                                  fontWeight: FontWeight.bold,
+                                ),
                           ),
-                          
                           const SizedBox(height: 16),
-                          
-                          _buildAccountRow('Member Since', _formatDate(user.createdAt), Icons.calendar_today),
-                          _buildAccountRow('Last Updated', _formatDate(user.updatedAt), Icons.update),
-                          _buildAccountRow('User ID', _formatUserId(user.id), Icons.fingerprint),
-                          
+                          _buildAccountRow('Member Since',
+                              _formatDate(user.createdAt), Icons.calendar_today),
+                          _buildAccountRow('Last Updated',
+                              _formatDate(user.updatedAt), Icons.update),
+                          _buildAccountRow('User ID', _formatUserId(user.id),
+                              Icons.fingerprint),
                           const SizedBox(height: 20),
-                          
+
                           // Logout Button
                           SizedBox(
                             width: double.infinity,
@@ -404,7 +433,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppTheme.primaryAttack,
                                 foregroundColor: AppTheme.textWhite,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -414,15 +444,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ],
                       ),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 300)).slideY(begin: 0.3),
+                    )
+                        .animate()
+                        .fadeIn(delay: const Duration(milliseconds: 300))
+                        .slideY(begin: 0.3),
+
+                    const SizedBox(height: 24),
+
+                    // Points Conversion Card
+                    Card(
+                      margin: const EdgeInsets.all(16),
+                      color: AppTheme.backgroundSecondary,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Convert Steps to Points',
+                              style: TextStyle(
+                                color: AppTheme.textWhite,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Available Steps: ${StepTrackingService().dailySteps}',
+                              style: const TextStyle(color: AppTheme.textGray),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Attack Points: ${user.attackPoints}',
+                              style:
+                                  const TextStyle(color: AppTheme.primaryAttack),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Conversion Rate: 10 steps = 1 attack point',
+                              style: TextStyle(
+                                  color: AppTheme.textGray, fontSize: 12),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () => _showConvertStepsDialog(context),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.primaryAttack,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                child: const Text('Convert Now'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-              
+
               // Logout confirmation overlay
               if (_showLogoutConfirmation)
                 Container(
-                  color: Colors.black.withValues(alpha: 0.7),
+                  color: Colors.black.withOpacity(0.7),
                   child: Center(
                     child: Container(
                       margin: const EdgeInsets.all(24),
@@ -431,7 +518,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppTheme.backgroundSecondary,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: AppTheme.primaryAttack.withValues(alpha: 0.5),
+                          color: AppTheme.primaryAttack.withOpacity(0.5),
                           width: 1,
                         ),
                       ),
@@ -443,9 +530,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             size: 48,
                             color: AppTheme.primaryAttack,
                           ),
-                          
                           const SizedBox(height: 16),
-                          
                           const Text(
                             'Sign Out?',
                             style: TextStyle(
@@ -454,9 +539,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: AppTheme.textWhite,
                             ),
                           ),
-                          
                           const SizedBox(height: 12),
-                          
                           const Text(
                             'Are you sure you want to sign out?\nYou can sign back in anytime with Google.',
                             textAlign: TextAlign.center,
@@ -465,9 +548,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: AppTheme.textGray,
                             ),
                           ),
-                          
                           const SizedBox(height: 24),
-                          
                           Row(
                             children: [
                               Expanded(
@@ -477,7 +558,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     backgroundColor: AppTheme.backgroundDark,
                                     foregroundColor: AppTheme.textWhite,
                                     side: BorderSide(
-                                      color: AppTheme.textGray.withValues(alpha: 0.5),
+                                      color:
+                                          AppTheme.textGray.withOpacity(0.5),
                                     ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
@@ -486,9 +568,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   child: const Text('Cancel'),
                                 ),
                               ),
-                              
                               const SizedBox(width: 12),
-                              
                               Expanded(
                                 child: ElevatedButton(
                                   onPressed: _confirmLogout,
@@ -506,7 +586,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ],
                       ),
-                    ).animate().scale(duration: const Duration(milliseconds: 200)),
+                    ).animate().scale(
+                        duration: const Duration(milliseconds: 200)),
                   ),
                 ).animate().fadeIn(duration: const Duration(milliseconds: 150)),
             ],
@@ -524,7 +605,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           end: Alignment.bottomRight,
           colors: [
             AppTheme.successGold,
-            AppTheme.successGold.withValues(alpha: 0.8),
+            AppTheme.successGold.withOpacity(0.8),
           ],
         ),
       ),
@@ -536,7 +617,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildStatRow(String label, String value, IconData icon, [Color? iconColor]) {
+  Widget _buildStatRow(String label, String value, IconData icon,
+      [Color? iconColor]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -629,13 +711,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppTheme.successGreen.withValues(alpha: 0.1),
-            AppTheme.successGreen.withValues(alpha: 0.05),
+            AppTheme.successGreen.withOpacity(0.1),
+            AppTheme.successGreen.withOpacity(0.05),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppTheme.successGreen.withValues(alpha: 0.3),
+          color: AppTheme.successGreen.withOpacity(0.3),
           width: 1,
         ),
       ),
@@ -653,25 +735,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Text(
                 'Step Tracking',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: AppTheme.successGreen,
-                  fontWeight: FontWeight.bold,
-                ),
+                      color: AppTheme.successGreen,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const Spacer(),
               // Sync status indicator
               StreamBuilder<bool>(
-                stream: Stream.periodic(const Duration(seconds: 1), (_) => syncService.isSyncing),
+                stream: Stream.periodic(
+                    const Duration(seconds: 1), (_) => syncService.isSyncing),
                 builder: (context, snapshot) {
                   final isSyncing = snapshot.data ?? false;
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: isSyncing 
-                          ? AppTheme.successGreen.withValues(alpha: 0.2)
-                          : AppTheme.dangerOrange.withValues(alpha: 0.2),
+                      color: isSyncing
+                          ? AppTheme.successGreen.withOpacity(0.2)
+                          : AppTheme.dangerOrange.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isSyncing ? AppTheme.successGreen : AppTheme.dangerOrange,
+                        color: isSyncing
+                            ? AppTheme.successGreen
+                            : AppTheme.dangerOrange,
                         width: 1,
                       ),
                     ),
@@ -680,14 +766,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Icon(
                           isSyncing ? Icons.cloud_done : Icons.cloud_off,
-                          color: isSyncing ? AppTheme.successGreen : AppTheme.dangerOrange,
+                          color: isSyncing
+                              ? AppTheme.successGreen
+                              : AppTheme.dangerOrange,
                           size: 16,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           isSyncing ? 'Synced' : 'Offline',
                           style: TextStyle(
-                            color: isSyncing ? AppTheme.successGreen : AppTheme.dangerOrange,
+                            color: isSyncing
+                                ? AppTheme.successGreen
+                                : AppTheme.dangerOrange,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
@@ -699,26 +789,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Real-time step counter
           StreamBuilder<int>(
             stream: stepCounter.stepsStream,
             initialData: stepCounter.dailySteps,
             builder: (context, snapshot) {
               final currentSteps = snapshot.data ?? 0;
-              
+
               return Column(
                 children: [
                   // Current Steps (Large Display)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppTheme.backgroundSecondary.withValues(alpha: 0.5),
+                      color: AppTheme.backgroundSecondary.withOpacity(0.5),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: AppTheme.successGreen.withValues(alpha: 0.2),
+                        color: AppTheme.successGreen.withOpacity(0.2),
                       ),
                     ),
                     child: Row(
@@ -727,7 +817,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               'Today\'s Steps',
                               style: TextStyle(
                                 color: AppTheme.textGray,
@@ -750,7 +840,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
+                            const Text(
                               'Distance',
                               style: TextStyle(
                                 color: AppTheme.textGray,
@@ -766,7 +856,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
+                            const Text(
                               'Calories',
                               style: TextStyle(
                                 color: AppTheme.textGray,
@@ -786,24 +876,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Firebase Sync Section - Always show
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryDefend.withValues(alpha: 0.1),
+                      color: AppTheme.primaryDefend.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: AppTheme.primaryDefend.withValues(alpha: 0.3),
+                        color: AppTheme.primaryDefend.withOpacity(0.3),
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          syncService.isSyncing ? Icons.cloud_done : Icons.sync,
-                          color: syncService.isSyncing ? AppTheme.successGreen : AppTheme.primaryDefend,
+                          syncService.isSyncing
+                              ? Icons.cloud_done
+                              : Icons.sync,
+                          color: syncService.isSyncing
+                              ? AppTheme.successGreen
+                              : AppTheme.primaryDefend,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -814,16 +908,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Text(
                                 'Firebase Sync',
                                 style: TextStyle(
-                                  color: syncService.isSyncing ? AppTheme.successGreen : AppTheme.primaryDefend,
+                                  color: syncService.isSyncing
+                                      ? AppTheme.successGreen
+                                      : AppTheme.primaryDefend,
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               Text(
-                                syncService.isSyncing 
+                                syncService.isSyncing
                                     ? 'Syncing today\'s steps: $currentSteps'
                                     : 'Tap to sync your steps to Firebase',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   color: AppTheme.textGray,
                                   fontSize: 11,
                                 ),
@@ -832,26 +928,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         ElevatedButton(
-                          onPressed: syncService.isSyncing 
+                          onPressed: syncService.isSyncing
                               ? null // Disable while syncing
                               : () async {
                                   try {
                                     await syncService.forceSyncSteps();
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         const SnackBar(
-                                          content: Text('✅ Steps synced to Firebase successfully!'),
-                                          backgroundColor: AppTheme.successGreen,
+                                          content: Text(
+                                              '✅ Steps synced to Firebase successfully!'),
+                                          backgroundColor:
+                                              AppTheme.successGreen,
                                           duration: Duration(seconds: 2),
                                         ),
                                       );
                                     }
                                   } catch (e) {
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         SnackBar(
-                                          content: Text('❌ Sync failed: ${e.toString()}'),
-                                          backgroundColor: AppTheme.dangerOrange,
+                                          content: Text(
+                                              '❌ Sync failed: ${e.toString()}'),
+                                          backgroundColor:
+                                              AppTheme.dangerOrange,
                                           duration: const Duration(seconds: 3),
                                         ),
                                       );
@@ -859,7 +961,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   }
                                 },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: syncService.isSyncing 
+                            backgroundColor: syncService.isSyncing
                                 ? AppTheme.textGray
                                 : AppTheme.primaryDefend,
                             foregroundColor: AppTheme.textWhite,
@@ -881,9 +983,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               );
             },
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Daily Goal Progress (10,000 steps)
           StreamBuilder<int>(
             stream: stepCounter.stepsStream,
@@ -892,14 +994,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               final currentSteps = snapshot.data ?? 0;
               const dailyGoal = 10000;
               final progress = (currentSteps / dailyGoal).clamp(0.0, 1.0);
-              
+
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
+                      const Text(
                         'Daily Goal Progress',
                         style: TextStyle(
                           color: AppTheme.textGray,
@@ -910,7 +1012,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Text(
                         '${(progress * 100).toStringAsFixed(0)}%',
                         style: TextStyle(
-                          color: progress >= 1.0 ? AppTheme.successGreen : AppTheme.textWhite,
+                          color: progress >= 1.0
+                              ? AppTheme.successGreen
+                              : AppTheme.textWhite,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
@@ -922,20 +1026,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
                       value: progress,
-                      backgroundColor: AppTheme.textGray.withValues(alpha: 0.3),
+                      backgroundColor: AppTheme.textGray.withOpacity(0.3),
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        progress >= 1.0 ? AppTheme.successGreen : AppTheme.successGold,
+                        progress >= 1.0
+                            ? AppTheme.successGreen
+                            : AppTheme.successGold,
                       ),
                       minHeight: 6,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    progress >= 1.0 
+                    progress >= 1.0
                         ? 'Goal achieved! 🎉'
                         : '${dailyGoal - currentSteps} steps to goal',
                     style: TextStyle(
-                      color: progress >= 1.0 ? AppTheme.successGreen : AppTheme.textGray,
+                      color: progress >= 1.0
+                          ? AppTheme.successGreen
+                          : AppTheme.textGray,
                       fontSize: 12,
                     ),
                   ),
@@ -947,4 +1055,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     ).animate().fadeIn(delay: const Duration(milliseconds: 150)).slideY(begin: 0.3);
   }
+
+  void _showConvertStepsDialog(BuildContext context) {
+    final stepService = context.read<StepTrackingService>();
+    final gameProvider = context.read<GameProvider>();
+    final availableSteps = stepService.dailySteps;
+
+    final TextEditingController controller = TextEditingController();
+    int stepsToConvert = 0;
+    int pointsGained = 0;
+    const conversionRate = 10;
+    const accentColor = AppTheme.primaryAttack;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppTheme.backgroundSecondary,
+              title: const Text('Convert to Attack Points', style: TextStyle(color: accentColor)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Available steps today: $availableSteps', style: const TextStyle(color: AppTheme.textGray)),
+                  const SizedBox(height: 8),
+                  const Text('10 steps = 1 attack point', style: TextStyle(color: AppTheme.textGray, fontSize: 12)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: AppTheme.textWhite),
+                    decoration: InputDecoration(
+                      labelText: 'Steps to convert',
+                      labelStyle: const TextStyle(color: AppTheme.textGray),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: accentColor),
+                      ),
+                      enabledBorder: const OutlineInputBorder(
+                        borderSide: BorderSide(color: AppTheme.textGray),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        stepsToConvert = int.tryParse(value) ?? 0;
+                        if (stepsToConvert > availableSteps) {
+                          stepsToConvert = availableSteps;
+                          controller.text = availableSteps.toString();
+                          controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
+                        }
+                        pointsGained = stepsToConvert ~/ conversionRate;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('You will get: $pointsGained attack points', style: const TextStyle(color: AppTheme.textWhite)),
+                  Text('This will use: ${pointsGained * conversionRate} steps', style: const TextStyle(color: AppTheme.textGray, fontSize: 12)),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: AppTheme.textGray)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: accentColor),
+                  onPressed: (pointsGained > 0) ? () async {
+                    final stepsToUse = pointsGained * conversionRate;
+                    final success = await gameProvider.convertStepsToPoints(stepsToUse);
+
+                    if (mounted) {
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(success
+                              ? 'Successfully converted $stepsToUse steps!'
+                              : gameProvider.errorMessage ?? 'Conversion failed.'),
+                          backgroundColor: success ? AppTheme.successGreen : AppTheme.dangerOrange,
+                        ),
+                      );
+                    }
+                  } : null,
+                  child: const Text('Convert'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
 }

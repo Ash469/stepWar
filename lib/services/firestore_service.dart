@@ -15,26 +15,19 @@ class FirestoreService {
   Future<bool> initialize() async {
     try {
       _firestore = FirebaseFirestore.instance;
-      
-      // Configure Firestore settings for mobile platforms
       if (kDebugMode) {
-        // Enable offline persistence for mobile platforms
         _firestore.settings = const Settings(
           persistenceEnabled: true,
           cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         );
-        
         if (kDebugMode) {
           print('📋 [FS] Offline persistence enabled for mobile');
         }
       }
-
       _isInitialized = true;
-      
       if (kDebugMode) {
         print('🔥 Firestore service initialized successfully');
       }
-      
       return true;
     } catch (e) {
       if (kDebugMode) {
@@ -66,8 +59,6 @@ class FirestoreService {
       if (kDebugMode) {
         print('🧪 Testing Firestore connection...');
       }
-
-      // Try to read the config/runtime document
       DocumentSnapshot doc = await _firestore
           .collection('config')
           .doc('runtime')
@@ -100,46 +91,7 @@ class FirestoreService {
       return false;
     }
   }
-
-  /// Create a test document to verify write permissions
-  // Future<bool> testWriteOperation() async {
-  //   try {
-  //     final user = FirebaseAuth.instance.currentUser;
-  //     if (user == null) {
-  //       if (kDebugMode) {
-  //         print('⚠️ No authenticated user for write test');
-  //       }
-  //       return false;
-  //     }
-
-  //     if (kDebugMode) {
-  //       print('✍️ Testing Firestore write operation...');
-  //     }
-
-  //     // Create a test document in users collection
-  //     await _firestore
-  //         .collection('users')
-  //         .doc(user.uid)
-  //         .collection('tests')
-  //         .doc('connection_test')
-  //         .set({
-  //       'timestamp': FieldValue.serverTimestamp(),
-  //       'test_type': 'firestore_integration',
-  //       'success': true,
-  //     });
-
-  //     if (kDebugMode) {
-  //       print('✅ Firestore write test successful!');
-  //     }
-  //     return true;
-  //   } catch (e) {
-  //     if (kDebugMode) {
-  //       print('❌ Firestore write test failed: $e');
-  //     }
-  //     return false;
-  //   }
-  // }
-
+  
   /// Read user document by user ID
   Future<DocumentSnapshot?> getUserDocument(String userId) async {
     try {
@@ -466,6 +418,104 @@ class FirestoreService {
     });
   }
   
+  /// Update user steps in Firestore
+  Future<bool> updateUserSteps(String userId, int steps) async {
+    try {
+      if (!_isInitialized) {
+        if (kDebugMode) print('❌ [FS] Firestore service not initialized');
+        return false;
+      }
+
+      final userDoc = _firestore.collection('users').doc(userId);
+      
+      await userDoc.update({
+        'total_steps': steps,
+        'updated_at': FieldValue.serverTimestamp(),
+        'last_step_sync': DateTime.now().toIso8601String(),
+      });
+
+      if (kDebugMode) {
+        print('✅ [FS] Steps updated in Firestore: $steps');
+      }
+
+      // Also update daily activity if exists
+      try {
+        final today = DateTime.now();
+        final activityId = '${userId}_${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+        
+        final dailyActivityDoc = _firestore.collection('daily_activities').doc(activityId);
+        final activitySnapshot = await dailyActivityDoc.get();
+
+        if (activitySnapshot.exists) {
+          await dailyActivityDoc.update({
+            'steps_today': steps,
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+          if (kDebugMode) print('✅ [FS] Daily activity steps updated');
+        }
+      } catch (e) {
+        if (kDebugMode) print('⚠️ [FS] Error updating daily activity: $e');
+        // Don't fail the whole operation if daily activity update fails
+      }
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ [FS] Error updating steps in Firestore: $e');
+        if (e is FirebaseException) {
+          print('🔥 [FS] Firebase error code: ${e.code}');
+          print('🔥 [FS] Firebase error message: ${e.message}');
+        }
+      }
+      return false;
+    }
+  }
+  
+  /// Update user's attack and shield points
+  Future<bool> updateUserPoints(String userId, {
+    int? attackPoints,
+    int? shieldPoints,
+    int? stepsUsed,
+  }) async {
+    try {
+      if (!_isInitialized) {
+        if (kDebugMode) print('❌ [FS] Firestore service not initialized');
+        return false;
+      }
+
+      final userDoc = _firestore.collection('users').doc(userId);
+      final updates = <String, dynamic>{
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+
+      if (attackPoints != null) {
+        updates['attack_points'] = FieldValue.increment(attackPoints);
+      }
+      
+      if (shieldPoints != null) {
+        updates['shield_points'] = FieldValue.increment(shieldPoints);
+      }
+
+      if (stepsUsed != null) {
+        updates['total_steps'] = FieldValue.increment(-stepsUsed);
+      }
+
+      await userDoc.update(updates);
+
+      if (kDebugMode) {
+        print('✅ [FS] Points updated in Firestore:');
+        print('   • Attack Points: ${attackPoints ?? 0}');
+        print('   • Shield Points: ${shieldPoints ?? 0}');
+        print('   • Steps Used: ${stepsUsed ?? 0}');
+      }
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('❌ [FS] Error updating points: $e');
+      return false;
+    }
+  }
+
   /// Dispose resources (if needed)
   void dispose() {
     // Clean up any resources if necessary

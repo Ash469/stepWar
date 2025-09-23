@@ -7,7 +7,10 @@ import '../theme/app_theme.dart';
 import '../widgets/weekly_step_tracker.dart';
 import '../services/step_tracking_service.dart';
 import '../services/firebase_sync_service.dart';
+import '../services/firebase_game_database.dart';
 import '../providers/auth_provider.dart';
+import '../providers/game_provider.dart';
+import '../models/territory.dart';
 import 'dart:math' as math;
 
 class HomeScreen extends StatefulWidget {
@@ -26,41 +29,39 @@ class _HomeScreenState extends State<HomeScreen>
   final StepTrackingService _stepCounter = StepTrackingService();
   final FirebaseStepSyncService _firebaseSyncService =
       FirebaseStepSyncService();
-  StreamSubscription<int>? _stepSubscription;
 
-  int _currentSteps = 2568;
-  int _totalSteps = 25680;
+  // Territory stats
+  late int _territories = 0;
+  late int _peace = 0;
+  late int _swords = 0;
+  late int _shields = 0;
 
-  int _cities = 4;
-  int _peace = 3;
-  int _attack = 1;
-  int _swords = 26;
-  int _shields = 40;
-
-  Map<String, int> _weeklySteps = {
+  final Map<String, int> _weeklySteps = {
     'mo': 8500,
     'tu': 9200,
     'we': 7800,
     'th': 10500,
     'fr': 9800,
     'sa': 6200,
-    'su': 2568,
+    'su': 0, // Will be updated by the stream
   };
+
+  List<Territory> _localTerritories = [];
 
   @override
   void initState() {
     super.initState();
-    
+
     _backgroundController = AnimationController(
       duration: const Duration(seconds: 20),
       vsync: this,
     );
-    
+
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     );
-    
+
     _backgroundAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -68,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen>
       parent: _backgroundController,
       curve: Curves.linear,
     ));
-    
+
     _pulseAnimation = Tween<double>(
       begin: 0.95,
       end: 1.05,
@@ -76,56 +77,48 @@ class _HomeScreenState extends State<HomeScreen>
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
-    
+
     _backgroundController.repeat();
     _pulseController.repeat(reverse: true);
-    
-    _initializeStepCounter();
+
+    _initializeGameSession();
   }
 
-  Future<void> _initializeStepCounter() async {
-    try {
-      _currentSteps = _stepCounter.dailySteps;
-      await _loadTotalStepsFromFirebase();
+  Future<void> _initializeGameSession() async {
+    // Wait for the first frame to be rendered to safely access providers
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final gameProvider = Provider.of<GameProvider>(context, listen: false);
 
-      _stepSubscription = _stepCounter.stepsStream.listen((steps) {
+      // If auth is ready but game session isn't, start it
+      if (authProvider.currentUser != null && gameProvider.currentUser == null) {
+        await gameProvider.startGameSession(authProvider.currentUser!.id);
+      }
+
+      // Load initial data that doesn't depend on the stream
+      _loadTerritoriesFromFirebase();
+    });
+  }
+
+  Future<void> _loadTerritoriesFromFirebase() async {
+    try {
+      final gameDB = FirebaseGameDatabase();
+      await gameDB.initialize();
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userId = authProvider.currentUser?.id;
+
+      if (userId != null) {
+        final territories = await gameDB.getUserTerritories(userId);
         if (mounted) {
           setState(() {
-            _currentSteps = steps;
-            final today = DateTime.now().weekday;
-            final todayKey = _getDayKey(today);
-            _weeklySteps[todayKey] = steps;
+            _localTerritories = territories;
+            _territories = territories.length;
           });
         }
-      });
-
-      if (mounted) setState(() {});
-    } catch (e) {
-      print('❌ Failed to connect to step counter: $e');
-    }
-  }
-
-  String _getDayKey(int weekday) {
-    const days = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
-    return days[weekday - 1];
-  }
-
-  Future<void> _loadTotalStepsFromFirebase() async {
-    try {
-      if (_firebaseSyncService.currentUserId != null) {
-        final firebaseData = await _firebaseSyncService
-            .getStepsFromFirebase(_firebaseSyncService.currentUserId!);
-        if (firebaseData != null) {
-          _totalSteps = firebaseData['total_steps'] ?? _currentSteps;
-        } else {
-          _totalSteps = _currentSteps;
-        }
-      } else {
-        _totalSteps = _currentSteps;
       }
     } catch (e) {
-      print('❌ Failed to load total steps from Firebase: $e');
-      _totalSteps = _currentSteps;
+      print('❌ Failed to load territories: $e');
     }
   }
 
@@ -133,58 +126,86 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     _backgroundController.dispose();
     _pulseController.dispose();
-    _stepSubscription?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: AnimatedBuilder(
-        animation: _backgroundAnimation,
-        builder: (context, child) {
-          return Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(
-                  0.3 * math.sin(_backgroundAnimation.value * 2 * math.pi * 0.1),
-                  0.2 * math.cos(_backgroundAnimation.value * 2 * math.pi * 0.15),
+      body: StreamBuilder<int>(
+        stream: _stepCounter.stepsStream,
+        initialData: _stepCounter.dailySteps,
+        builder: (context, snapshot) {
+          final currentSteps = snapshot.data ?? _stepCounter.dailySteps;
+          final todayKey = _getDayKey(DateTime.now().weekday);
+          _weeklySteps[todayKey] = currentSteps;
+
+          return AnimatedBuilder(
+            animation: _backgroundAnimation,
+            builder: (context, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment(
+                      0.3 * math.sin(_backgroundAnimation.value * 2 * math.pi * 0.1),
+                      0.2 *
+                          math.cos(_backgroundAnimation.value * 2 * math.pi * 0.15),
+                    ),
+                    radius: 1.2,
+                    colors: [
+                      const Color(0xFF1A1A1A),
+                      const Color(0xFF121212),
+                      const Color(0xFF0A0A0A),
+                    ],
+                    stops: const [0.0, 0.6, 1.0],
+                  ),
                 ),
-                radius: 1.2,
-                colors: [
-                  const Color(0xFF1A1A1A),
-                  const Color(0xFF121212),
-                  const Color(0xFF0A0A0A),
-                ],
-                stops: const [0.0, 0.6, 1.0],
-              ),
-            ),
-            child: SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildTopSection().animate().fadeIn(duration: const Duration(milliseconds: 800)).slideY(begin: -0.3),
-                    const SizedBox(height: 32),
-                    _buildStepCounterCard().animate().fadeIn(delay: const Duration(milliseconds: 200)).scale(),
-                    const SizedBox(height: 32),
-                    _buildTerritoryStats().animate().fadeIn(delay: const Duration(milliseconds: 400)).slideX(begin: -0.3),
-                    const SizedBox(height: 32),
-                    _buildInventorySection().animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: 0.3),
-                    const SizedBox(height: 32),
-                    _buildStepsSection().animate().fadeIn(delay: const Duration(milliseconds: 800)).slideY(begin: 0.3),
-                    const SizedBox(height: 32),
-                    _buildRecommendedSection().animate().fadeIn(delay: const Duration(milliseconds: 1000)).scale(),
-                    const SizedBox(height: 20),
-                  ],
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTopSection()
+                            .animate()
+                            .fadeIn(duration: const Duration(milliseconds: 800))
+                            .slideY(begin: -0.3),
+                        const SizedBox(height: 32),
+                        _buildStepCounterCard(currentSteps)
+                            .animate()
+                            .fadeIn(delay: const Duration(milliseconds: 200))
+                            .scale(),
+                        const SizedBox(height: 32),
+                        _buildTerritoryStats()
+                            .animate()
+                            .fadeIn(delay: const Duration(milliseconds: 400))
+                            .slideX(begin: -0.3),
+                        const SizedBox(height: 32),
+                        _buildInventorySection()
+                            .animate()
+                            .fadeIn(delay: const Duration(milliseconds: 600))
+                            .slideX(begin: 0.3),
+                        const SizedBox(height: 32),
+                        _buildStepsSection(currentSteps)
+                            .animate()
+                            .fadeIn(delay: const Duration(milliseconds: 800))
+                            .slideY(begin: 0.3),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         },
       ),
     );
+  }
+
+  String _getDayKey(int weekday) {
+    const days = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
+    return days[weekday - 1];
   }
 
   Widget _buildTopSection() {
@@ -239,59 +260,13 @@ class _HomeScreenState extends State<HomeScreen>
                   Text(
                     'Ready for battle? ⚔️',
                     style: TextStyle(
-                      color: AppTheme.primaryAttack.withValues(alpha: 0.8),
+                      color: AppTheme.primaryAttack.withOpacity(0.8),
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
-            ),
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) {
-                return Transform.scale(
-                  scale: _pulseAnimation.value,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppTheme.successGold,
-                          AppTheme.successGold.withValues(alpha: 0.8),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(25),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.successGold.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.monetization_on,
-                          color: AppTheme.backgroundDark,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '1,250',
-                          style: TextStyle(
-                            color: AppTheme.backgroundDark,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
             ),
           ],
         );
@@ -300,30 +275,46 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildTerritoryStats() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Your Territory',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Consumer<GameProvider>(
+      builder: (context, gameProvider, child) {
+        final territories = gameProvider.userTerritories;
+        final currentUser = gameProvider.currentUser;
+
+        // Use either GameProvider territories or locally loaded territories
+        final territoryCount =
+            territories.isNotEmpty ? territories.length : _localTerritories.length;
+
+        // Update state variables
+        _territories = territoryCount;
+        _peace = currentUser?.shieldPoints ?? 0;
+        _swords = currentUser?.attackPoints ?? 0;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildStatCard('0$_cities', 'Cities', Icons.location_city,
-                const Color(0xFFFFC107)),
-            _buildStatCard('0$_peace', 'Peace', Icons.favorite,
-                const Color(0xFF4CAF50)),
-            _buildStatCard('0$_attack', 'Attack', Icons.flash_on,
-                const Color(0xFFE53935)),
+            const Text(
+              'Your Territory',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatCard(territoryCount.toString(), 'Territories',
+                    Icons.location_city, const Color(0xFFFFC107)),
+                _buildStatCard(
+                    _peace.toString(), 'Peace', Icons.favorite, const Color(0xFF4CAF50)),
+                _buildStatCard(
+                    _swords.toString(), 'Attack', Icons.flash_on, const Color(0xFFE53935)),
+              ],
+            ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -338,10 +329,10 @@ class _HomeScreenState extends State<HomeScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 1.2),
+        border: Border.all(color: color.withOpacity(0.6), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
+            color: Colors.black.withOpacity(0.4),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -388,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Expanded(
               child: _buildInventoryItem(
-                  _swords, 'Swords', Icons.security, const Color(0xFFE53935)),
+                  _swords, 'Attacks', Icons.flash_on, const Color(0xFFE53935)),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -412,10 +403,10 @@ class _HomeScreenState extends State<HomeScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 1.2),
+        border: Border.all(color: color.withOpacity(0.6), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
+            color: Colors.black.withOpacity(0.4),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -426,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen>
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
+              color: color.withOpacity(0.15),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 24),
@@ -453,21 +444,43 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
           const Spacer(),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.3)],
+          GestureDetector(
+            onTap: () {
+              final gameProvider = context.read<GameProvider>();
+              if (gameProvider.currentUser == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please wait, syncing user data...'),
+                    backgroundColor: AppTheme.dangerOrange,
+                  ),
+                );
+                return;
+              }
+              if (label == 'Attacks') {
+                _showConvertStepsDialog(context);
+              } else if (label == 'Shields') {
+                _showConvertStepsDialog(context, isShield: true);
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    color.withOpacity(0.7),
+                    color.withOpacity(0.3)
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(6),
               ),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const Text(
-              'Buy',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
+              child: const Text(
+                'BUY',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
           ),
@@ -476,7 +489,106 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildStepsSection() {
+  void _showConvertStepsDialog(BuildContext context, {bool isShield = false}) {
+    final stepService = StepTrackingService();
+    final gameProvider = context.read<GameProvider>();
+    final availableSteps = stepService.dailySteps;
+
+    final TextEditingController controller = TextEditingController();
+    int stepsToConvert = 0;
+    int pointsGained = 0;
+
+    final String title = isShield ? 'Convert to Shield Points' : 'Convert to Attack Points';
+    final String conversionRateText = isShield ? '50 steps = 1 shield point' : '10 steps = 1 attack point';
+    final int conversionRate = isShield ? 50 : 10;
+    final Color accentColor = isShield ? AppTheme.primaryDefend : AppTheme.primaryAttack;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppTheme.backgroundSecondary,
+              title: Text(title, style: TextStyle(color: accentColor)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Available steps today: $availableSteps', style: const TextStyle(color: AppTheme.textGray)),
+                  const SizedBox(height: 8),
+                  Text(conversionRateText, style: const TextStyle(color: AppTheme.textGray, fontSize: 12)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: AppTheme.textWhite),
+                    decoration: InputDecoration(
+                      labelText: 'Steps to convert',
+                      labelStyle: const TextStyle(color: AppTheme.textGray),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: accentColor),
+                      ),
+                      enabledBorder: const OutlineInputBorder(
+                        borderSide: BorderSide(color: AppTheme.textGray),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        stepsToConvert = int.tryParse(value) ?? 0;
+                        if (stepsToConvert > availableSteps) {
+                          stepsToConvert = availableSteps;
+                          controller.text = availableSteps.toString();
+                          controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
+                        }
+                        pointsGained = stepsToConvert ~/ conversionRate;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('You will get: $pointsGained ${isShield ? "shield" : "attack"} points', style: TextStyle(color: AppTheme.textWhite)),
+                  Text('This will use: ${pointsGained * conversionRate} steps', style: const TextStyle(color: AppTheme.textGray, fontSize: 12)),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: AppTheme.textGray)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: accentColor),
+                  onPressed: (pointsGained > 0) ? () async {
+                    final stepsToUse = pointsGained * conversionRate;
+                    bool success = false;
+                    if (isShield) {
+                      success = await gameProvider.convertStepsToShieldPoints(stepsToUse);
+                    } else {
+                      success = await gameProvider.convertStepsToPoints(stepsToUse);
+                    }
+
+                    if (mounted) {
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(success
+                              ? 'Successfully converted $stepsToUse steps!'
+                              : gameProvider.errorMessage ?? 'Conversion failed.'),
+                          backgroundColor: success ? AppTheme.successGreen : AppTheme.dangerOrange,
+                        ),
+                      );
+                    }
+                  } : null,
+                  child: const Text('Convert'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildStepsSection(int currentSteps) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -491,7 +603,7 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(height: 20),
         Center(
           child: WeeklyStepTracker(
-            currentSteps: _currentSteps,
+            currentSteps: currentSteps,
             weeklySteps: _weeklySteps,
             dailyGoal: 10000,
           ),
@@ -500,125 +612,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildRecommendedSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Recommended',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildRecommendedItem(
-                'Conquer',
-                'Paris',
-                'Anthony',
-                Icons.flag,
-                const Color(0xFFE53935),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildRecommendedItem(
-                'Build',
-                'Mumbai',
-                'Under attack',
-                Icons.construction,
-                const Color(0xFFFFC107),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRecommendedItem(String action, String location,
-      String status, IconData icon, Color color) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$action $location selected!'),
-            backgroundColor: color,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF2A2A2A), Color(0xFF1C1C1C)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.6), width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.4),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: color, size: 20),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  action,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              location,
-              style: TextStyle(
-                color: color,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              status,
-              style: const TextStyle(
-                color: Color(0xFFB3B3B3),
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Get time of day greeting
   String _getTimeOfDay() {
     final hour = DateTime.now().hour;
     if (hour < 12) {
@@ -630,8 +623,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// Build prominent step counter card
-  Widget _buildStepCounterCard() {
+  Widget _buildStepCounterCard(int currentSteps) {
     return Center(
       child: GestureDetector(
         onTap: () {
@@ -645,19 +637,19 @@ class _HomeScreenState extends State<HomeScreen>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                AppTheme.primaryAttack.withValues(alpha: 0.15),
-                AppTheme.primaryDefend.withValues(alpha: 0.15),
-                AppTheme.successGold.withValues(alpha: 0.1),
+                AppTheme.primaryAttack.withOpacity(0.15),
+                AppTheme.primaryDefend.withOpacity(0.15),
+                AppTheme.successGold.withOpacity(0.1),
               ],
             ),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
-              color: AppTheme.successGold.withValues(alpha: 0.3),
+              color: AppTheme.successGold.withOpacity(0.3),
               width: 2,
             ),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.successGold.withValues(alpha: 0.1),
+                color: AppTheme.successGold.withOpacity(0.1),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -668,13 +660,13 @@ class _HomeScreenState extends State<HomeScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.directions_walk,
                     color: AppTheme.successGold,
                     size: 28,
                   ),
                   const SizedBox(width: 8),
-                  Text(
+                  const Text(
                     'TODAY\'S STEPS',
                     style: TextStyle(
                       color: AppTheme.successGold,
@@ -692,10 +684,9 @@ class _HomeScreenState extends State<HomeScreen>
                   return Transform.scale(
                     scale: _pulseAnimation.value,
                     child: Text(
-                      _currentSteps.toString().replaceAllMapped(
+                      currentSteps.toString().replaceAllMapped(
                           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-                          (Match m) => '${m[1]},')
-                      ,
+                          (Match m) => '${m[1]},'),
                       style: const TextStyle(
                         color: AppTheme.textWhite,
                         fontSize: 48,
@@ -719,22 +710,22 @@ class _HomeScreenState extends State<HomeScreen>
                   Container(
                     width: 1,
                     height: 30,
-                    color: AppTheme.textGray.withValues(alpha: 0.3),
+                    color: AppTheme.textGray.withOpacity(0.3),
                   ),
                   _buildQuickStat(
                     'Calories',
-                    '${(_currentSteps * 0.045).toInt()}',
+                    '${(currentSteps * 0.045).toInt()}',
                     Icons.local_fire_department,
                     AppTheme.primaryAttack,
                   ),
                   Container(
                     width: 1,
                     height: 30,
-                    color: AppTheme.textGray.withValues(alpha: 0.3),
+                    color: AppTheme.textGray.withOpacity(0.3),
                   ),
                   _buildQuickStat(
                     'Distance',
-                    '${(_currentSteps * 0.762 / 1000).toStringAsFixed(1)} km',
+                    '${(currentSteps * 0.762 / 1000).toStringAsFixed(1)} km',
                     Icons.straighten,
                     AppTheme.successGreen,
                   ),
@@ -747,8 +738,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// Build quick stat widget
-  Widget _buildQuickStat(String label, String value, IconData icon, Color color) {
+  Widget _buildQuickStat(
+      String label, String value, IconData icon, Color color) {
     return Column(
       children: [
         Icon(
@@ -776,3 +767,4 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 }
+

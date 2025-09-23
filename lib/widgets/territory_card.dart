@@ -175,7 +175,10 @@ class _TerritoryCardState extends State<TerritoryCard>
                           ),
                           
                           // Status Pill
-                          StatusPill(status: widget.territory.status),
+                          StatusPill(
+                            territoryStatus: widget.territory.status,
+                            animated: widget.isUnderAttack,
+                          ),
                         ],
                       ),
                       

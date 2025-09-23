@@ -137,6 +137,43 @@ class StepStateManager {
     _broadcastUpdates(source, immediate: true);
   }
 
+  /// Convert steps to attack points
+  Future<bool> convertStepsToAttackPoints(int stepsToConvert) async {
+    if (stepsToConvert > _dailySteps) return false;
+    
+    // Deduct steps
+    _dailySteps -= stepsToConvert;
+    _totalSteps -= stepsToConvert;
+    _lastUpdateTime = DateTime.now();
+    
+    // Broadcast updates
+    _broadcastUpdates('step_conversion');
+    
+    return true;
+  }
+
+  /// Update points after conversion
+  void updatePointsAfterConversion({
+    required int attackPoints,
+    required int shieldPoints,
+    required int stepsUsed,
+  }) {
+    if (stepsUsed > 0) {
+      _dailySteps = (_dailySteps - stepsUsed).clamp(0, _dailySteps);
+      _totalSteps = (_totalSteps - stepsUsed).clamp(0, _totalSteps);
+      _lastUpdateTime = DateTime.now();
+      
+      if (kDebugMode) {
+        print('🔄 Points converted - Steps used: $stepsUsed');
+        print('   Attack points gained: $attackPoints');
+        print('   Shield points gained: $shieldPoints');
+        print('   Remaining steps: $_dailySteps');
+      }
+      
+      _broadcastUpdates('point_conversion');
+    }
+  }
+
   /// Broadcast updates to all listeners
   void _broadcastUpdates(String source, {bool immediate = false}) {
     if (!immediate && _pendingUpdates.contains(source)) {

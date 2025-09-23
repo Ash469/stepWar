@@ -430,69 +430,10 @@ class PersistenceService {
     }
   }
 
-  // MARK: - Territory Data
-  
-  /// Save user territories to local storage
-  Future<void> saveUserTerritories(String userId, List<Territory> territories) async {
-    try {
-      // Create a key for this specific user's territories
-      final territoryKey = 'user_territories_$userId';
-      final lastUpdatedKey = 'user_territories_updated_$userId';
-      
-      // Serialize territories to JSON
-      final territoriesJson = territories.map((territory) => territory.toMap()).toList();
-      final territoryDataJson = jsonEncode(territoriesJson);
-      
-      // Save territories and timestamp
-      await prefs.setString(territoryKey, territoryDataJson);
-      await prefs.setString(lastUpdatedKey, DateTime.now().toIso8601String());
-      
-      if (kDebugMode) {
-        print('💾 [Territory-Cache] Saved ${territories.length} territories for user: $userId');
-        for (final territory in territories) {
-          print('   • ${territory.name} (Status: ${territory.status})');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) print('❌ [Territory-Cache] Failed to save territories: $e');
-    }
-  }
-  
-  /// Load user territories from local storage
-  Future<List<Territory>> loadUserTerritories(String userId) async {
-    try {
-      final territoryKey = 'user_territories_$userId';
-      final territoryDataJson = prefs.getString(territoryKey);
-      
-      if (territoryDataJson == null) {
-        if (kDebugMode) print('📝 [Territory-Cache] No cached territories found for user: $userId');
-        return [];
-      }
-      
-      // Deserialize territories from JSON
-      final territoriesData = jsonDecode(territoryDataJson) as List<dynamic>;
-      final territories = territoriesData
-          .map((territoryMap) => Territory.fromMap(territoryMap as Map<String, dynamic>))
-          .toList();
-      
-      if (kDebugMode) {
-        print('📝 [Territory-Cache] Loaded ${territories.length} cached territories for user: $userId');
-        for (final territory in territories) {
-          print('   • ${territory.name} (Status: ${territory.status})');
-        }
-      }
-      
-      return territories;
-    } catch (e) {
-      if (kDebugMode) print('❌ [Territory-Cache] Failed to load territories: $e');
-      return [];
-    }
-  }
-  
-  /// Get the last time territories were updated for a user
+  /// Get the timestamp when user territories were last updated
   DateTime? getUserTerritoriesLastUpdated(String userId) {
     try {
-      final lastUpdatedKey = 'user_territories_updated_$userId';
+      final lastUpdatedKey = 'territories_updated_$userId';
       final lastUpdatedString = prefs.getString(lastUpdatedKey);
       
       if (lastUpdatedString != null) {
@@ -505,39 +446,65 @@ class PersistenceService {
       return null;
     }
   }
-  
-  /// Clear user territories from cache
-  Future<void> clearUserTerritories(String userId) async {
-    try {
-      final territoryKey = 'user_territories_$userId';
-      final lastUpdatedKey = 'user_territories_updated_$userId';
-      
-      await prefs.remove(territoryKey);
-      await prefs.remove(lastUpdatedKey);
-      
-      if (kDebugMode) print('🗑️ [Territory-Cache] Cleared territories for user: $userId');
-    } catch (e) {
-      if (kDebugMode) print('❌ [Territory-Cache] Failed to clear territories: $e');
-    }
-  }
-  
-  /// Check if cached territories are still fresh (within specified minutes)
+
+  /// Check if cached territories are fresh (less than maxAgeMinutes old)
   bool areUserTerritoriesFresh(String userId, {int maxAgeMinutes = 5}) {
-    final lastUpdated = getUserTerritoriesLastUpdated(userId);
-    if (lastUpdated == null) return false;
-    
-    final age = DateTime.now().difference(lastUpdated);
-    final isFresh = age.inMinutes < maxAgeMinutes;
-    
-    if (kDebugMode) {
-      print('🕰️ [Territory-Cache] Cache age: ${age.inMinutes} minutes (fresh: $isFresh)');
+    try {
+      final lastUpdated = getUserTerritoriesLastUpdated(userId);
+      if (lastUpdated == null) return false;
+      
+      final age = DateTime.now().difference(lastUpdated);
+      return age.inMinutes < maxAgeMinutes;
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Failed to check freshness: $e');
+      return false;
     }
-    
-    return isFresh;
   }
-  
-  // MARK: - Utility Methods
-  
+
+  /// Get cached territories for user
+  Future<List<Territory>> loadUserTerritories(String userId) async {
+    try {
+      final json = prefs.getString('territories_$userId');
+      if (json == null) return [];
+
+      final List<dynamic> territoriesJson = jsonDecode(json);
+      final territories = territoriesJson
+          .map((t) => Territory.fromMap(t as Map<String, dynamic>))
+          .toList();
+      
+      if (kDebugMode) {
+        print('📖 [Territory-Cache] Loaded ${territories.length} territories for user: $userId');
+      }
+      
+      return territories;
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Error loading territories: $e');
+      return [];
+    }
+  }
+
+  /// Save user territories to cache
+  Future<void> saveUserTerritories(String userId, List<Territory> territories) async {
+    try {
+      final territoriesJson = territories.map((t) => t.toMap()).toList();
+      await prefs.setString('territories_$userId', jsonEncode(territoriesJson));
+      await prefs.setInt('territories_cached_at_$userId', DateTime.now().millisecondsSinceEpoch);
+      
+      if (kDebugMode) {
+        print('💾 [Territory-Cache] Saved ${territories.length} territories for user: $userId');
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ [Territory-Cache] Error saving territories: $e');
+    }
+  }
+
+  // Remove duplicate methods to avoid confusion
+  // Alias old method names to new ones for compatibility
+  Future<List<Territory>> getCachedTerritories(String userId) => loadUserTerritories(userId);
+  bool areCachedTerritoriesFresh(String userId) => areUserTerritoriesFresh(userId);
+  Future<void> cacheUserTerritories(String userId, List<Territory> territories) => 
+      saveUserTerritories(userId, territories);
+
   /// Clear all app data (for logout or reset)
   Future<void> clearAllData() async {
     try {

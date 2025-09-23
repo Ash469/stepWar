@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user.dart';
 import 'step_tracking_service.dart';
 import 'step_state_manager.dart';
@@ -18,6 +19,7 @@ class FirebaseStepSyncService {
   final AuthService _authService = AuthService();
   final StepTrackingService _stepCounter = StepTrackingService();
   final StepStateManager _stateManager = StepStateManager();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   StreamSubscription<int>? _stepSubscription;
   StreamSubscription<User?>? _authSubscription;
@@ -32,21 +34,15 @@ class FirebaseStepSyncService {
     if (_initialized) return;
 
     try {
-      // Initialize Firebase Database with the correct regional URL
       _database = FirebaseDatabase.instanceFor(
         app: Firebase.app(),
         databaseURL: 'https://stepwars-35179-default-rtdb.asia-southeast1.firebasedatabase.app',
       );
-
-      // Listen to authentication state changes
       _authSubscription = _authService.authStateChanges.listen(_onAuthStateChanged);
-
-      // Check current auth state
       final currentUser = _authService.currentUser;
       if (currentUser != null) {
         await _startSyncForUser(currentUser.uid);
       }
-
       _initialized = true;
       if (kDebugMode) {
         print('✅ Firebase Step Sync Service initialized');
@@ -57,8 +53,6 @@ class FirebaseStepSyncService {
       }
     }
   }
-
-  /// Handle authentication state changes
   void _onAuthStateChanged(User? user) {
     if (user == null) {
       _stopSync();
@@ -70,29 +64,19 @@ class FirebaseStepSyncService {
   /// Start syncing step data for a specific user
   Future<void> _startSyncForUser(String userId) async {
     if (_currentUserId == userId) return; 
-
     _stopSync(); 
     _currentUserId = userId;
-
     try {
-      // IMPORTANT: Initialize steps based on Firebase data for proper login behavior
       if (kDebugMode) {
         print('🔄 Initializing step data from Firebase for user: $userId');
       }
       await _initializeStepsFromFirebase(userId);
-      
-      // Get current step count after Firebase initialization
       final currentSteps = _stepCounter.dailySteps;
       _lastSyncedSteps = currentSteps;
-
-      // Listen to step updates from the state manager instead of individual service
       _stepSubscription = _stateManager.dailyStepsStream.listen(_onStepsChanged);
-
-      // Set up periodic sync (every 30 seconds as backup)
       _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
         _performPeriodicSync();
       });
-
       if (kDebugMode) {
         print('🔄 Started step sync for user: $userId with $_lastSyncedSteps steps');
       }
@@ -107,13 +91,10 @@ class FirebaseStepSyncService {
   void _stopSync() {
     _stepSubscription?.cancel();
     _stepSubscription = null;
-    
     _syncTimer?.cancel();
     _syncTimer = null;
-    
     _currentUserId = null;
     _lastSyncedSteps = 0;
-
     if (kDebugMode) {
       print('🛑 Step sync stopped');
     }
@@ -122,8 +103,6 @@ class FirebaseStepSyncService {
   /// Handle step count changes
   void _onStepsChanged(int steps) {
     if (_currentUserId == null) return;
-
-    // Only sync if steps have actually changed
     if (steps != _lastSyncedSteps) {
       _syncStepsToFirebase(steps);
       _lastSyncedSteps = steps;
@@ -133,7 +112,6 @@ class FirebaseStepSyncService {
   /// Perform periodic sync as backup
   void _performPeriodicSync() {
     if (_currentUserId == null) return;
-
     final currentSteps = _stepCounter.dailySteps;
     if (currentSteps != _lastSyncedSteps) {
       _syncStepsToFirebase(currentSteps);
@@ -144,11 +122,8 @@ class FirebaseStepSyncService {
   /// Sync steps to Firebase Realtime Database
   Future<void> _syncStepsToFirebase(int dailySteps) async {
     if (_currentUserId == null) return;
-
     try {
       final userRef = _database.ref().child('users').child(_currentUserId!);
-      
-      // Get existing total steps from Firebase to calculate new total
       final existingTotalSnapshot = await userRef.child('total_steps').get();
       final existingTodaySnapshot = await userRef.child('today_steps').get();
       
@@ -168,16 +143,10 @@ class FirebaseStepSyncService {
         else if (value is double) existingToday = value.round();
         else if (value is String) existingToday = int.tryParse(value) ?? 0;
       }
-      
-      // Calculate new total steps
-      // If this is the first sync of the day or daily steps reset, adjust total accordingly
       int newTotal = existingTotal;
       if (dailySteps >= existingToday) {
-        // Normal case: today's steps increased
         newTotal = existingTotal + (dailySteps - existingToday);
       } else {
-        // Day reset case: today's steps is less than yesterday
-        // Keep existing total, just update today's steps
         newTotal = existingTotal;
       }
       
@@ -390,5 +359,35 @@ class FirebaseStepSyncService {
     if (kDebugMode) {
       print('🗑️ Firebase Step Sync Service disposed');
     }
+  }
+
+  /// Get total steps for user
+  Future<int> getTotalSteps(String id) async {
+    try {
+      final doc = await _firestore.collection('users').doc(id).get();
+      return doc.data()?['total_steps'] ?? 0;
+    } catch (e) {
+      print('❌ Error getting total steps: $e');
+      return 0;
+    }
+  }
+
+  /// Sync steps with Firebase
+  Future<void> syncSteps(String id, int steps) async {
+    try {
+      await _firestore.collection('users').doc(id).update({
+        'daily_steps': steps,
+        'last_sync': DateTime.now(),
+      });
+    } catch (e) {
+      print('❌ Error syncing steps: $e');
+    }
+  }
+
+  /// Listen to user data updates
+  Stream<Map<String, dynamic>> subscribeToUserData(String id) {
+    return _firestore.collection('users').doc(id).snapshots().map((doc) {
+      return doc.data() ?? {};
+    });
   }
 }

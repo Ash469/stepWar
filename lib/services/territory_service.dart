@@ -4,6 +4,7 @@ import '../models/user.dart';
 import '../models/battle.dart';
 import 'firebase_game_database.dart';
 import 'user_territory_service.dart';
+import 'game_manager_service.dart'; // Add missing import
 
 class TerritoryService {
   static final TerritoryService _instance = TerritoryService._internal();
@@ -12,6 +13,10 @@ class TerritoryService {
 
   final FirebaseGameDatabase _gameDB = FirebaseGameDatabase();
   final UserTerritoryService _userTerritoryService = UserTerritoryService();
+
+  // Constants for point conversion
+  static const int STEPS_PER_ATTACK_POINT = 10;  // 10 steps = 1 attack point
+  static const int ATTACK_POINTS_PER_SHIELD = 5;  // 5 attack points = 1 shield point
 
   // ==========================================================================
   // TERRITORY LIFECYCLE METHODS
@@ -295,31 +300,25 @@ class TerritoryService {
     }
   }
 
-  // ==========================================================================
-  // STEP TO GAME POINTS CONVERSION
-  // ==========================================================================
-
-  /// Convert steps to attack points based on game configuration
+  /// Convert steps to attack points based on new game rules
   Future<int> convertStepsToAttackPoints(int steps) async {
     try {
-      final config = await _gameDB.getGameConfig();
-      final stepsPerAttackPoint = config?.stepsPerAttackPoint ?? 100;
-      return steps ~/ stepsPerAttackPoint;
+      // Use local constants instead of GameManagerService dependency
+      return steps ~/ STEPS_PER_ATTACK_POINT;
     } catch (e) {
       if (kDebugMode) print('❌ [Territory] Error converting steps to attack points: $e');
-      return steps ~/ 100; // Default conversion
+      return 0;
     }
   }
 
-  /// Convert steps to shield points based on game configuration
-  Future<int> convertStepsToShieldPoints(int steps) async {
+  /// Convert attack points to shield points based on new game rules
+  Future<int> convertAttackPointsToShieldPoints(int attackPoints) async {
     try {
-      final config = await _gameDB.getGameConfig();
-      final stepsPerShieldPoint = config?.stepsPerShieldPoint ?? 100;
-      return steps ~/ stepsPerShieldPoint;
+      // Use local constants instead of GameManagerService dependency
+      return attackPoints ~/ ATTACK_POINTS_PER_SHIELD;
     } catch (e) {
-      if (kDebugMode) print('❌ [Territory] Error converting steps to shield points: $e');
-      return steps ~/ 100; // Default conversion
+      if (kDebugMode) print('❌ [Territory] Error converting attack points to shield: $e');
+      return 0;
     }
   }
 
@@ -600,3 +599,4 @@ enum AttackValidationError {
   alreadyUnderAttack,
   systemError,
 }
+

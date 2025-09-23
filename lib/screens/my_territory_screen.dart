@@ -1,4 +1,4 @@
-import 'dart:async'; // Import for StreamSubscription
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,11 +6,11 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/territory.dart';
 import '../models/user_stats.dart';
-import '../models/user.dart';
 import '../widgets/territory_card.dart';
 import '../providers/game_provider.dart';
+import '../services/persistence_service.dart';
 import '../services/firebase_game_database.dart';
-import '../services/firestore_service.dart';
+import '../services/territory_service.dart';
 import 'dart:math' as math;
 
 class MyTerritoryScreen extends StatefulWidget {
@@ -24,9 +24,11 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     with TickerProviderStateMixin {
   late AnimationController _backgroundController;
   late Animation<double> _backgroundAnimation;
-
-  // User's territories - will be populated from GameProvider
   List<Territory> ownedTerritories = [];
+
+  final PersistenceService _persistence = PersistenceService();
+  final TerritoryService _territoryService = TerritoryService();
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -46,105 +48,174 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
     ));
     
     _backgroundController.repeat();
-  }
-  
-  /// Load territory data from GameProvider
-  void _loadTerritoryData(GameProvider gameProvider) {
-    try {
-      if (mounted) {
-        setState(() {
-          // Get user territories from GameProvider
-          ownedTerritories = gameProvider.userTerritories;
-        });
-      }
-      
-      final currentUser = gameProvider.currentUser;
-      if (kDebugMode) {
-        print('📊 Territory data loaded: ${ownedTerritories.length} territories');
-        print('👤 Current user: ${currentUser?.nickname} (ID: ${currentUser?.id})');
-        print('🎯 Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
-        print('🔍 User territories: ${ownedTerritories.map((t) => '${t.name} (owner: ${t.ownerId})').join(', ')}');
-        
-        // If no territories found, try to debug further
-        if (ownedTerritories.isEmpty && currentUser != null) {
-          print('⚠️ No territories found for user ${currentUser.id}');
-          print('🔍 Checking if user ID matches expected: ${currentUser.id == "ttIkh7ZY8ENdUsmVIH4h0m4DCl82"}');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) print('❌ Failed to load territory data: $e');
-    }
+    
+    // Load territories on init
+    _loadTerritoriesFromStoredAuth();
   }
 
-  /// Debug method to manually test territory loading with specific user ID
-  Future<void> _debugLoadTerritoriesWithSpecificUserId() async {
-    if (kDebugMode) {
-      print('🔧 [DEBUG] Manually testing territory loading with user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
+  /// Load territories using stored authentication data
+  Future<void> _loadTerritoriesFromStoredAuth() async {
+    try {
+      // Get stored auth state
+      final authData = _persistence.loadAuthState();
+      final userId = authData['userId'] as String?;
+      final firebaseUserId = authData['firebaseUserId'] as String?;
       
-      try {
-        final gameProvider = Provider.of<GameProvider>(context, listen: false);
-        final firebaseDB = FirebaseGameDatabase();
-        await firebaseDB.initialize();
-        
-        // First, check if user exists in Firestore
-        final firestoreService = FirestoreService();
-        await firestoreService.initialize();
-        var user = await firestoreService.getFirestoreUser("ttIkh7ZY8ENdUsmVIH4h0m4DCl82");
-        
-        if (user == null) {
-          print('🔧 [DEBUG] User not found in Firestore');
-          print('🔧 [DEBUG] You may need to create this user in Firestore first');
-        } else {
-          print('🔧 [DEBUG] Found existing user: ${user.nickname} (ID: ${user.id})');
-        }
-        
-        // Now try to load territories
-        final territories = await firebaseDB.getUserTerritories("ttIkh7ZY8ENdUsmVIH4h0m4DCl82");
-        print('🔧 [DEBUG] Direct query result: ${territories.length} territories');
+      if (kDebugMode) {
+        print('🔐 [MyTerritory] Loading territories using stored auth:');
+        print('   • User ID: $userId');
+        print('   • Firebase ID: $firebaseUserId');
+      }
+
+      if (userId == null && firebaseUserId == null) {
+        setState(() {
+          _isLoading = false;
+    
+        });
+        return;
+      }
+
+      // Try to load territories using TerritoryService
+      final territories = await _territoryService.getMyTerritories();
+      
+      if (mounted) {
+        setState(() {
+          ownedTerritories = territories;
+          _isLoading = false;
+        });
+      }
+
+      if (kDebugMode) {
+        print('✅ [MyTerritory] Loaded ${territories.length} territories');
         for (final territory in territories) {
           print('   • ${territory.name} (owner: ${territory.ownerId})');
         }
-        
-        if (territories.isNotEmpty) {
-          setState(() {
-            ownedTerritories = territories;
-          });
-        }
-        
-        // Also try to start a game session with this user
-        if (user != null) {
-          print('🔧 [DEBUG] Starting game session with user...');
-          final success = await gameProvider.startGameSession("ttIkh7ZY8ENdUsmVIH4h0m4DCl82");
-          print('🔧 [DEBUG] Game session started: $success');
-        }
-      } catch (e) {
-        print('❌ [DEBUG] Error in manual territory loading: $e');
+      }
+
+    } catch (e) {
+      if (kDebugMode) print('❌ [MyTerritory] Error loading territories: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
-  @override
-  void dispose() {
-    _backgroundController.dispose();
-    super.dispose();
+  /// Load territories directly from Firebase
+  Future<void> _loadTerritoriesFromFirebase(String userId) async {
+    try {
+      if (kDebugMode) print('🔄 [MyTerritory] Loading territories from Firebase for user: $userId');
+
+      // Initialize and use game DB
+      final gameDB = FirebaseGameDatabase();
+      await gameDB.initialize();
+      
+      final territories = await gameDB.getUserTerritories(userId);
+      
+      if (territories.isNotEmpty && mounted) {
+        setState(() {
+          ownedTerritories = territories;
+          _isLoading = false;
+        });
+        
+        if (kDebugMode) {
+          print('✅ [MyTerritory] Loaded ${territories.length} territories directly from Firebase');
+          for (final territory in territories) {
+            print('   • ${territory.name} (owner: ${territory.ownerId})');
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ [MyTerritory] Failed to load territories from Firebase: $e');
+    }
+  }
+
+  /// Load territory data from GameProvider with fallback to Firebase
+  void _loadTerritoryData(GameProvider gameProvider) {
+    try {
+      final currentUser = gameProvider.currentUser;
+      if (currentUser == null) {
+        if (kDebugMode) print('⚠️ [MyTerritory] No current user found');
+        return;
+      }
+
+      // Try loading from GameProvider
+      final territories = gameProvider.userTerritories;
+      
+      if (territories.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            ownedTerritories = territories;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      // If no territories in GameProvider, try loading from cache
+      if (mounted) {
+        _loadTerritoriesFromCache(currentUser.id);
+      }
+      
+    } catch (e) {
+      if (kDebugMode) print('❌ [MyTerritory] Failed to load territory data: $e');
+    }
+  }
+
+  /// Load territories from local cache with Firebase fallback
+  Future<void> _loadTerritoriesFromCache(String userId) async {
+    try {
+      final territories = await _persistence.getCachedTerritories(userId);
+      
+      if (territories.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            ownedTerritories = territories;
+            _isLoading = false;
+          });
+        }
+        if (kDebugMode) print('✅ [MyTerritory] Loaded ${territories.length} territories from cache');
+        return;
+      }
+
+      // If cache is empty, try Firebase
+      await _loadTerritoriesFromFirebase(userId);
+      
+    } catch (e) {
+      if (kDebugMode) print('❌ [MyTerritory] Failed to load territories from cache: $e');
+      // Try Firebase as last resort
+      await _loadTerritoriesFromFirebase(userId);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<GameProvider>(
       builder: (context, gameProvider, child) {
-        // Load territory data when GameProvider updates (only once per build)
-        if (mounted) {
-          _loadTerritoryData(gameProvider);
+        final currentUser = gameProvider.currentUser;
+        final territories = gameProvider.userTerritories;
+        
+        // Merge territories from both sources
+        if (territories.isNotEmpty && territories.length != ownedTerritories.length) {
+          setState(() {
+            ownedTerritories = territories;
+          });
         }
 
-        final currentUser = gameProvider.currentUser;
+        // Calculate the actual territory count
+        final territoryCount = territories.isNotEmpty ? territories.length : ownedTerritories.length;
+        
+        if (kDebugMode) {
+          print('📊 [MyTerritory] Territory count: $territoryCount (GP: ${territories.length}, State: ${ownedTerritories.length})');
+        }
+        
         final userStats = currentUser != null ? UserStats(
           dailySteps: gameProvider.currentStepCount,
           totalSteps: currentUser.totalSteps,
           attackPoints: currentUser.attackPoints,
           shieldPoints: currentUser.shieldPoints,
-          territoriesOwned: ownedTerritories.length,
+          territoriesOwned: territoryCount, // Use calculated count
           battlesWon: currentUser.totalDefensesWon,
           battlesLost: currentUser.totalAttacksLaunched - currentUser.totalTerritoriesCaptured,
           attacksRemaining: 3 - currentUser.attacksUsedToday,
@@ -230,7 +301,7 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                               ),
                               _buildStatColumn(
                                 'Territories',
-                                userStats.territoriesOwned.toString(),
+                                '$territoryCount',  // Use calculated count directly
                                 AppTheme.successGold,
                                 Icons.flag,
                               ),
@@ -283,14 +354,6 @@ class _MyTerritoryScreenState extends State<MyTerritoryScreen>
                                 ),
                                 if (kDebugMode) ...[
                                   const SizedBox(height: 16),
-                                  ElevatedButton(
-                                    onPressed: _debugLoadTerritoriesWithSpecificUserId,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.primaryAttack,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                    child: const Text('Debug: Load Territories'),
-                                  ),
                                 ],
                               ],
                             ),

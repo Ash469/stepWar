@@ -7,34 +7,36 @@ import '../models/battle.dart';
 import '../models/daily_activity.dart';
 import '../models/game_config.dart';
 import 'firestore_service.dart';
+import 'persistence_service.dart';
 
 class FirebaseGameDatabase {
   static final FirebaseGameDatabase _instance = FirebaseGameDatabase._internal();
   factory FirebaseGameDatabase() => _instance;
   FirebaseGameDatabase._internal();
 
-  late FirebaseFirestore _firestore;
-  final FirestoreService _firestoreService = FirestoreService();
+  FirebaseFirestore? _firestore;
+  final PersistenceService _persistence = PersistenceService();
   final Uuid _uuid = const Uuid();
   bool _isInitialized = false;
 
+  bool get isInitialized => _isInitialized;
+
   /// Initialize the Game Database service
-  Future<bool> initialize() async {
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    
     try {
-      final initialized = await _firestoreService.initialize();
-      if (!initialized) {
-        if (kDebugMode) print('❌ [GameDB] Failed to initialize Firestore service');
-        return false;
-      }
-      
-      _firestore = _firestoreService.firestore;
+      _firestore = FirebaseFirestore.instance;
+      _firestore?.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
       _isInitialized = true;
       
       if (kDebugMode) print('🎮 [GameDB] Game Database service initialized');
-      return true;
     } catch (e) {
-      if (kDebugMode) print('❌ [GameDB] Initialization failed: $e');
-      return false;
+      if (kDebugMode) print('❌ [GameDB] Failed to initialize: $e');
+      throw Exception('Failed to initialize Firebase Game Database');
     }
   }
 
@@ -42,11 +44,11 @@ class FirebaseGameDatabase {
   // COLLECTION REFERENCES
   // ==========================================================================
   
-  CollectionReference get _users => _firestore.collection('users');
-  CollectionReference get _territories => _firestore.collection('territories');
-  CollectionReference get _battles => _firestore.collection('battles');
-  CollectionReference get _dailyActivity => _firestore.collection('daily_activity');
-  CollectionReference get _config => _firestore.collection('config');
+  CollectionReference get _users => _firestore!.collection('users');
+  CollectionReference get _territories => _firestore!.collection('territories');
+  CollectionReference get _battles => _firestore!.collection('battles');
+  CollectionReference get _dailyActivity => _firestore!.collection('daily_activity');
+  CollectionReference get _config => _firestore!.collection('config');
 
   // ==========================================================================
   // GAME CONFIG METHODS
@@ -150,30 +152,40 @@ class FirebaseGameDatabase {
   /// Get territories owned by a user
   Future<List<Territory>> getUserTerritories(String userId) async {
     try {
-      if (kDebugMode) {
-        print('🔍 [GameDB] Querying territories for user: $userId');
-        print('🎯 [GameDB] Expected user ID: ttIkh7ZY8ENdUsmVIH4h0m4DCl82');
+      if (!_isInitialized) {
+        await initialize();
       }
+
+      // Check cache first
+      if (_persistence.areUserTerritoriesFresh(userId)) {
+        final cached = await _persistence.loadUserTerritories(userId);
+        if (cached.isNotEmpty) {
+          if (kDebugMode) print('📖 Using cached territories for user: $userId');
+          return cached;
+        }
+      }
+
+      // Fetch from Firestore
+      if (kDebugMode) print('🔍 Fetching territories from Firestore for user: $userId');
       
-      final snapshot = await _territories
+      final snapshot = await _firestore!
+          .collection('territories')
           .where('owner_id', isEqualTo: userId)
           .get();
       
-      if (kDebugMode) {
-        print('📊 [GameDB] Found ${snapshot.docs.length} territories for user $userId');
-        for (final doc in snapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          print('   • ${data['name']} (owner_id: ${data['owner_id']})');
-        }
-      }
+      final territories = snapshot.docs
+          .map((doc) => Territory.fromFirestoreMap(doc.data()))
+          .toList();
       
-      return snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return Territory.fromFirestoreMap(data);
-      }).toList();
+      // Cache the results
+      await _persistence.saveUserTerritories(userId, territories);
+      
+      return territories;
     } catch (e) {
-      if (kDebugMode) print('❌ [GameDB] Error fetching user territories: $e');
-      return [];
+      if (kDebugMode) print('❌ Error fetching user territories: $e');
+      
+      // Try to return cached data as fallback
+      return await _persistence.loadUserTerritories(userId);
     }
   }
 
@@ -329,7 +341,7 @@ class FirebaseGameDatabase {
       );
 
       // Execute both updates in a transaction
-      await _firestore.runTransaction((transaction) async {
+      await _firestore!.runTransaction((transaction) async {
         transaction.set(_battles.doc(battleId), battle.toFirestoreMap());
         transaction.set(_territories.doc(territoryId), updatedTerritory.toFirestoreMap());
       });
@@ -418,7 +430,7 @@ class FirebaseGameDatabase {
         territoryChanged = true;
         
         // Execute transaction
-        await _firestore.runTransaction((transaction) async {
+        await _firestore!.runTransaction((transaction) async {
           transaction.set(_battles.doc(battleId), finalBattle.toFirestoreMap());
           transaction.set(_territories.doc(territory.id), updatedTerritory!.toFirestoreMap());
         });
@@ -434,7 +446,7 @@ class FirebaseGameDatabase {
         );
         
         // Execute transaction
-        await _firestore.runTransaction((transaction) async {
+        await _firestore!.runTransaction((transaction) async {
           transaction.set(_battles.doc(battleId), updatedBattle.toFirestoreMap());
           transaction.set(_territories.doc(territory.id), updatedTerritory!.toFirestoreMap());
         });
@@ -488,7 +500,7 @@ class FirebaseGameDatabase {
       );
 
       // Execute transaction
-      await _firestore.runTransaction((transaction) async {
+      await _firestore!.runTransaction((transaction) async {
         transaction.set(_battles.doc(battleId), updatedBattle.toFirestoreMap());
         transaction.set(_territories.doc(territory.id), updatedTerritory.toFirestoreMap());
       });

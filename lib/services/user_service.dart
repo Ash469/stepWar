@@ -3,11 +3,13 @@ import '../database/database_helper.dart';
 import '../models/user.dart';
 import 'step_economy_service.dart';
 import 'territory_service.dart';
+import 'firestore_service.dart'; // Import FirestoreService
 
 class UserService {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final StepEconomyService _economyService = StepEconomyService();
   final TerritoryService _territoryService = TerritoryService();
+  final FirestoreService _firestoreService = FirestoreService(); // Add instance
 
   /// Create a new user with starting conditions
   /// Implements game rules 3.1: Starting Conditions
@@ -40,8 +42,18 @@ class UserService {
   /// Update user's step count and convert to game points
   Future<GameUser?> updateUserSteps(String userId, int newStepCount) async {
     try {
-      return await _economyService.processStepUpdate(userId, newStepCount);
+      // FIX: Fetch user from Firestore (source of truth) instead of local DB
+      // to avoid processing steps based on stale data.
+      final user = await _firestoreService.getFirestoreUser(userId);
+      if (user == null) {
+        // If the user doesn't exist in the local DB, we can't process steps.
+        print('Error: Could not find user with ID $userId to update steps.');
+        return null;
+      }
+      // Pass the full GameUser object to the economy service.
+      return await _economyService.processStepUpdate(user, newStepCount);
     } catch (e) {
+      print('Error in updateUserSteps: $e');
       return null;
     }
   }

@@ -16,6 +16,8 @@ class GameUser {
   final int totalAttacksLaunched;
   final int totalDefensesWon;
   final int totalTerritoriesCaptured;
+  final int totalWins;
+  final int totalBattles;
   
   // Settings
   final bool notificationsEnabled;
@@ -37,6 +39,8 @@ class GameUser {
     this.totalAttacksLaunched = 0,
     this.totalDefensesWon = 0,
     this.totalTerritoriesCaptured = 0,
+    this.totalWins = 0,
+    this.totalBattles = 0,
     this.notificationsEnabled = true,
     this.deviceToken,
   });
@@ -68,6 +72,8 @@ class GameUser {
       totalAttacksLaunched: map['total_attacks_launched'] as int? ?? 0,
       totalDefensesWon: map['total_defenses_won'] as int? ?? 0,
       totalTerritoriesCaptured: map['total_territories_captured'] as int? ?? 0,
+      totalWins: map['total_wins'] as int? ?? 0,
+      totalBattles: map['total_battles'] as int? ?? 0,
       notificationsEnabled: (map['notifications_enabled'] as int?) == 1,
       deviceToken: map['device_token'] as String?,
     );
@@ -91,6 +97,8 @@ class GameUser {
       totalAttacksLaunched: map['total_attacks_launched'] as int? ?? 0,
       totalDefensesWon: map['total_defenses_won'] as int? ?? 0,
       totalTerritoriesCaptured: map['total_territories_captured'] as int? ?? 0,
+      totalWins: map['total_wins'] as int? ?? 0,
+      totalBattles: map['total_battles'] as int? ?? 0,
       notificationsEnabled: map['notifications_enabled'] as bool? ?? true,
       deviceToken: map['device_token'] as String?,
     );
@@ -113,6 +121,8 @@ class GameUser {
       'total_attacks_launched': totalAttacksLaunched,
       'total_defenses_won': totalDefensesWon,
       'total_territories_captured': totalTerritoriesCaptured,
+      'total_wins': totalWins,
+      'total_battles': totalBattles,
       'notifications_enabled': notificationsEnabled ? 1 : 0,
       'device_token': deviceToken,
     };
@@ -136,6 +146,8 @@ class GameUser {
       'total_attacks_launched': totalAttacksLaunched,
       'total_defenses_won': totalDefensesWon,
       'total_territories_captured': totalTerritoriesCaptured,
+      'total_wins': totalWins,
+      'total_battles': totalBattles,
       'notifications_enabled': notificationsEnabled,
       'device_token': deviceToken,
     };
@@ -159,10 +171,14 @@ class GameUser {
       totalAttacksLaunched: _safeParseInt(map['total_attacks_launched']) ?? 0,
       totalDefensesWon: _safeParseInt(map['total_defenses_won']) ?? 0,
       totalTerritoriesCaptured: _safeParseInt(map['total_territories_captured']) ?? 0,
+      totalWins: _safeParseInt(map['total_wins']) ?? 0,
+      totalBattles: _safeParseInt(map['total_battles']) ?? 0,
       notificationsEnabled: _safeParseBool(map['notifications_enabled']) ?? true,
       deviceToken: map['device_token']?.toString(),
     );
   }
+
+  get weeklySteps => null;
   
   // Helper methods for safe parsing
   static int? _safeParseInt(dynamic value) {
@@ -210,6 +226,8 @@ class GameUser {
       'total_attacks_launched': totalAttacksLaunched,
       'total_defenses_won': totalDefensesWon,
       'total_territories_captured': totalTerritoriesCaptured,
+      'total_wins': totalWins,
+      'total_battles': totalBattles,
       'notifications_enabled': notificationsEnabled,
       'device_token': deviceToken,
     };
@@ -229,6 +247,8 @@ class GameUser {
     int? totalAttacksLaunched,
     int? totalDefensesWon,
     int? totalTerritoriesCaptured,
+    int? totalWins,
+    int? totalBattles,
     bool? notificationsEnabled,
     String? deviceToken,
   }) {
@@ -246,6 +266,8 @@ class GameUser {
       totalAttacksLaunched: totalAttacksLaunched ?? this.totalAttacksLaunched,
       totalDefensesWon: totalDefensesWon ?? this.totalDefensesWon,
       totalTerritoriesCaptured: totalTerritoriesCaptured ?? this.totalTerritoriesCaptured,
+      totalWins: totalWins ?? this.totalWins,
+      totalBattles: totalBattles ?? this.totalBattles,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       deviceToken: deviceToken ?? this.deviceToken,
     );
