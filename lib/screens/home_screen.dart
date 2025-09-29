@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/game_service.dart';
 import '../services/step_counting.dart';
 import '../widget/footer.dart';
+import 'battle_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription? _stepSubscription;
   Timer? _debounce;
   int _latestSteps = 0;
+
+  // New variables for game creation
+  final GameService _gameService = GameService();
+  bool _isCreatingGame = false;
 
   @override
   void initState() {
@@ -115,6 +121,39 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- MODIFIED METHOD ---
+  Future<void> _startOnlineBattle() async {
+    if (_user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load user profile.')),
+      );
+      return;
+    }
+
+    setState(() => _isCreatingGame = true);
+
+    try {
+      final gameId = await _gameService.createOnlineGame(_user!);
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BattleScreen(gameId: gameId, user: _user!),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start game: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingGame = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -129,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             _buildHeader(),
             const SizedBox(height: 24),
-            _buildStepCounterCard(), // New step counter card
+            _buildStepCounterCard(),
             const SizedBox(height: 24),
             _buildSectionTitle("---------- Today's Scorecard ----------"),
             const SizedBox(height: 16),
@@ -319,38 +358,63 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBattleOptions() {
     return Row(
       children: [
-        _buildBattleOption('Online Battle', 'assets/images/battle_online.png'),
+        _buildBattleOption(
+          'Online Battle',
+          'assets/images/battle_online.png',
+          onTap: _isCreatingGame ? null : _startOnlineBattle,
+          isLoading: _isCreatingGame,
+        ),
         const SizedBox(width: 16),
         _buildBattleOption(
-            'Battle a Friend', 'assets/images/battle_friend.png'),
+          'Battle a Friend',
+          'assets/images/battle_friend.png',
+          onTap: () {
+            // Placeholder for friend battle
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Coming Soon!')));
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildBattleOption(String title, String imagePath) {
+  Widget _buildBattleOption(String title, String imagePath,
+      {VoidCallback? onTap, bool isLoading = false}) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade900,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade800),
-        ),
-        child: Column(
-          children: [
-            Image.asset(imagePath, height: 80),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFDD85D)),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade900,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade800),
+          ),
+          child: Column(
+            children: [
+              Image.asset(imagePath, height: 80),
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDD85D)),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(title,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 16)),
               ),
-              child: Text(title,
-                  style: const TextStyle(color: Colors.white, fontSize: 16)),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -401,7 +465,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 16),
         buildRule(
             "The player with the most steps at the end of 60 min wins the battle."),
-        buildRule("If a player leads by 3000 steps, they gets KO immediately."),
+        buildRule(
+            "If a player leads by 3000 steps, they gets KO immediately."),
         buildRule(
             "All steps are converted to coins, which can be used to upgrade your kingdom."),
       ],
@@ -482,13 +547,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: const TextStyle(color: Colors.white),
                     )
                   : Row(
-                      mainAxisSize: MainAxisSize.min, 
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Image.asset(
                           'assets/images/coin_icon.png',
                           width: 20,
                           height: 20,
-                        ), 
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           label,
