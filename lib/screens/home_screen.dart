@@ -8,6 +8,7 @@ import '../services/game_service.dart';
 import '../services/step_counting.dart';
 import '../widget/footer.dart';
 import 'battle_screen.dart';
+import 'waiting_for_friend_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -121,19 +122,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- MODIFIED METHOD ---
-  Future<void> _startOnlineBattle() async {
+  Future<void> _startBotBattle() async {
     if (_user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not load user profile.')),
-      );
+      _showErrorSnackbar('Could not load user profile.');
       return;
     }
 
     setState(() => _isCreatingGame = true);
 
     try {
-      final gameId = await _gameService.createOnlineGame(_user!);
+      final gameId = await _gameService.createBotGame(_user!);
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -142,15 +140,131 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start game: $e')),
-        );
-      }
+      _showErrorSnackbar('Failed to start game: $e');
     } finally {
       if (mounted) {
         setState(() => _isCreatingGame = false);
       }
+    }
+  }
+
+  void _showFriendBattleDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: const Text('Battle a Friend',
+            style: TextStyle(color: Colors.white)),
+        content: const Text('Create a new battle or join an existing one.',
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _handleStartFriendBattle();
+            },
+            child: const Text('Start Battle',
+                style: TextStyle(color: Color(0xFFFFC107))),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _handleJoinFriendBattle();
+            },
+            child: const Text('Join Battle',
+                style: TextStyle(color: Color(0xFFFFC107))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleStartFriendBattle() async {
+    if (_user == null) return;
+    setState(() => _isCreatingGame = true);
+    try {
+      final gameId = await _gameService.createFriendGame(_user!);
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                WaitingForFriendScreen(gameId: gameId, user: _user!),
+          ),
+        );
+      }
+    } catch (e) {
+      _showErrorSnackbar('Failed to create game: $e');
+    } finally {
+      if (mounted) setState(() => _isCreatingGame = false);
+    }
+  }
+
+  void _handleJoinFriendBattle() {
+    final gameIdController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: const Text('Join Battle', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: gameIdController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: 'Enter Game ID',
+            labelStyle: TextStyle(color: Colors.white70),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFFFFC107)),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () {
+              final gameId = gameIdController.text.trim();
+              if (gameId.isNotEmpty) {
+                Navigator.of(ctx).pop();
+                _joinGameById(gameId);
+              }
+            },
+            child: const Text('Join', style: TextStyle(color: Color(0xFFFFC107))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _joinGameById(String gameId) async {
+    if (_user == null) return;
+    setState(() => _isCreatingGame = true);
+    try {
+      final success = await _gameService.joinFriendGame(gameId, _user!);
+      if (success) {
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => BattleScreen(gameId: gameId, user: _user!),
+            ),
+          );
+        }
+      } else {
+        _showErrorSnackbar('Could not join game. It might be full or invalid.');
+      }
+    } catch (e) {
+      _showErrorSnackbar('Error joining game: $e');
+    } finally {
+      if (mounted) setState(() => _isCreatingGame = false);
+    }
+  }
+
+  void _showErrorSnackbar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -361,18 +475,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildBattleOption(
           'Online Battle',
           'assets/images/battle_online.png',
-          onTap: _isCreatingGame ? null : _startOnlineBattle,
+          onTap: _isCreatingGame ? null : _startBotBattle,
           isLoading: _isCreatingGame,
         ),
         const SizedBox(width: 16),
         _buildBattleOption(
           'Battle a Friend',
           'assets/images/battle_friend.png',
-          onTap: () {
-            // Placeholder for friend battle
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Coming Soon!')));
-          },
+          onTap: _showFriendBattleDialog,
         ),
       ],
     );
@@ -597,3 +707,4 @@ extension UserModelCopyWith on UserModel {
     );
   }
 }
+

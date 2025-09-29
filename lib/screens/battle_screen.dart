@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/battle_RB.dart';
 import '../models/user_model.dart';
+import '../services/auth_service.dart';
 import '../services/game_service.dart';
 import '../services/bot_service.dart';
 import '../services/step_counting.dart';
@@ -20,6 +21,7 @@ class _BattleScreenState extends State<BattleScreen> {
   final GameService _gameService = GameService();
   final BotService _botService = BotService();
   final HealthService _healthService = HealthService();
+  final AuthService _authService = AuthService();
 
   StreamSubscription? _gameSubscription;
   StreamSubscription? _stepSubscription;
@@ -27,7 +29,11 @@ class _BattleScreenState extends State<BattleScreen> {
   Timer? _gameTimer;
 
   Game? _currentGame;
+  UserModel? _opponentProfile;
   bool _isLoading = true;
+  bool _isUserPlayer1 = false;
+  bool _isBotMatch = false;
+
   int _initialPlayerSteps = -1;
   Duration _timeLeft = const Duration(minutes: 60);
 
@@ -50,19 +56,49 @@ class _BattleScreenState extends State<BattleScreen> {
 
   void _listenToGameUpdates() {
     _gameSubscription =
-        _gameService.getGameStream(widget.gameId).listen((game) {
+        _gameService.getGameStream(widget.gameId).listen((game) async {
       if (mounted) {
-        if (_isLoading) setState(() => _isLoading = false);
-        if (_currentGame == null && game?.startTime != null) {
-          _startGameTimer(game!.startTime!);
+        final isFirstLoad = _currentGame == null;
+        if (isFirstLoad && game != null) {
+          _isUserPlayer1 = widget.user.userId == game.player1Id;
+          final opponentId =
+              _isUserPlayer1 ? game.player2Id : game.player1Id;
+          await _loadOpponentProfile(opponentId);
+          if (game.startTime != null) {
+            _startGameTimer(game.startTime!);
+          }
         }
+
         if (game?.gameStatus == GameStatus.completed &&
             _currentGame?.gameStatus != GameStatus.completed) {
           _showGameOverDialog(game);
         }
-        setState(() => _currentGame = game);
+
+        setState(() {
+          _currentGame = game;
+          if (_isLoading) _isLoading = false;
+        });
       }
     });
+  }
+
+  Future<void> _loadOpponentProfile(String? opponentId) async {
+    if (opponentId == null) return;
+
+    if (opponentId.startsWith('bot_')) {
+      setState(() {
+        _isBotMatch = true;
+        _opponentProfile = UserModel(
+          userId: opponentId,
+          username: _botService.getBotNameFromId(opponentId),
+        );
+      });
+    } else {
+      final profile = await _authService.getUserProfile(opponentId);
+      if (mounted) {
+        setState(() => _opponentProfile = profile);
+      }
+    }
   }
 
   void _startGameTimer(int startTimeMillis) {
@@ -87,25 +123,36 @@ class _BattleScreenState extends State<BattleScreen> {
       _onPlayerStep,
       onError: (error) => print("Step Stream Error: $error"),
     );
-    _botStepTimer =
-        Timer.periodic(const Duration(seconds: 1), _updateBotState);
+    if (_isBotMatch) {
+      _botStepTimer =
+          Timer.periodic(const Duration(seconds: 1), _updateBotState);
+    }
   }
 
   void _onPlayerStep(String stepsStr) {
     if (_currentGame?.gameStatus == GameStatus.completed) return;
     final currentTotalSteps = int.tryParse(stepsStr);
-    if (currentTotalSteps == null || _currentGame == null) return;
+    if (currentTotalSteps == null) return;
+
     if (_initialPlayerSteps == -1) _initialPlayerSteps = currentTotalSteps;
+
     final stepsThisGame = currentTotalSteps - _initialPlayerSteps;
-    if (stepsThisGame >= 0 && stepsThisGame != _currentGame!.step1Count) {
-      _gameService.updatePlayerSteps(widget.gameId, stepsThisGame);
+
+    final currentStepsInDb = _isUserPlayer1
+        ? _currentGame?.step1Count
+        : _currentGame?.step2Count;
+
+    if (stepsThisGame >= 0 && stepsThisGame != currentStepsInDb) {
+      _gameService.updatePlayerSteps(
+          widget.gameId, stepsThisGame, _isUserPlayer1);
     }
   }
 
   void _updateBotState(Timer timer) {
-    if (_currentGame == null ||
-        _currentGame!.player2Id == null ||
+    if (!_isBotMatch ||
+        _currentGame == null ||
         _currentGame?.gameStatus == GameStatus.completed) return;
+
     final botId = _currentGame!.player2Id!;
     final botType = _botService.getBotTypeFromId(botId);
     if (botType != null) {
@@ -173,29 +220,18 @@ class _BattleScreenState extends State<BattleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _currentGame == null) {
+    if (_isLoading || _currentGame == null || _opponentProfile == null) {
       return const Scaffold(
           backgroundColor: Color(0xFF1E1E1E),
           body: Center(
               child: CircularProgressIndicator(color: Color(0xFFFFC107))));
     }
-    if (_currentGame!.player2Id == null) {
-      return const Scaffold(
-          backgroundColor: Color(0xFF1E1E1E),
-          body: Center(
-              child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: Color(0xFFFFC107)),
-              SizedBox(height: 16),
-              Text("Waiting for opponent...",
-                  style: TextStyle(color: Colors.white70)),
-            ],
-          )));
-    }
 
-    final botName = _botService.getBotNameFromId(_currentGame!.player2Id!);
-    final playerName = widget.user.username ?? "You";
+    final player1 = _isUserPlayer1 ? widget.user : _opponentProfile!;
+    final player2 = _isUserPlayer1 ? _opponentProfile! : widget.user;
+
+    final step1Count = _currentGame!.step1Count;
+    final step2Count = _currentGame!.step2Count;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
@@ -206,8 +242,8 @@ class _BattleScreenState extends State<BattleScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildTimer(),
-              _buildPlayerStats(playerName, botName),
-              _buildBattleBar(),
+              _buildPlayerStats(player1, player2, step1Count, step2Count),
+              _buildBattleBar(step1Count, step2Count),
               _buildMultiplierSection(),
             ],
           ),
@@ -235,17 +271,18 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildPlayerStats(String playerName, String botName) {
+  Widget _buildPlayerStats(UserModel player1, UserModel player2,
+      int step1Count, int step2Count) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _buildPlayerCard(
-            playerName,
-            _currentGame!.step1Count,
-            widget.user.profileImageUrl,
-            _currentGame!.multiplier1,
-            true),
+          player1.username ?? 'Player 1',
+          step1Count,
+          player1.profileImageUrl,
+          _currentGame!.multiplier1,
+        ),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 12.0),
           child: CircleAvatar(
@@ -258,14 +295,18 @@ class _BattleScreenState extends State<BattleScreen> {
                     fontWeight: FontWeight.bold)),
           ),
         ),
-        _buildPlayerCard(botName, _currentGame!.step2Count, null,
-            _currentGame!.multiplier2, false),
+        _buildPlayerCard(
+          player2.username ?? 'Player 2',
+          step2Count,
+          player2.profileImageUrl,
+          _currentGame!.multiplier2,
+        ),
       ],
     );
   }
 
   Widget _buildPlayerCard(
-      String name, int steps, String? imageUrl, double multiplier, bool isYou) {
+      String name, int steps, String? imageUrl, double multiplier) {
     return Expanded(
       child: Column(
         children: [
@@ -322,22 +363,18 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildBattleBar() {
-    final p1 = _currentGame!.step1Count;
-    final p2 = _currentGame!.step2Count;
+  Widget _buildBattleBar(int p1, int p2) {
     final diff = p1 - p2;
-
     String statusText;
     Color statusColor;
     if (diff.abs() <= 100) {
       statusText = 'Even Match';
       statusColor = Colors.white;
     } else {
-      statusText = 'Ahead by ${diff.abs()} steps';
+      statusText = '${diff > 0 ? "Ahead" : "Behind"} by ${diff.abs()} steps';
       statusColor = diff > 0 ? const Color(0xFF69F0AE) : Colors.yellow.shade700;
     }
 
-    // Normalize diff from -3000 to 3000 to a 0.0 to 1.0 scale
     double normalizedValue = (diff.clamp(-3000, 3000) + 3000) / 6000;
 
     return Column(
@@ -355,7 +392,6 @@ class _BattleScreenState extends State<BattleScreen> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // The main progress bar
                 Container(
                   height: 30,
                   decoration: BoxDecoration(
@@ -372,18 +408,15 @@ class _BattleScreenState extends State<BattleScreen> {
                     ),
                   ),
                 ),
-                // Draw text in the middle
                 const Positioned(
                   child: Text(
                     "DRAW",
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12),
                   ),
                 ),
-                // The marker
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 300),
                   left: (barWidth - 30) * normalizedValue,
@@ -395,43 +428,30 @@ class _BattleScreenState extends State<BattleScreen> {
                             color: Color(0xFFFFC107), size: 30),
                       ),
                       Container(
-                        width: 4,
-                        height: 30,
-                        color: const Color(0xFFFFC107),
-                      ),
+                          width: 4, height: 30, color: const Color(0xFFFFC107)),
                     ],
                   ),
                 ),
-
-                // Win and KO icons
                 const Positioned(
                     left: 12,
-                    child: Column(
-                      children: [
-                        Icon(Icons.emoji_events,
-                            color: Colors.amber, size: 20),
-                        Text("Win",
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 10)),
-                      ],
-                    )),
+                    child: Column(children: [
+                      Icon(Icons.emoji_events, color: Colors.amber, size: 20),
+                      Text("Win",
+                          style: TextStyle(color: Colors.white, fontSize: 10)),
+                    ])),
                 const Positioned(
                     right: 12,
-                    child: Column(
-                      children: [
-                        Icon(Icons.sentiment_very_dissatisfied,
-                            color: Colors.yellow, size: 20),
-                        Text("KO",
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 10)),
-                      ],
-                    )),
+                    child: Column(children: [
+                      Icon(Icons.sentiment_very_dissatisfied,
+                          color: Colors.yellow, size: 20),
+                      Text("KO",
+                          style: TextStyle(color: Colors.white, fontSize: 10)),
+                    ])),
               ],
             ),
           );
         }),
         const SizedBox(height: 8),
-        // Labels below the bar
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 4.0),
           child: Row(
