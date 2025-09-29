@@ -1,305 +1,171 @@
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/user.dart';
-import 'firestore_service.dart';
+import '../models/user_model.dart';
 
 class AuthService {
-  static final AuthService _instance = AuthService._internal();
-  factory AuthService() => _instance;
-  AuthService._internal();
-  
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
-  
-  // Correctly initialize FirebaseDatabase instance to fix LateInitializationError
-  final FirebaseDatabase _database = FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: 'https://stepwars-35179-default-rtdb.asia-southeast1.firebasedatabase.app',
-    );
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  // Get current user
   User? get currentUser => _auth.currentUser;
-  bool get isSignedIn => currentUser != null;
-  
-  // The explicit initialize method is no longer needed for the database instance.
-  // It can be kept for other setup tasks if required.
-  Future<void> initialize() async {
-    // This can be used for other initialization logic if needed in the future.
+
+  // --- Profile & User Data ---
+
+  /// Checks if a user profile exists in Firestore.
+  Future<bool> isNewUser(String userId) async {
+    try {
+      final doc = await _firestore.collection('users').doc(userId).get();
+      return !doc.exists;
+    } catch (e) {
+      print("Error checking if new user: $e");
+      return false;
+    }
   }
 
+  /// Creates a user profile in Firestore and saves login state locally.
+  Future<void> createUserProfile(UserModel user) async {
+    await _firestore.collection('users').doc(user.userId).set(user.toJson());
+    // After creating profile, save login state and profile to SharedPreferences
+    await saveUserSession(user);
+  }
+
+  /// [NEW] Updates a user profile in Firestore and saves the updated session locally.
+  Future<void> updateUserProfile(UserModel user) async {
+    await _firestore.collection('users').doc(user.userId).update(user.toJson());
+    // After updating Firestore, save the updated profile to SharedPreferences
+    await saveUserSession(user);
+  }
+
+
+  // --- Authentication Methods ---
+
   /// Sign in with Google
-  Future<UserCredential?> signInWithGoogle() async {
+  Future<User?> signInWithGoogle() async {
     try {
-      await _googleSignIn.signOut();      
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
         return null;
       }
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
-        print('Missing tokens - AccessToken: ${googleAuth.accessToken != null}, IdToken: ${googleAuth.idToken != null}');
-        throw Exception('Failed to obtain Google authentication tokens');
-      }
-      final credential = GoogleAuthProvider.credential(
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      UserCredential? userCredential;
-      try {
-        userCredential = await _auth.signInWithCredential(credential);
-        print('Firebase sign-in successful: ${userCredential.user?.email}');
-        print('Firebase user UID: ${userCredential.user?.uid}');
-        print('Firebase user displayName: ${userCredential.user?.displayName}');
-      } catch (authError) {
-        if (authError.toString().contains('PigeonUserDetails') || 
-            authError.toString().contains('_TypeError') ||
-            authError.toString().contains('type \'List<Object?\'')) {
-          await Future.delayed(const Duration(milliseconds: 1000));
-          final authenticatedUser = _auth.currentUser;
-          if (authenticatedUser == null) {
-            throw Exception('Google Sign-In failed due to compatibility issues. Please try again.');
-          }
-        } else {
-          throw authError;
+      final UserCredential userCredential =
+          await _auth.signInWithCredential(credential);
+
+      // If the user profile already exists, cache it to log them in automatically next time.
+      final user = userCredential.user;
+      if (user != null && !(await isNewUser(user.uid))) {
+          await cacheUserProfile(user.uid);
+      }
+
+      return user;
+    } catch (e) {
+      print(e.toString());
+      rethrow;
+    }
+  }
+
+  /// Send OTP to Email
+  Future<void> sendOtpToEmail(String email) async {
+    print("Sending OTP to $email (mock implementation)");
+    await Future.delayed(const Duration(seconds: 1));
+  }
+
+  /// Verify OTP and Sign In
+  Future<User?> verifyOtpAndSignIn(String email, String otp) async {
+    if (otp == '1234') {
+        try {
+            UserCredential userCredential;
+            try {
+                userCredential = await _auth.signInWithEmailAndPassword(
+                    email: email,
+                    password: 'some_default_password_if_known'
+                );
+            } on FirebaseAuthException catch (e) {
+                if (e.code == 'user-not-found') {
+                    userCredential = await _auth.createUserWithEmailAndPassword(
+                        email: email,
+                        password: 'temporaryPassword${DateTime.now().millisecondsSinceEpoch}'
+                    );
+                } else {
+                    rethrow;
+                }
+            }
+
+            // If the user profile already exists, cache it.
+            final user = userCredential.user;
+            if (user != null && !(await isNewUser(user.uid))) {
+                await cacheUserProfile(user.uid);
+            }
+            return user;
+        } catch (e) {
+            print("Failed to sign in with mock OTP: $e");
+            throw Exception('OTP verification failed');
         }
-      }
-      await _storeLoginState(true);
-      final currentAuthUser = _auth.currentUser;
-      if (userCredential?.user != null) {
-        print('Creating/updating user profile for UID: ${userCredential!.user!.uid}');
-        await _createOrUpdateUserProfile(userCredential!.user!);
-      } else if (currentAuthUser != null) {
-        await _createOrUpdateUserProfile(currentAuthUser);
-      }
-      return userCredential;
-    } catch (e) {
-      try {
-        await _googleSignIn.signOut();
-      } catch (signOutError) {
-        print('Error signing out from Google after failed sign-in: $signOutError');
-      }
-      rethrow;
-    }
-  }
-
-  /// Sign out
-  Future<void> signOut() async {
-    try {
-      await _googleSignIn.signOut();
-      await _auth.signOut();
-      await _storeLoginState(false);
-    } catch (e) {
-      print('Error signing out: $e');
-      rethrow;
-    }
-  }
-
-  /// Store login state in SharedPreferences
-  Future<void> _storeLoginState(bool isLoggedIn) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', isLoggedIn);
-    if (isLoggedIn && currentUser != null) {
-      await prefs.setString('userEmail', currentUser!.email ?? '');
-      await prefs.setString('userId', currentUser!.uid);
-      await prefs.setString('firestoreUserId', currentUser!.uid);
     } else {
-      await prefs.remove('userEmail');
-      await prefs.remove('userId');
-      await prefs.remove('firestoreUserId');
+        throw Exception('Invalid OTP');
     }
   }
 
-  /// Check stored login state
-  Future<bool> getStoredLoginState() async {
+  /// Sign out and clear local session
+  Future<void> signOut() async {
+    await _googleSignIn.signOut();
+    await _auth.signOut();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+  }
+
+  /// Checks if a user session exists locally.
+  Future<bool> isLoggedIn() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('isLoggedIn') ?? false;
   }
 
-  /// Get stored user email
-  Future<String?> getStoredUserEmail() async {
+Future<void> saveUserSession(UserModel user) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('userEmail');
-  }
+    await prefs.setBool('isLoggedIn', true);
 
-  /// Get stored Firestore user ID
-  Future<String?> getStoredFirestoreUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('firestoreUserId');
-  }
-
-  /// Create or update user profile in both Realtime Database and Firestore
-  Future<void> _createOrUpdateUserProfile(User user) async {
-    try {
-      final now = DateTime.now();
-      final nickname = user.displayName?.isNotEmpty == true 
-          ? user.displayName! 
-          : user.email?.split('@').first ?? 'Player';
-
-      final gameUser = GameUser(
-        id: user.uid,
-        nickname: nickname,
-        email: user.email,
-        photoURL: user.photoURL,
-        totalSteps: 0,
-        attackPoints: 0,
-        shieldPoints: 0,
-        attacksUsedToday: 0,
-        lastAttackReset: now,
-        createdAt: now,
-        updatedAt: now,
-        territoriesOwned: 0,
-        totalAttacksLaunched: 0,
-        totalDefensesWon: 0,
-        totalTerritoriesCaptured: 0,
-        notificationsEnabled: true,
-      );
-      final firestoreService = FirestoreService();
-      await firestoreService.initialize();
-      
-      final existingUser = await firestoreService.getFirestoreUser(user.uid);
-      if (existingUser == null) {
-        await firestoreService.createFirestoreUser(user);
-        print('✅ Created new user in Firestore: ${user.uid}');
-      } else {
-        await firestoreService.updateFirestoreUser(gameUser);
-        print('✅ Updated existing user in Firestore: ${user.uid}');
-      }
-      final userRef = _database.ref().child('users').child(user.uid);
-      final userSnapshot = await userRef.get();
-      if (!userSnapshot.exists) {
-        await userRef.set(gameUser.toRealtimeDbMap());
-        print('✅ Created user in Realtime Database: ${user.uid}');
-      } else {
-        final updates = {
-          'email': user.email,
-          'photo_url': user.photoURL,
-          'nickname': nickname,
-          'updated_at': ServerValue.timestamp,
-        };
-        await userRef.update(updates);
-        print('✅ Updated user in Realtime Database: ${user.uid}');
-      }
-    } catch (e) {
-      print('Error creating/updating user profile: $e');
-      rethrow;
+    final userJson = user.toJson();
+    if (user.dob != null) {
+      userJson['dob'] = user.dob!.toIso8601String();
     }
+    final userProfileString = jsonEncode(userJson);
+    await prefs.setString('userProfile', userProfileString);
+
+    // Console log each field for verification
+    print("--- User Session Saved/Updated ---");
+    print("User ID: ${user.userId}");
+    print("Email: ${user.email}");
+    print("Username: ${user.username}");
+    print("Profile Image URL: ${user.profileImageUrl}");
+    print("Date of Birth: ${user.dob}");
+    print("Gender: ${user.gender}");
+    print("Weight: ${user.weight} kg");
+    print("Height: ${user.height} cm");
+    print("Contact No: ${user.contactNo}");
+    print("Step Goal: ${user.stepGoal}");
+    print("Today's Steps: ${user.todaysStepCount}");
+    print("--------------------------");
+    print("Full Profile JSON: $userProfileString");
   }
 
-  /// Get user profile from Realtime Database
-  Future<GameUser?> getUserProfile(String uid) async {
-    try {
-      final userRef = _database.ref().child('users').child(uid);
-      final userSnapshot = await userRef.get();
-      
-      if (userSnapshot.exists && userSnapshot.value != null) {
-        final rawData = userSnapshot.value;
-        Map<String, dynamic> userData;
-        
-        if (rawData is Map) {
-          userData = Map<String, dynamic>.from(rawData);
-        } else {
-          print('Unexpected data type from Firebase: ${rawData.runtimeType}');
-          return null;
-        }
-        
-        return GameUser.fromRealtimeDbMap(userData);
-      }
-      return null;
-    } catch (e) {
-      print('Error getting user profile: $e');
-      print('Error details: ${e.toString()}');
-      return null;
-    }
-  }
-
-  /// Update user profile in Realtime Database
-  Future<void> updateUserProfile(GameUser user) async {
-    try {
-      final userRef = _database.ref().child('users').child(user.id);
-      await userRef.update(user.toRealtimeDbMap());
-    } catch (e) {
-      print('Error updating user profile: $e');
-      rethrow;
-    }
-  }
-
-  /// Update user steps in both Realtime Database and Firestore
-  Future<void> updateUserSteps(String userId, int steps) async {
-    try {
-      // Update Realtime Database
-      final userRef = _database.ref().child('users').child(userId);
-      await userRef.update({
-        'total_steps': steps,
-        'updated_at': ServerValue.timestamp,
-      });
-
-      // Update Firestore
-      final firestoreService = FirestoreService();
-      await firestoreService.updateUserSteps(userId, steps);
-    } catch (e) {
-      print('Error updating user steps: $e');
-      rethrow;
-    }
-  }
-
-  /// Get real-time stream of user data
-  Stream<GameUser?> getUserDataStream(String userId) {
-    final userRef = _database.ref().child('users').child(userId);
-    
-    return userRef.onValue.map((event) {
-      if (!event.snapshot.exists || event.snapshot.value == null) {
-        return null;
-      }
-
+  /// Fetches profile from Firestore and saves it to SharedPreferences.
+  Future<void> cacheUserProfile(String userId) async {
       try {
-        final data = event.snapshot.value;
-        if (data is Map) {
-          final userData = Map<String, dynamic>.from(data);
-          return GameUser.fromRealtimeDbMap(userData);
-        }
-        return null;
-      } catch (e) {
-        print('Error parsing user data from stream: $e');
-        return null;
+          final doc = await _firestore.collection('users').doc(userId).get();
+          if (doc.exists) {
+              final user = UserModel.fromJson(doc.data()!);
+              await saveUserSession(user);
+          }
+      } catch(e) {
+          print("Error caching user profile: $e");
       }
-    });
-  }
-
-  /// Update user's points in Realtime Database
-  Future<bool> updateUserPoints(String userId, {
-    int? attackPoints,
-    int? shieldPoints,
-    int? stepsUsed,
-  }) async {
-    try {
-      final userRef = _database.ref().child('users').child(userId);
-      final updates = <String, dynamic>{
-        'updated_at': ServerValue.timestamp,
-      };
-
-      if (attackPoints != null) {
-        updates['attack_points'] = ServerValue.increment(attackPoints);
-      }
-      
-      if (shieldPoints != null) {
-        updates['shield_points'] = ServerValue.increment(shieldPoints);
-      }
-
-      if (stepsUsed != null) {
-        updates['total_steps'] = ServerValue.increment(-stepsUsed);
-      }
-
-      await userRef.update(updates);
-
-      return true;
-    } catch (e) {
-      print('Error updating user points: $e');
-      return false;
-    }
   }
 }
-
-//this file is done with only realtime database part

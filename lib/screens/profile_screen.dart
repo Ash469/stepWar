@@ -1,1150 +1,723 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
-import '../theme/app_theme.dart';
-import '../services/firebase_sync_service.dart';
-import '../services/step_tracking_service.dart';
-import '../models/user.dart';
-import '../providers/game_provider.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user_model.dart';
+import '../services/auth_service.dart';
+import 'login_screen.dart';
+import '../widget/footer.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final TextEditingController _nicknameController = TextEditingController();
-  bool _isEditingNickname = false;
-  bool _showLogoutConfirmation = false;
+  UserModel? _user;
+  bool _isLoading = true;
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
     super.initState();
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    _nicknameController.text = authProvider.currentUser?.nickname ?? '';
+    _loadUserProfile();
   }
 
-  @override
-  void dispose() {
-    _nicknameController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleLogout() async {
-    setState(() {
-      _showLogoutConfirmation = true;
-    });
-  }
-
-  Future<void> _confirmLogout() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    await authProvider.signOut();
-    setState(() {
-      _showLogoutConfirmation = false;
-    });
-  }
-
-  void _cancelLogout() {
-    setState(() {
-      _showLogoutConfirmation = false;
-    });
-  }
-
-  Future<void> _handleUpdateNickname() async {
-    final newNickname = _nicknameController.text.trim();
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    if (newNickname.isEmpty || newNickname.length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nickname must be at least 3 characters'),
-          backgroundColor: AppTheme.primaryAttack,
-        ),
-      );
-      return;
+  Future<void> _loadUserProfile({bool forceReload = false}) async {
+    if (forceReload) {
+      setState(() {
+        _isLoading = true;
+      });
     }
+    final prefs = await SharedPreferences.getInstance();
+    final userProfileString = prefs.getString('userProfile');
+    if (userProfileString != null) {
+      final userJson = jsonDecode(userProfileString) as Map<String, dynamic>;
 
-    if (authProvider.currentUser != null) {
-      final updatedUser = authProvider.currentUser!.copyWith(
-        nickname: newNickname,
-      );
+      setState(() {
+        _user = UserModel(
+          userId: userJson['userId'] ?? '',
+          email: userJson['email'],
+          username: userJson['username'],
+          profileImageUrl: userJson['profileImageUrl'],
+          dob: userJson['dob'] != null
+              ? DateTime.tryParse(userJson['dob'])
+              : null,
+          gender: userJson['gender'],
+          weight: (userJson['weight'] as num?)?.toDouble(),
+          height: (userJson['height'] as num?)?.toDouble(),
+          contactNo: userJson['contactNo'],
+          stepGoal: (userJson['stepGoal'] as num?)?.toInt(),
+          todaysStepCount: (userJson['todaysStepCount'] as num?)?.toInt(),
+        );
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
-      final success = await authProvider.updateUserProfile(updatedUser);
+  Future<void> _updateAndReloadProfile(UserModel updatedUser) async {
+    if (mounted) Navigator.of(context).pop();
 
-      if (success) {
-        setState(() {
-          _isEditingNickname = false;
-        });
+    setState(() => _isLoading = true);
+    try {
+      await _authService.updateUserProfile(updatedUser);
+      await _loadUserProfile(forceReload: true);
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Nickname updated successfully!'),
-            backgroundColor: AppTheme.successGreen,
+            content: Text('Profile updated successfully!'),
+            backgroundColor: Colors.green,
           ),
         );
-      } else {
+      }
+    } catch (e) {
+      print("Error updating profile: $e");
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to update nickname'),
-            backgroundColor: AppTheme.primaryAttack,
+          SnackBar(
+            content: Text('Failed to update profile: $e'),
+            backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
 
-  void _toggleEditNickname() {
-    setState(() {
-      _isEditingNickname = !_isEditingNickname;
-      if (!_isEditingNickname) {
-        // Reset to current nickname if cancelling
-        _nicknameController.text =
-            Provider.of<AuthProvider>(context, listen: false)
-                    .currentUser
-                    ?.nickname ??
-                '';
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to log out?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Logout', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout == true) {
+      await _authService.signOut();
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
       }
-    });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.backgroundDark,
-      appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: AppTheme.textWhite,
-          ),
-        ),
-        backgroundColor: AppTheme.backgroundDark,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.logout,
-              color: AppTheme.primaryAttack,
+    if (_isLoading) {
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.yellow));
+    }
+
+    if (_user == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('Could not load user profile.',
+                style: TextStyle(color: Colors.white)),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _logout,
+              child: const Text('Log Out'),
             ),
-            onPressed: _handleLogout,
-            tooltip: 'Logout',
-          ),
-        ],
-      ),
-      body: Consumer<AuthProvider>(
-        builder: (context, authProvider, child) {
-          final user = authProvider.currentUser;
-
-          if (user == null) {
-            // If authenticated but no user profile, show a fallback
-            if (authProvider.isAuthenticated) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.person,
-                      size: 64,
-                      color: AppTheme.successGold,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Setting up your profile...',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: AppTheme.textWhite,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Please wait while we load your information.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppTheme.textGray,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: () => authProvider.refreshUserData(),
-                      child: const Text('Refresh'),
-                    ),
-                  ],
-                ),
-              );
-            } else {
-              return const Center(
-                child: CircularProgressIndicator(
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(AppTheme.successGold),
-                ),
-              );
-            }
-          }
-
-          return Stack(
-            children: [
-              SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    // Profile Header
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.backgroundSecondary,
-                            AppTheme.backgroundSecondary.withOpacity(0.8),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.successGold.withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          // Profile Picture
-                          Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: AppTheme.successGold,
-                                width: 3,
-                              ),
-                            ),
-                            child: ClipOval(
-                              child: user.photoURL != null
-                                  ? Image.network(
-                                      user.photoURL!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) {
-                                        return _buildDefaultAvatar();
-                                      },
-                                    )
-                                  : _buildDefaultAvatar(),
-                            ),
-                          ).animate().scale(
-                              delay: const Duration(milliseconds: 200)),
-
-                          const SizedBox(height: 16),
-
-                          // Nickname with edit functionality
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (_isEditingNickname) ...[
-                                Expanded(
-                                  child: TextField(
-                                    controller: _nicknameController,
-                                    style: const TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.textWhite,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: AppTheme.successGold
-                                              .withOpacity(0.5),
-                                        ),
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(
-                                          color: AppTheme.successGold,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.check,
-                                    color: AppTheme.successGreen,
-                                  ),
-                                  onPressed: _handleUpdateNickname,
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.close,
-                                    color: AppTheme.primaryAttack,
-                                  ),
-                                  onPressed: _toggleEditNickname,
-                                ),
-                              ] else ...[
-                                Text(
-                                  user.nickname,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.textWhite,
-                                  ),
-                                ).animate().fadeIn(
-                                    delay: const Duration(milliseconds: 300)),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.edit,
-                                    color: AppTheme.successGold,
-                                    size: 20,
-                                  ),
-                                  onPressed: _toggleEditNickname,
-                                ),
-                              ],
-                            ],
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          // Email
-                          Text(
-                            user.email ?? 'No email',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              color: AppTheme.textGray,
-                            ),
-                          ).animate().fadeIn(
-                              delay: const Duration(milliseconds: 400)),
-                        ],
-                      ),
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 100))
-                        .slideY(begin: 0.3),
-
-                    const SizedBox(height: 24),
-
-                    // Real-time Step Tracking Stats
-                    _buildRealTimeStepStats(user),
-
-                    const SizedBox(height: 24),
-
-                    // Battle Stats
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.primaryAttack.withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Battle Stats',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  color: AppTheme.successGold,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          const SizedBox(height: 16),
-                          _buildStatRow('Shield Points',
-                              user.shieldPoints.toString(), Icons.shield, AppTheme.primaryDefend),
-                          _buildStatRow(
-                              'Territories Owned',
-                              user.territoriesOwned.toString(),
-                              Icons.flag,
-                              AppTheme.successGold),
-                          _buildStatRow('Attacks Launched',
-                              user.totalAttacksLaunched.toString(), Icons.rocket_launch),
-                          _buildStatRow('Defenses Won',
-                              user.totalDefensesWon.toString(), Icons.security),
-                        ],
-                      ),
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 200))
-                        .slideY(begin: 0.3),
-
-                    const SizedBox(height: 24),
-
-                    // Account Section
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.backgroundSecondary.withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Account',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  color: AppTheme.textWhite,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          const SizedBox(height: 16),
-                          _buildAccountRow('Member Since',
-                              _formatDate(user.createdAt), Icons.calendar_today),
-                          _buildAccountRow('Last Updated',
-                              _formatDate(user.updatedAt), Icons.update),
-                          _buildAccountRow('User ID', _formatUserId(user.id),
-                              Icons.fingerprint),
-                          const SizedBox(height: 20),
-
-                          // Logout Button
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _handleLogout,
-                              icon: const Icon(Icons.logout),
-                              label: const Text(
-                                'Sign Out',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryAttack,
-                                foregroundColor: AppTheme.textWhite,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                elevation: 4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                        .animate()
-                        .fadeIn(delay: const Duration(milliseconds: 300))
-                        .slideY(begin: 0.3),
-
-                    const SizedBox(height: 24),
-
-                    // Points Conversion Card
-                    Card(
-                      margin: const EdgeInsets.all(16),
-                      color: AppTheme.backgroundSecondary,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Convert Steps to Points',
-                              style: TextStyle(
-                                color: AppTheme.textWhite,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Available Steps: ${StepTrackingService().dailySteps}',
-                              style: const TextStyle(color: AppTheme.textGray),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Attack Points: ${user.attackPoints}',
-                              style:
-                                  const TextStyle(color: AppTheme.primaryAttack),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Conversion Rate: 10 steps = 1 attack point',
-                              style: TextStyle(
-                                  color: AppTheme.textGray, fontSize: 12),
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () => _showConvertStepsDialog(context),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppTheme.primaryAttack,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                                child: const Text('Convert Now'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Logout confirmation overlay
-              if (_showLogoutConfirmation)
-                Container(
-                  color: Colors.black.withOpacity(0.7),
-                  child: Center(
-                    child: Container(
-                      margin: const EdgeInsets.all(24),
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.primaryAttack.withOpacity(0.5),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.logout,
-                            size: 48,
-                            color: AppTheme.primaryAttack,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Sign Out?',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.textWhite,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Are you sure you want to sign out?\nYou can sign back in anytime with Google.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: AppTheme.textGray,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: _cancelLogout,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.backgroundDark,
-                                    foregroundColor: AppTheme.textWhite,
-                                    side: BorderSide(
-                                      color:
-                                          AppTheme.textGray.withOpacity(0.5),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  child: const Text('Cancel'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: _confirmLogout,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.primaryAttack,
-                                    foregroundColor: AppTheme.textWhite,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  child: const Text('Sign Out'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ).animate().scale(
-                        duration: const Duration(milliseconds: 200)),
-                  ),
-                ).animate().fadeIn(duration: const Duration(milliseconds: 150)),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildDefaultAvatar() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppTheme.successGold,
-            AppTheme.successGold.withOpacity(0.8),
           ],
         ),
-      ),
-      child: const Icon(
-        Icons.person,
-        size: 50,
-        color: AppTheme.backgroundDark,
-      ),
-    );
-  }
-
-  Widget _buildStatRow(String label, String value, IconData icon,
-      [Color? iconColor]) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: iconColor ?? AppTheme.textGray,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textGray,
-              fontSize: 16,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppTheme.textWhite,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAccountRow(String label, String value, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: AppTheme.textGray,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textGray,
-              fontSize: 16,
-            ),
-          ),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: AppTheme.textWhite,
-                fontSize: 16,
-              ),
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
-  }
-
-  String _formatUserId(String? id) {
-    if (id == null || id.isEmpty) {
-      return 'No ID';
+      );
     }
-    if (id.length <= 8) {
-      return id; // Return the full ID if it's short
-    }
-    return '${id.substring(0, 8)}...';
+
+    return Stack(
+      children: [
+        // 1. YOUR SCROLLABLE CONTENT (at the bottom of the stack)
+        SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Padding(
+            // Add padding at the bottom to avoid the main navigation bar
+            padding: const EdgeInsets.only(bottom: 100.0),
+            child: Column(
+              children: [
+                // Add space at the top so the header doesn't get hidden by the button
+                const SizedBox(height: 56),
+                _buildProfileHeader(),
+                const SizedBox(height: 24),
+                _buildInfoCard(
+                    title: 'About you',
+                    child: _buildAboutYouSection(),
+                    onEditTap: () => _showEditAboutYouSheet()),
+                const SizedBox(height: 16),
+                _buildInfoCard(
+                    title: 'Your Profile',
+                    child: _buildYourProfileSection(),
+                    onEditTap: () => _showEditYourProfileSheet()),
+                const SizedBox(height: 24),
+                _buildStepsChart(),
+                const SizedBox(height: 40),
+                const StepWarsFooter(),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 16.0, 
+          right: 16.0, 
+          child: IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: _logout,
+          ),
+        ),
+      ],
+    );
   }
 
-  /// Build real-time step stats widget
-  Widget _buildRealTimeStepStats(GameUser user) {
-    final stepCounter = StepTrackingService();
-    final syncService = FirebaseStepSyncService();
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppTheme.successGreen.withOpacity(0.1),
-            AppTheme.successGreen.withOpacity(0.05),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppTheme.successGreen.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.directions_walk,
-                color: AppTheme.successGreen,
-                size: 28,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Step Tracking',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppTheme.successGreen,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const Spacer(),
-              // Sync status indicator
-              StreamBuilder<bool>(
-                stream: Stream.periodic(
-                    const Duration(seconds: 1), (_) => syncService.isSyncing),
-                builder: (context, snapshot) {
-                  final isSyncing = snapshot.data ?? false;
-                  return Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isSyncing
-                          ? AppTheme.successGreen.withOpacity(0.2)
-                          : AppTheme.dangerOrange.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSyncing
-                            ? AppTheme.successGreen
-                            : AppTheme.dangerOrange,
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isSyncing ? Icons.cloud_done : Icons.cloud_off,
-                          color: isSyncing
-                              ? AppTheme.successGreen
-                              : AppTheme.dangerOrange,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          isSyncing ? 'Synced' : 'Offline',
-                          style: TextStyle(
-                            color: isSyncing
-                                ? AppTheme.successGreen
-                                : AppTheme.dangerOrange,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // Real-time step counter
-          StreamBuilder<int>(
-            stream: stepCounter.stepsStream,
-            initialData: stepCounter.dailySteps,
-            builder: (context, snapshot) {
-              final currentSteps = snapshot.data ?? 0;
-
-              return Column(
-                children: [
-                  // Current Steps (Large Display)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.backgroundSecondary.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppTheme.successGreen.withOpacity(0.2),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Today\'s Steps',
-                              style: TextStyle(
-                                color: AppTheme.textGray,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              currentSteps.toString(),
-                              style: const TextStyle(
-                                color: AppTheme.successGreen,
-                                fontSize: 36,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'Distance',
-                              style: TextStyle(
-                                color: AppTheme.textGray,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              '${(currentSteps * 0.78 / 1000).toStringAsFixed(2)} km',
-                              style: const TextStyle(
-                                color: AppTheme.textWhite,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Calories',
-                              style: TextStyle(
-                                color: AppTheme.textGray,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              '${(currentSteps * 0.045).toStringAsFixed(0)} kcal',
-                              style: const TextStyle(
-                                color: AppTheme.textWhite,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Firebase Sync Section - Always show
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryDefend.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: AppTheme.primaryDefend.withOpacity(0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          syncService.isSyncing
-                              ? Icons.cloud_done
-                              : Icons.sync,
-                          color: syncService.isSyncing
-                              ? AppTheme.successGreen
-                              : AppTheme.primaryDefend,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Firebase Sync',
-                                style: TextStyle(
-                                  color: syncService.isSyncing
-                                      ? AppTheme.successGreen
-                                      : AppTheme.primaryDefend,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                syncService.isSyncing
-                                    ? 'Syncing today\'s steps: $currentSteps'
-                                    : 'Tap to sync your steps to Firebase',
-                                style: const TextStyle(
-                                  color: AppTheme.textGray,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        ElevatedButton(
-                          onPressed: syncService.isSyncing
-                              ? null // Disable while syncing
-                              : () async {
-                                  try {
-                                    await syncService.forceSyncSteps();
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                              '✅ Steps synced to Firebase successfully!'),
-                                          backgroundColor:
-                                              AppTheme.successGreen,
-                                          duration: Duration(seconds: 2),
-                                        ),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                              '❌ Sync failed: ${e.toString()}'),
-                                          backgroundColor:
-                                              AppTheme.dangerOrange,
-                                          duration: const Duration(seconds: 3),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: syncService.isSyncing
-                                ? AppTheme.textGray
-                                : AppTheme.primaryDefend,
-                            foregroundColor: AppTheme.textWhite,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            minimumSize: Size.zero,
-                          ),
-                          child: Text(
-                            syncService.isSyncing ? 'Syncing...' : 'Sync Now',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          // Daily Goal Progress (10,000 steps)
-          StreamBuilder<int>(
-            stream: stepCounter.stepsStream,
-            initialData: stepCounter.dailySteps,
-            builder: (context, snapshot) {
-              final currentSteps = snapshot.data ?? 0;
-              const dailyGoal = 10000;
-              final progress = (currentSteps / dailyGoal).clamp(0.0, 1.0);
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Daily Goal Progress',
-                        style: TextStyle(
-                          color: AppTheme.textGray,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Text(
-                        '${(progress * 100).toStringAsFixed(0)}%',
-                        style: TextStyle(
-                          color: progress >= 1.0
-                              ? AppTheme.successGreen
-                              : AppTheme.textWhite,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: AppTheme.textGray.withOpacity(0.3),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        progress >= 1.0
-                            ? AppTheme.successGreen
-                            : AppTheme.successGold,
-                      ),
-                      minHeight: 6,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    progress >= 1.0
-                        ? 'Goal achieved! 🎉'
-                        : '${dailyGoal - currentSteps} steps to goal',
-                    style: TextStyle(
-                      color: progress >= 1.0
-                          ? AppTheme.successGreen
-                          : AppTheme.textGray,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    ).animate().fadeIn(delay: const Duration(milliseconds: 150)).slideY(begin: 0.3);
-  }
-
-  void _showConvertStepsDialog(BuildContext context) {
-    final stepService = context.read<StepTrackingService>();
-    final gameProvider = context.read<GameProvider>();
-    final availableSteps = stepService.dailySteps;
-
-    final TextEditingController controller = TextEditingController();
-    int stepsToConvert = 0;
-    int pointsGained = 0;
-    const conversionRate = 10;
-    const accentColor = AppTheme.primaryAttack;
-
-    showDialog(
+  void _showEditSheet(
+      {required String title,
+      required Widget content,
+      required VoidCallback onSave}) {
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppTheme.backgroundSecondary,
-              title: const Text('Convert to Attack Points', style: TextStyle(color: accentColor)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Available steps today: $availableSteps', style: const TextStyle(color: AppTheme.textGray)),
-                  const SizedBox(height: 8),
-                  const Text('10 steps = 1 attack point', style: TextStyle(color: AppTheme.textGray, fontSize: 12)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: AppTheme.textWhite),
-                    decoration: InputDecoration(
-                      labelText: 'Steps to convert',
-                      labelStyle: const TextStyle(color: AppTheme.textGray),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: accentColor),
-                      ),
-                      enabledBorder: const OutlineInputBorder(
-                        borderSide: BorderSide(color: AppTheme.textGray),
-                      ),
-                    ),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        stepsToConvert = int.tryParse(value) ?? 0;
-                        if (stepsToConvert > availableSteps) {
-                          stepsToConvert = availableSteps;
-                          controller.text = availableSteps.toString();
-                          controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
-                        }
-                        pointsGained = stepsToConvert ~/ conversionRate;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Text('You will get: $pointsGained attack points', style: const TextStyle(color: AppTheme.textWhite)),
-                  Text('This will use: ${pointsGained * conversionRate} steps', style: const TextStyle(color: AppTheme.textGray, fontSize: 12)),
-                ],
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel', style: TextStyle(color: AppTheme.textGray)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.black),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 16),
+                content,
+                const SizedBox(height: 24),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: accentColor),
-                  onPressed: (pointsGained > 0) ? () async {
-                    final stepsToUse = pointsGained * conversionRate;
-                    final success = await gameProvider.convertStepsToPoints(stepsToUse);
-
-                    if (mounted) {
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(success
-                              ? 'Successfully converted $stepsToUse steps!'
-                              : gameProvider.errorMessage ?? 'Conversion failed.'),
-                          backgroundColor: success ? AppTheme.successGreen : AppTheme.dangerOrange,
-                        ),
-                      );
-                    }
-                  } : null,
-                  child: const Text('Convert'),
+                  onPressed: onSave,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: Colors.yellow.shade700,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Save',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ],
-            );
-          },
+            ),
+          ),
         );
       },
     );
   }
 
+  Widget _buildProfileHeader() {
+    return Column(
+      children: [
+        Stack(
+          children: [
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: Colors.grey.shade800,
+              backgroundImage: _user!.profileImageUrl != null
+                  ? NetworkImage(_user!.profileImageUrl!)
+                  : null,
+              child: _user!.profileImageUrl == null
+                  ? const Icon(Icons.person, size: 50, color: Colors.white70)
+                  : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          _user!.username ?? 'Username',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _user!.email ?? 'No email provided',
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard(
+      {required String title,
+      required Widget child,
+      required VoidCallback onEditTap}) {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+              ),
+              GestureDetector(
+                onTap: onEditTap,
+                child: const Icon(Icons.edit, color: Colors.white, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAboutYouSection() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _buildDetailItem('Gender', _user!.gender ?? 'NA'),
+        _buildDetailItem(
+            'DOB',
+            _user!.dob != null
+                ? DateFormat('dd/MM/yyyy').format(_user!.dob!)
+                : 'NA'),
+        _buildDetailItem('Weight', '${_user!.weight?.toString() ?? 'NA'} kg'),
+        _buildDetailItem('Height', '${_user!.height?.toString() ?? 'NA'} cm'),
+      ],
+    );
+  }
+
+  Widget _buildYourProfileSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDetailItem('Email', _user!.email ?? 'Not provided',
+            isColumn: true),
+        const SizedBox(height: 16),
+        _buildDetailItem('Contact No.', _user!.contactNo ?? 'Not provided',
+            isColumn: true),
+      ],
+    );
+  }
+
+  void _showEditNameAndPhotoSheet() {
+    final nameController = TextEditingController(text: _user?.username);
+    const textStyle = TextStyle(color: Colors.black);
+    const labelStyle = TextStyle(color: Colors.black54);
+
+    _showEditSheet(
+      title: 'Edit Profile',
+      content: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundColor: Colors.grey.shade300,
+            backgroundImage: _user!.profileImageUrl != null
+                ? NetworkImage(_user!.profileImageUrl!)
+                : null,
+            child: _user!.profileImageUrl == null
+                ? Icon(Icons.person, size: 40, color: Colors.grey.shade800)
+                : null,
+          ),
+          TextButton(
+            onPressed: () {
+              // TODO: Implement image picking logic
+            },
+            child: const Text('Edit Photo'),
+          ),
+          TextField(
+            controller: nameController,
+            style: textStyle,
+            decoration: const InputDecoration(
+              labelText: 'Your name',
+              labelStyle: labelStyle,
+            ),
+          ),
+        ],
+      ),
+      onSave: () {
+        final updatedUser =
+            _user!.copyWith(username: nameController.text.trim());
+        _updateAndReloadProfile(updatedUser);
+      },
+    );
+  }
+
+  void _showEditAboutYouSheet() {
+    final weightController =
+        TextEditingController(text: _user?.weight?.toString());
+    final heightController =
+        TextEditingController(text: _user?.height?.toString());
+    DateTime? selectedDob = _user?.dob;
+    String? selectedGender = _user?.gender;
+
+    const textStyle = TextStyle(color: Colors.black);
+    const labelStyle = TextStyle(color: Colors.black54);
+
+    _showEditSheet(
+      title: 'About You',
+      content: StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Gender', style: labelStyle),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => selectedGender = 'Male'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: selectedGender == 'Male'
+                              ? Colors.yellow.shade700
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Male',
+                            style: TextStyle(
+                              color: selectedGender == 'Male'
+                                  ? Colors.black
+                                  : Colors.black54,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => selectedGender = 'Female'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: selectedGender == 'Female'
+                              ? Colors.yellow.shade700
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Female',
+                            style: TextStyle(
+                              color: selectedGender == 'Female'
+                                  ? Colors.black
+                                  : Colors.black54,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              InkWell(
+                onTap: () async {
+                  final pickedDate = await showDatePicker(
+                    context: context,
+                    initialDate: selectedDob ?? DateTime.now(),
+                    firstDate: DateTime(1900),
+                    lastDate: DateTime.now(),
+                  );
+                  if (pickedDate != null) {
+                    setState(() {
+                      selectedDob = pickedDate;
+                    });
+                  }
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Date of Birth',
+                    labelStyle: labelStyle,
+                  ),
+                  child: Text(
+                    selectedDob != null
+                        ? DateFormat('dd/MM/yyyy').format(selectedDob!)
+                        : 'Select Date',
+                    style: textStyle,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: weightController,
+                  style: textStyle,
+                  decoration: const InputDecoration(
+                    labelText: 'Weight in KG',
+                    labelStyle: labelStyle,
+                  ),
+                  keyboardType: TextInputType.number),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: heightController,
+                  style: textStyle,
+                  decoration: const InputDecoration(
+                    labelText: 'Height in cm',
+                    labelStyle: labelStyle,
+                  ),
+                  keyboardType: TextInputType.number),
+            ],
+          );
+        },
+      ),
+      onSave: () {
+        final updatedUser = _user!.copyWith(
+          gender: selectedGender,
+          dob: selectedDob,
+          weight: double.tryParse(weightController.text.trim()),
+          height: double.tryParse(heightController.text.trim()),
+        );
+        _updateAndReloadProfile(updatedUser);
+      },
+    );
+  }
+
+  void _showEditYourProfileSheet() {
+    final contactController = TextEditingController(text: _user?.contactNo);
+
+    const textStyle = TextStyle(color: Colors.black);
+    const labelStyle = TextStyle(color: Colors.black54);
+
+    _showEditSheet(
+      title: 'Your Profile',
+      content: Column(
+        children: [
+          TextField(
+            controller: contactController,
+            style: textStyle,
+            decoration: const InputDecoration(
+              labelText: 'Contact No.',
+              labelStyle: labelStyle,
+            ),
+            keyboardType: TextInputType.phone,
+          ),
+        ],
+      ),
+      onSave: () {
+        final updatedUser =
+            _user!.copyWith(contactNo: contactController.text.trim());
+        _updateAndReloadProfile(updatedUser);
+      },
+    );
+  }
+
+  void _showSetGoalSheet() {
+    final goalController =
+        TextEditingController(text: _user?.stepGoal?.toString());
+
+    const textStyle = TextStyle(color: Colors.black);
+    const labelStyle = TextStyle(color: Colors.black54);
+
+    _showEditSheet(
+      title: 'Set Goal',
+      content: TextField(
+        controller: goalController,
+        style: textStyle,
+        decoration: const InputDecoration(
+          labelText: 'Add Your Steps',
+          labelStyle: labelStyle,
+        ),
+        keyboardType: TextInputType.number,
+      ),
+      onSave: () {
+        final updatedUser =
+            _user!.copyWith(stepGoal: int.tryParse(goalController.text.trim()));
+        _updateAndReloadProfile(updatedUser);
+      },
+    );
+  }
+
+  Widget _buildDetailItem(String label, String value, {bool isColumn = false}) {
+    if (isColumn) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value,
+              style: const TextStyle(color: Colors.white, fontSize: 16)),
+          const SizedBox(height: 4),
+          Text(label,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+        ],
+      );
+    }
+    return Column(
+      children: [
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16)),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildStepsChart() {
+    final Map<String, int> stepsData = {
+      'MO': 9568,
+      'TU': 2563,
+      'WE': 7000,
+      'TH': 6500,
+      'FR': 8000,
+      'SA': 5000,
+      'SU': 2121
+    };
+    const int maxSteps = 10000;
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Last 7 days steps',
+                style: TextStyle(color: Colors.white)),
+            GestureDetector(
+              onTap: _showSetGoalSheet,
+              child: Text('+ Add Goal',
+                  style: TextStyle(color: Colors.yellow.shade700)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.chevron_left, color: Colors.white),
+            const SizedBox(width: 8),
+            Text('Sep 10 - Sep 17 2025',
+                style: TextStyle(color: Colors.grey.shade400)),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: Colors.white),
+          ],
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 150,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: stepsData.entries.map((entry) {
+              return _buildBar(
+                day: entry.key,
+                steps: entry.value,
+                maxSteps: maxSteps,
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBar(
+      {required String day, required int steps, required int maxSteps}) {
+    final double barHeight = (steps / maxSteps) * 100.0;
+    final bool showLabel = day == 'MO' || day == 'TU' || day == 'SU';
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        if (showLabel)
+          Text(NumberFormat.compact().format(steps),
+              style: const TextStyle(color: Colors.white, fontSize: 12)),
+        const SizedBox(height: 4),
+        Container(
+          height: barHeight.clamp(7.0, 120.0),
+          width: 24,
+          decoration: BoxDecoration(
+            color: Colors.yellow.shade700,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(day, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+      ],
+    );
+  }
+}
+
+extension UserModelCopyWith on UserModel {
+  UserModel copyWith({
+    String? username,
+    String? email,
+    String? profileImageUrl,
+    DateTime? dob,
+    String? gender,
+    double? weight,
+    double? height,
+    String? contactNo,
+    int? stepGoal,
+    int? todaysStepCount,
+  }) {
+    return UserModel(
+      userId: userId,
+      email: email ?? this.email,
+      username: username ?? this.username,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      dob: dob ?? this.dob,
+      gender: gender ?? this.gender,
+      weight: weight ?? this.weight,
+      height: height ?? this.height,
+      contactNo: contactNo ?? this.contactNo,
+      stepGoal: stepGoal ?? this.stepGoal,
+      todaysStepCount: todaysStepCount ?? this.todaysStepCount,
+    );
+  }
 }

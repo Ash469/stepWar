@@ -1,148 +1,186 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
 
-class AppTheme {
-  // Color Palette from Design Guide
-  static const Color backgroundDark = Color(0xFF121212);
-  static const Color backgroundSecondary = Color(0xFF1E1E1E);
-  static const Color primaryAttack = Color(0xFFE53935);
-  static const Color primaryDefend = Color(0xFF1E88E5);
-  static const Color successGold = Color(0xFFFFD700);
-  static const Color successGreen = Color(0xFF43A047);
-  static const Color dangerOrange = Color(0xFFFF8C00);
-  static const Color textWhite = Color(0xFFFFFFFF);
-  static const Color textGray = Color(0xFFB0BEC5);
-  static const Color cardShadow = Color(0x1A000000);
-
-  static ThemeData get darkTheme {
-    return ThemeData(
-      brightness: Brightness.dark,
-      primarySwatch: Colors.red,
-      scaffoldBackgroundColor: backgroundDark,
-      cardColor: backgroundSecondary,
-      
-      // App Bar Theme
-      appBarTheme: const AppBarTheme(
-        backgroundColor: backgroundDark,
-        elevation: 0,
-        titleTextStyle: TextStyle(
-          fontFamily: 'Roboto',
-          fontWeight: FontWeight.bold,
-          fontSize: 20,
-          color: textWhite,
-        ),
-      ),
-      
-      // Text Theme
-      textTheme: const TextTheme(
-        headlineLarge: TextStyle(
-          fontFamily: 'Roboto',
-          fontWeight: FontWeight.bold,
-          fontSize: 32,
-          color: textWhite,
-        ),
-        headlineMedium: TextStyle(
-          fontFamily: 'Roboto',
-          fontWeight: FontWeight.bold,
-          fontSize: 24,
-          color: textWhite,
-        ),
-        headlineSmall: TextStyle(
-          fontFamily: 'Roboto',
-          fontWeight: FontWeight.bold,
-          fontSize: 20,
-          color: textWhite,
-        ),
-        bodyLarge: TextStyle(
-          fontFamily: 'Roboto',
-          fontSize: 16,
-          color: textWhite,
-        ),
-        bodyMedium: TextStyle(
-          fontFamily: 'Roboto',
-          fontSize: 14,
-          color: textGray,
-        ),
-        bodySmall: TextStyle(
-          fontFamily: 'RobotoMono',
-          fontSize: 12,
-          color: textGray,
-        ),
-      ),
-
-      
-      // Button Themes
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          elevation: 4,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Roboto',
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-      ),
-      
-      // Progress Indicator Theme
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: primaryAttack,
-        linearTrackColor: backgroundSecondary,
-      ),
-    );
-  }
+class AppColors {
+  static const Color primary = Color(0xFFFF6B35);
+  static const Color primaryVariant = Color(0xFFE55A2B);
+  static const Color secondary = Color(0xFF4ECDC4);
+  static const Color secondaryVariant = Color(0xFF44B7AD);
+  static const Color background = Color(0xFF121212);
+  static const Color surface = Color(0xFF1E1E1E);
+  static const Color card = Color(0xFF2A2A2A);
+  static const Color onPrimary = Colors.white;
+  static const Color onSecondary = Colors.black;
+  static const Color onBackground = Colors.white70;
+  static const Color onSurface = Colors.white;
+  static const Color onCard = Colors.white;
+  static const Color success = Color(0xFF4CAF50);
+  static const Color error = Color(0xFFF44336);
+  static const Color warning = Color(0xFFFFC107);
+  static const Color info = Color(0xFF2196F3);
+  static const Color stepInactive = Color(0xFF444444);
+  static const Color stepActive = primary;
+  static const Color stepCompleted = secondary;
 }
 
-// Custom Button Styles
-class AppButtonStyles {
-  static ButtonStyle get attackButton => ElevatedButton.styleFrom(
-    backgroundColor: AppTheme.primaryAttack,
-    foregroundColor: AppTheme.textWhite,
-  );
-  
-  static ButtonStyle get defendButton => ElevatedButton.styleFrom(
-    backgroundColor: AppTheme.primaryDefend,
-    foregroundColor: AppTheme.textWhite,
-  );
-  
-  static ButtonStyle get successButton => ElevatedButton.styleFrom(
-    backgroundColor: AppTheme.successGreen,
-    foregroundColor: AppTheme.textWhite,
-  );
-  
-  static ButtonStyle get warningButton => ElevatedButton.styleFrom(
-    backgroundColor: AppTheme.dangerOrange,
-    foregroundColor: AppTheme.textWhite,
-  );
-}
-
-// Custom Text Styles
 class AppTextStyles {
-  static const TextStyle monoNumbers = TextStyle(
-    fontFamily: 'RobotoMono',
+  static TextStyle headline1 = GoogleFonts.montserrat(
+    fontSize: 32,
     fontWeight: FontWeight.bold,
-    color: AppTheme.textWhite,
+    height: 1.2,
   );
-  
-  static const TextStyle territoryName = TextStyle(
-    fontFamily: 'Roboto',
+
+  static TextStyle headline2 = GoogleFonts.montserrat(
+    fontSize: 28,
     fontWeight: FontWeight.bold,
+  );
+
+  static TextStyle titleLarge = GoogleFonts.montserrat(
+    fontSize: 22,
+    fontWeight: FontWeight.bold,
+  );
+
+  static TextStyle titleMedium = GoogleFonts.montserrat(
     fontSize: 18,
-    color: AppTheme.textWhite,
+    fontWeight: FontWeight.w600,
   );
-  
-  static const TextStyle ownerName = TextStyle(
-    fontFamily: 'Roboto',
+
+  static TextStyle bodyLarge = GoogleFonts.montserrat(
+    fontSize: 16,
+    height: 1.5,
+  );
+
+  static TextStyle bodyMedium = GoogleFonts.montserrat(
     fontSize: 14,
-    color: AppTheme.textGray,
+    height: 1.4,
   );
-  
-  static const TextStyle statusText = TextStyle(
-    fontFamily: 'Roboto',
+
+  static TextStyle labelLarge = GoogleFonts.montserrat(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+  );
+
+  static TextStyle caption = GoogleFonts.montserrat(
     fontSize: 12,
-    fontWeight: FontWeight.w500,
+    color: AppColors.onBackground,
   );
 }
 
+class AppThemes {
+  static final ThemeData lightTheme = ThemeData(
+    brightness: Brightness.light,
+    scaffoldBackgroundColor: Colors.white,
+  appBarTheme: AppBarTheme(
+      backgroundColor: AppColors.background, // This is your app bar color
+      foregroundColor: Colors.white,
+      elevation: 0,
+      titleTextStyle: AppTextStyles.titleLarge,
+
+      // ADD THIS for global status bar styling
+      systemOverlayStyle: SystemUiOverlayStyle(
+        // Make the status bar color match the AppBar color
+        statusBarColor: AppColors.background, 
+        // For a dark background, you need light icons
+        statusBarIconBrightness: Brightness.light, 
+      ),
+    ),
+    textTheme: TextTheme(
+      displayLarge: AppTextStyles.headline1,
+      displayMedium: AppTextStyles.headline2,
+      titleLarge: AppTextStyles.titleLarge,
+      titleMedium: AppTextStyles.titleMedium,
+      bodyLarge: AppTextStyles.bodyLarge,
+      bodyMedium: AppTextStyles.bodyMedium,
+      labelLarge: AppTextStyles.labelLarge,
+      labelSmall: AppTextStyles.caption,
+    ),
+    colorScheme: ColorScheme.light(
+      primary: AppColors.primary,
+      secondary: AppColors.secondary,
+      background: Colors.white,
+      surface: Colors.grey[50]!,
+      onPrimary: AppColors.onPrimary,
+      onSecondary: AppColors.onSecondary,
+      onBackground: Colors.black87,
+      onSurface: Colors.black,
+      error: AppColors.error,
+    ),
+    cardTheme: CardThemeData(
+      color: Colors.grey[100],
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        textStyle: AppTextStyles.labelLarge,
+      ),
+    ),
+    fontFamily: GoogleFonts.montserrat().fontFamily,
+  );
+
+  static final ThemeData darkTheme = ThemeData(
+    brightness: Brightness.dark,
+    scaffoldBackgroundColor: AppColors.background,
+    appBarTheme: AppBarTheme(
+      backgroundColor: AppColors.background,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      titleTextStyle: AppTextStyles.titleLarge,
+    ),
+    textTheme: TextTheme(
+      displayLarge: AppTextStyles.headline1.copyWith(color: Colors.white),
+      displayMedium: AppTextStyles.headline2.copyWith(color: Colors.white),
+      titleLarge: AppTextStyles.titleLarge.copyWith(color: Colors.white),
+      titleMedium: AppTextStyles.titleMedium.copyWith(color: Colors.white),
+      bodyLarge: AppTextStyles.bodyLarge.copyWith(color: AppColors.onBackground),
+      bodyMedium: AppTextStyles.bodyMedium.copyWith(color: AppColors.onBackground),
+      labelLarge: AppTextStyles.labelLarge.copyWith(color: Colors.white),
+      labelSmall: AppTextStyles.caption,
+    ),
+    colorScheme: const ColorScheme.dark(
+      primary: AppColors.primary,
+      secondary: AppColors.secondary,
+      background: AppColors.background,
+      surface: AppColors.surface,
+      onPrimary: AppColors.onPrimary,
+      onSecondary: AppColors.onSecondary,
+      onBackground: AppColors.onBackground,
+      onSurface: AppColors.onSurface,
+      error: AppColors.error,
+    ),
+    cardTheme: CardThemeData(
+      color: AppColors.card,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        textStyle: AppTextStyles.labelLarge,
+      ),
+    ),
+    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      backgroundColor: AppColors.surface,
+      selectedItemColor: AppColors.primary,
+      unselectedItemColor: Colors.white54,
+      elevation: 0,
+    ),
+    fontFamily: GoogleFonts.montserrat().fontFamily,
+  );
+}
