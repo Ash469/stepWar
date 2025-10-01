@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.2.1
   google_fonts: ^6.2.1
+  flutter_svg: ^2.2.1
   
   
   # State Management
@@ -34,7 +35,7 @@ dev_dependencies:
   flutter_lints: ^2.0.0
   flutter_launcher_icons: ^0.14.4
 flutter_icons:
-  image_path: "assets/icons/icon.png"
+  image_path: "assets/icons/icon2.png"
   android: true
   ios: true
 

@@ -33,6 +33,7 @@ class _BattleScreenState extends State<BattleScreen> {
   bool _isLoading = true;
   bool _isUserPlayer1 = false;
   bool _isBotMatch = false;
+  double _selectedMultiplier = 1.0;
 
   int _initialPlayerSteps = -1;
   Duration _timeLeft = const Duration(minutes: 60);
@@ -41,7 +42,7 @@ class _BattleScreenState extends State<BattleScreen> {
   void initState() {
     super.initState();
     _listenToGameUpdates();
-    _initializeServices();
+    _initializePlayerStepCounter();
   }
 
   @override
@@ -66,6 +67,17 @@ class _BattleScreenState extends State<BattleScreen> {
           await _loadOpponentProfile(opponentId);
           if (game.startTime != null) {
             _startGameTimer(game.startTime!);
+          }
+          if (_isBotMatch && _botStepTimer == null) {
+            _initializeBotStepGenerator();
+          }
+        }
+
+        if (game != null && game.gameStatus == GameStatus.ongoing) {
+          final p1Score = game.player1Score;
+          final p2Score = game.player2Score;
+          if ((p1Score - p2Score).abs() >= 3000) {
+            _endGame(isKO: true);
           }
         }
 
@@ -117,16 +129,17 @@ class _BattleScreenState extends State<BattleScreen> {
     });
   }
 
-  void _initializeServices() {
+  void _initializePlayerStepCounter() {
     _healthService.initialize();
     _stepSubscription = _healthService.stepStream.listen(
       _onPlayerStep,
       onError: (error) => print("Step Stream Error: $error"),
     );
-    if (_isBotMatch) {
-      _botStepTimer =
-          Timer.periodic(const Duration(seconds: 1), _updateBotState);
-    }
+  }
+
+  void _initializeBotStepGenerator() {
+    _botStepTimer =
+        Timer.periodic(const Duration(seconds: 1), _updateBotState);
   }
 
   void _onPlayerStep(String stepsStr) {
@@ -138,13 +151,25 @@ class _BattleScreenState extends State<BattleScreen> {
 
     final stepsThisGame = currentTotalSteps - _initialPlayerSteps;
 
-    final currentStepsInDb = _isUserPlayer1
-        ? _currentGame?.step1Count
-        : _currentGame?.step2Count;
+    final currentStepsInDb =
+        _isUserPlayer1 ? _currentGame?.step1Count : _currentGame?.step2Count;
 
     if (stepsThisGame >= 0 && stepsThisGame != currentStepsInDb) {
-      _gameService.updatePlayerSteps(
-          widget.gameId, stepsThisGame, _isUserPlayer1);
+      final multiplier =
+          _isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
+      final newScore = (stepsThisGame * multiplier).round();
+
+      if (_isUserPlayer1) {
+        _gameService.updateGame(widget.gameId, {
+          'step1_count': stepsThisGame,
+          'player1_score': newScore,
+        });
+      } else {
+        _gameService.updateGame(widget.gameId, {
+          'step2_count': stepsThisGame,
+          'player2_score': newScore,
+        });
+      }
     }
   }
 
@@ -163,22 +188,27 @@ class _BattleScreenState extends State<BattleScreen> {
     }
   }
 
-  void _endGame() {
+  void _endGame({bool isKO = false}) {
     if (_currentGame == null ||
         _currentGame!.gameStatus == GameStatus.completed) return;
-    int p1 = _currentGame!.step1Count;
-    int p2 = _currentGame!.step2Count;
+
+    int p1 = _currentGame!.player1Score;
+    int p2 = _currentGame!.player2Score;
     GameResult result;
     String? winnerId;
-    if ((p1 - p2).abs() <= 100) {
-      result = GameResult.draw;
-    } else if (p1 > p2) {
-      winnerId = _currentGame!.player1Id;
-      result = (p1 - p2) >= 3000 ? GameResult.KO : GameResult.win;
+
+    if (isKO) {
+      result = GameResult.KO;
+      winnerId = p1 > p2 ? _currentGame!.player1Id : _currentGame!.player2Id;
     } else {
-      winnerId = _currentGame!.player2Id;
-      result = (p2 - p1) >= 3000 ? GameResult.KO : GameResult.win;
+      if ((p1 - p2).abs() <= 100) {
+        result = GameResult.draw;
+      } else {
+        result = GameResult.win;
+        winnerId = p1 > p2 ? _currentGame!.player1Id : _currentGame!.player2Id;
+      }
     }
+
     _gameService.updateGame(widget.gameId, {
       'gameStatus': GameStatus.completed.name,
       'winner': winnerId,
@@ -218,6 +248,66 @@ class _BattleScreenState extends State<BattleScreen> {
             ));
   }
 
+  void _applyMultiplier(double multiplier) {
+    if (_currentGame == null ||
+        _currentGame!.gameStatus == GameStatus.completed) return;
+
+    setState(() {
+      _selectedMultiplier = multiplier;
+    });
+
+    final String multiplierField =
+        _isUserPlayer1 ? 'multiplier1' : 'multiplier2';
+    _gameService.updateGame(widget.gameId, {multiplierField: multiplier});
+  }
+
+  Future<bool> _onWillPop() async {
+    if (_currentGame?.gameStatus == GameStatus.ongoing) {
+      final shouldLeave = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF2a2a2a),
+          title: const Text('Leave Battle?',
+              style: TextStyle(color: Colors.white)),
+          content: const Text(
+              'If you leave now, you will lose the battle. Are you sure?',
+              style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child:
+                  const Text('Stay', style: TextStyle(color: Colors.white70)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Leave',
+                  style: TextStyle(color: Color(0xFFE53935))),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldLeave ?? false) {
+        await _forfeitGame();
+        return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _forfeitGame() async {
+    if (_currentGame == null) return;
+    final winnerId = _isUserPlayer1
+        ? _currentGame!.player2Id
+        : _currentGame!.player1Id;
+    await _gameService.updateGame(widget.gameId, {
+      'gameStatus': GameStatus.completed.name,
+      'winner': winnerId,
+      'result': GameResult.win.name,
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading || _currentGame == null || _opponentProfile == null) {
@@ -230,22 +320,26 @@ class _BattleScreenState extends State<BattleScreen> {
     final player1 = _isUserPlayer1 ? widget.user : _opponentProfile!;
     final player2 = _isUserPlayer1 ? _opponentProfile! : widget.user;
 
-    final step1Count = _currentGame!.step1Count;
-    final step2Count = _currentGame!.step2Count;
+    final p1Score = _currentGame!.player1Score;
+    final p2Score = _currentGame!.player2Score;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildTimer(),
-              _buildPlayerStats(player1, player2, step1Count, step2Count),
-              _buildBattleBar(step1Count, step2Count),
-              _buildMultiplierSection(),
-            ],
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1E1E1E),
+        body: SafeArea(
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildTimer(),
+                _buildPlayerStats(player1, player2, p1Score, p2Score),
+                _buildBattleBar(p1Score, p2Score),
+                _buildMultiplierSection(),
+              ],
+            ),
           ),
         ),
       ),
@@ -271,15 +365,15 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildPlayerStats(UserModel player1, UserModel player2,
-      int step1Count, int step2Count) {
+  Widget _buildPlayerStats(
+      UserModel player1, UserModel player2, int p1Score, int p2Score) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _buildPlayerCard(
           player1.username ?? 'Player 1',
-          step1Count,
+          p1Score,
           player1.profileImageUrl,
           _currentGame!.multiplier1,
         ),
@@ -297,7 +391,7 @@ class _BattleScreenState extends State<BattleScreen> {
         ),
         _buildPlayerCard(
           player2.username ?? 'Player 2',
-          step2Count,
+          p2Score,
           player2.profileImageUrl,
           _currentGame!.multiplier2,
         ),
@@ -306,7 +400,7 @@ class _BattleScreenState extends State<BattleScreen> {
   }
 
   Widget _buildPlayerCard(
-      String name, int steps, String? imageUrl, double multiplier) {
+      String name, int score, String? imageUrl, double multiplier) {
     return Expanded(
       child: Column(
         children: [
@@ -345,12 +439,12 @@ class _BattleScreenState extends State<BattleScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            steps.toString(),
+            score.toString(),
             style: const TextStyle(
                 color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 2),
-          const Text('Total steps',
+          const Text('Score',
               style: TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(height: 8),
           Text(name,
@@ -363,15 +457,15 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildBattleBar(int p1, int p2) {
-    final diff = p1 - p2;
+  Widget _buildBattleBar(int p1Score, int p2Score) {
+    final diff = p1Score - p2Score;
     String statusText;
     Color statusColor;
     if (diff.abs() <= 100) {
       statusText = 'Even Match';
       statusColor = Colors.white;
     } else {
-      statusText = '${diff > 0 ? "Ahead" : "Behind"} by ${diff.abs()} steps';
+      statusText = '${diff > 0 ? "Ahead" : "Behind"} by ${diff.abs()}';
       statusColor = diff > 0 ? const Color(0xFF69F0AE) : Colors.yellow.shade700;
     }
 
@@ -486,11 +580,11 @@ class _BattleScreenState extends State<BattleScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildMultiplierButton('1.5X', false),
+              _buildMultiplierButton('1.5X', 1.5),
               Container(width: 1, color: Colors.white30),
-              _buildMultiplierButton('2X', false),
+              _buildMultiplierButton('2X', 2.0),
               Container(width: 1, color: Colors.white30),
-              _buildMultiplierButton('3X', false),
+              _buildMultiplierButton('3X', 3.0),
             ],
           ),
         )
@@ -498,30 +592,34 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildMultiplierButton(String text, bool isActive) {
+  Widget _buildMultiplierButton(String text, double multiplier) {
+    final bool isActive = _selectedMultiplier == multiplier;
     return Expanded(
-      child: Container(
-        height: 60,
-        decoration: BoxDecoration(
-          color: isActive ? const Color(0xFFFFC107) : Colors.transparent,
-          borderRadius: text == '1.5X'
-              ? const BorderRadius.only(
-                  topLeft: Radius.circular(11), bottomLeft: Radius.circular(11))
-              : text == '3X'
-                  ? const BorderRadius.only(
-                      topRight: Radius.circular(11),
-                      bottomRight: Radius.circular(11))
-                  : BorderRadius.zero,
-        ),
-        child: Center(
-          child: Text(text,
-              style: TextStyle(
-                  color: isActive ? Colors.black : Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold)),
+      child: GestureDetector(
+        onTap: () => _applyMultiplier(multiplier),
+        child: Container(
+          height: 60,
+          decoration: BoxDecoration(
+            color: isActive ? const Color(0xFFFFC107) : Colors.transparent,
+            borderRadius: text == '1.5X'
+                ? const BorderRadius.only(
+                    topLeft: Radius.circular(11),
+                    bottomLeft: Radius.circular(11))
+                : text == '3X'
+                    ? const BorderRadius.only(
+                        topRight: Radius.circular(11),
+                        bottomRight: Radius.circular(11))
+                    : BorderRadius.zero,
+          ),
+          child: Center(
+            child: Text(text,
+                style: TextStyle(
+                    color: isActive ? Colors.black : Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
         ),
       ),
     );
   }
 }
-

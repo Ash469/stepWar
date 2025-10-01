@@ -52,19 +52,19 @@ class _LoadingScreenState extends State<LoadingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFDD85D),
+      backgroundColor: const Color.fromARGB(212, 0, 0, 0),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/images/loading.png', 
-              width: 200,
-              height: 200,
+              'assets/images/app_logo.png', 
+              width: 240,
+              height: 240,
               errorBuilder: (context, error, stackTrace) {
                 return Container(
-                  width: 150,
-                  height: 150,
+                  width: 180,
+                  height: 180,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(100),
@@ -77,28 +77,9 @@ class _LoadingScreenState extends State<LoadingScreen> {
                 );
               },
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Step Wars',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-                fontFamily: 'Montserrat'
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Turn your steps into battles.',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.black87,
-                fontFamily: 'Montserrat'
-              ),
-            ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 18),
             const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+              valueColor: AlwaysStoppedAnimation<Color>(Color.fromARGB(255, 252, 235, 2)),
             ),
           ],
         ),

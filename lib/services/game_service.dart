@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/battle_RB.dart';
 import '../models/user_model.dart';
@@ -6,6 +7,14 @@ import 'bot_service.dart';
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final BotService _botService = BotService();
+
+  // Helper function to generate a random 6-character ID
+  String _generateRandomGameId() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = Random();
+    return String.fromCharCodes(Iterable.generate(
+        6, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
+  }
 
   Future<String> createBotGame(UserModel player1) async {
     try {
@@ -37,12 +46,15 @@ class GameService {
 
   Future<String> createFriendGame(UserModel player1) async {
     try {
-      final newGameRef = _dbRef.child('games').push();
-      final gameId = newGameRef.key;
+      String gameId;
+      DatabaseReference gameRef;
 
-      if (gameId == null) {
-        throw Exception("Failed to create friend game: No key generated.");
-      }
+      // Loop to ensure the generated ID is unique
+      do {
+        gameId = _generateRandomGameId();
+        gameRef = _dbRef.child('games').child(gameId);
+      } while ((await gameRef.once()).snapshot.exists);
+
 
       final newGame = Game(
         gameId: gameId,
@@ -52,7 +64,7 @@ class GameService {
         // startTime is null until player 2 joins
       );
 
-      await newGameRef.set(newGame.toMap());
+      await gameRef.set(newGame.toMap());
       return gameId;
     } catch (e) {
       print("Error creating friend game: $e");
@@ -122,4 +134,3 @@ class GameService {
     }
   }
 }
-
