@@ -15,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.stepwars.stepwars_app"
+    namespace = "com.stepwars.stepwarsnew_app"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -32,7 +32,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.stepwars.stepwars_app"
+        applicationId = "com.stepwars.stepwarsnew_app"
         minSdkVersion(26)
         targetSdk = 36
         versionCode = 1

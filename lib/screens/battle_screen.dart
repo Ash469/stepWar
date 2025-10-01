@@ -76,7 +76,7 @@ class _BattleScreenState extends State<BattleScreen> {
         if (game != null && game.gameStatus == GameStatus.ongoing) {
           final p1Score = game.player1Score;
           final p2Score = game.player2Score;
-          if ((p1Score - p2Score).abs() >= 3000) {
+          if ((p1Score - p2Score).abs() >= 1000) { //KO Logic
             _endGame(isKO: true);
           }
         }
@@ -98,13 +98,18 @@ class _BattleScreenState extends State<BattleScreen> {
     if (opponentId == null) return;
 
     if (opponentId.startsWith('bot_')) {
-      setState(() {
-        _isBotMatch = true;
-        _opponentProfile = UserModel(
-          userId: opponentId,
-          username: _botService.getBotNameFromId(opponentId),
-        );
-      });
+      final botType = _botService.getBotTypeFromId(opponentId);
+      if (botType != null) {
+        setState(() {
+          _isBotMatch = true;
+          // CHANGED: Pass the bot's local image path to the user model
+          _opponentProfile = UserModel(
+            userId: opponentId,
+            username: _botService.getBotNameFromId(opponentId),
+            profileImageUrl: _botService.getBotImagePath(botType),
+          );
+        });
+      }
     } else {
       final profile = await _authService.getUserProfile(opponentId);
       if (mounted) {
@@ -115,7 +120,7 @@ class _BattleScreenState extends State<BattleScreen> {
 
   void _startGameTimer(int startTimeMillis) {
     final startTime = DateTime.fromMillisecondsSinceEpoch(startTimeMillis);
-    const gameDuration = Duration(minutes: 60);
+    const gameDuration = Duration(minutes: 10); // Game duration
     _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final elapsed = DateTime.now().difference(startTime);
@@ -201,7 +206,7 @@ class _BattleScreenState extends State<BattleScreen> {
       result = GameResult.KO;
       winnerId = p1 > p2 ? _currentGame!.player1Id : _currentGame!.player2Id;
     } else {
-      if ((p1 - p2).abs() <= 100) {
+      if ((p1 - p2).abs() <= 50) { // Draw Logic
         result = GameResult.draw;
       } else {
         result = GameResult.win;
@@ -399,69 +404,88 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildPlayerCard(
-      String name, int score, String? imageUrl, double multiplier) {
-    return Expanded(
-      child: Column(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: Colors.grey.shade800,
-                backgroundImage:
-                    imageUrl != null ? NetworkImage(imageUrl) : null,
-                child: imageUrl == null
-                    ? const Icon(Icons.smart_toy,
-                        size: 35, color: Colors.white70)
-                    : null,
-              ),
-              Positioned(
-                top: -5,
-                left: -5,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFC107),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.black, width: 1.5),
-                  ),
-                  child: Text('${multiplier}x',
-                      style: const TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12)),
+Widget _buildPlayerCard(
+    String name, int score, String? imageUrl, double multiplier) {
+  return Expanded(
+    child: Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: Colors.grey.shade800,
+              child: imageUrl == null
+                  ? const Icon(Icons.person, size: 45, color: Colors.white70)
+                  : ClipOval(
+                      child: imageUrl.startsWith('assets/')
+                          ? Image.asset(
+                              imageUrl,
+                              fit: BoxFit.contain,
+                              width: 120, 
+                              height: 120, 
+                            )
+                          : Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              width: 120,
+                              height: 120,
+                              loadingBuilder: (context, child, progress) =>
+                                  progress == null
+                                      ? child
+                                      : const CircularProgressIndicator(),
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(Icons.person, size: 45, color: Colors.white70),
+                            ),
+                    ),
+            ),
+            Positioned(
+              top: -5,
+              left: -5,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFC107),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.black, width: 1.5),
                 ),
+                child: Text('${multiplier}x',
+                    style: const TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12)),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            score.toString(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          score.toString(),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 2),
+        const Text('Score',
+            style: TextStyle(color: Colors.white70, fontSize: 12)),
+        const SizedBox(height: 8),
+        Text(name,
             style: const TextStyle(
-                color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 2),
-          const Text('Score',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 8),
-          Text(name,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600)),
+      ],
+    ),
+  );
+}
 
   Widget _buildBattleBar(int p1Score, int p2Score) {
-    final diff = p1Score - p2Score;
+    final userIsPlayer1 = widget.user.userId == _currentGame?.player1Id;
+    final diff = userIsPlayer1 ? (p1Score - p2Score) : (p2Score - p1Score);
+
     String statusText;
     Color statusColor;
-    if (diff.abs() <= 100) {
+    if (diff.abs() <= 50) {
       statusText = 'Even Match';
       statusColor = Colors.white;
     } else {
@@ -469,7 +493,8 @@ class _BattleScreenState extends State<BattleScreen> {
       statusColor = diff > 0 ? const Color(0xFF69F0AE) : Colors.yellow.shade700;
     }
 
-    double normalizedValue = (diff.clamp(-3000, 3000) + 3000) / 6000;
+    // Normalize the difference for the UI. Range: -1000 to +1000 => 0.0 to 1.0
+    double normalizedValue = (diff.clamp(-1000, 1000) + 1000) / 2000;
 
     return Column(
       children: [
@@ -482,65 +507,56 @@ class _BattleScreenState extends State<BattleScreen> {
         LayoutBuilder(builder: (context, constraints) {
           final barWidth = constraints.maxWidth;
           return SizedBox(
-            height: 60,
+            height: 50, // Compact height
             child: Stack(
               alignment: Alignment.center,
               children: [
+                // 1. The main gradient bar
                 Container(
-                  height: 30,
+                  height: 25,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(15),
                     gradient: const LinearGradient(
                       colors: [
-                        Color(0xFF1565C0),
-                        Color(0xFF42A5F5),
-                        Color(0xFF616161),
-                        Color(0xFFEF5350),
-                        Color(0xFFB71C1C),
+                        Color(0xFF42A5F5), // Your color
+                        Color(0xFF373737), // Dark middle
+                        Color(0xFF373737), // Dark middle
+                        Color(0xFFEF5350), // Opponent's color
                       ],
-                      stops: [0.0, 0.4, 0.5, 0.6, 1.0],
+                      stops: [0.0, 0.48, 0.52, 1.0], // Symmetrical stops
                     ),
                   ),
                 ),
-                const Positioned(
-                  child: Text(
-                    "DRAW",
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12),
-                  ),
-                ),
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 300),
-                  left: (barWidth - 30) * normalizedValue,
-                  child: Column(
+
+                // 2. Milestone markers (500 steps)
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: barWidth * 0.25),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Transform.rotate(
-                        angle: math.pi,
-                        child: const Icon(Icons.arrow_drop_down,
-                            color: Color(0xFFFFC107), size: 30),
-                      ),
-                      Container(
-                          width: 4, height: 30, color: const Color(0xFFFFC107)),
+                      Container(width: 2, height: 15, color: Colors.white30),
+                      Container(width: 2, height: 15, color: Colors.white30),
                     ],
                   ),
                 ),
-                const Positioned(
-                    left: 12,
-                    child: Column(children: [
-                      Icon(Icons.emoji_events, color: Colors.amber, size: 20),
-                      Text("Win",
-                          style: TextStyle(color: Colors.white, fontSize: 10)),
-                    ])),
-                const Positioned(
-                    right: 12,
-                    child: Column(children: [
-                      Icon(Icons.sentiment_very_dissatisfied,
-                          color: Colors.yellow, size: 20),
-                      Text("KO",
-                          style: TextStyle(color: Colors.white, fontSize: 10)),
-                    ])),
+                
+                // 3. KO markers (1000 steps)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(width: 2, height: 25, color: Colors.white60),
+                    Container(width: 2, height: 25, color: Colors.white60),
+                  ],
+                ),
+
+                // 4. The animated stopper
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOut,
+                  left: (barWidth - 16) * normalizedValue,
+                  top: 25, // Position below the bar
+                  child: const Icon(Icons.arrow_drop_up, color: Color(0xFFFFC107), size: 24),
+                ),
               ],
             ),
           );
@@ -551,13 +567,9 @@ class _BattleScreenState extends State<BattleScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('3k', style: TextStyle(color: Colors.white70)),
-              Text('2k', style: TextStyle(color: Colors.white70)),
-              Text('1k', style: TextStyle(color: Colors.white70)),
-              SizedBox(width: 20),
-              Text('-1k', style: TextStyle(color: Colors.white70)),
-              Text('-2k', style: TextStyle(color: Colors.white70)),
-              Text('-3k', style: TextStyle(color: Colors.white70)),
+              Text('Your KO', style: TextStyle(color: Color(0xFF42A5F5), fontWeight: FontWeight.bold)),
+              Text('Draw', style: TextStyle(color: Colors.white70)),
+              Text("Opponent's KO", style: TextStyle(color: Color(0xFFEF5350), fontWeight: FontWeight.bold)),
             ],
           ),
         )

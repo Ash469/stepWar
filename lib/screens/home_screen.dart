@@ -9,6 +9,8 @@ import '../services/step_counting.dart';
 import '../widget/footer.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
+import 'bot_selection_screen.dart';
+import '../widget/game_rules.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -131,11 +133,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isCreatingGame = true);
 
     try {
-      final gameId = await _gameService.createBotGame(_user!);
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => BattleScreen(gameId: gameId, user: _user!),
+            builder: (_) => BotSelectionScreen(user: _user!)
           ),
         );
       }
@@ -292,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             _buildBattleOptions(),
             const SizedBox(height: 16),
-            _buildGameRules(),
+            const GameRulesWidget(),
             const SizedBox(height: 24),
             _buildSectionTitle("---------- Rewards ----------"),
             const SizedBox(height: 16),
@@ -530,58 +531,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildGameRules() {
-    Widget buildRule(String text) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '•  ',
-              style: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  color: Colors.grey.shade400,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          "Game Rules",
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 16),
-        buildRule(
-            "The player with the most steps at the end of 60 min wins the battle."),
-        buildRule(
-            "If a player leads by 3000 steps, they gets KO immediately."),
-        buildRule(
-            "All steps are converted to coins, which can be used to upgrade your kingdom."),
-      ],
-    );
-  }
 
   Widget _buildRewardsCard() {
     return Container(

@@ -10,6 +10,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  print('Firebase projectId: ${Firebase.app().options.projectId}');
   runApp(const MyApp());
 }
 

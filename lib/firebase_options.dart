@@ -41,48 +41,58 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyCKybkKTjRs6qFjE__s1xJwrChR0SErXPk',
-    appId: '1:86207064073:web:6e6dd93d9bc14088f530d8',
-    messagingSenderId: '86207064073',
-    projectId: 'stepwars-35179',
-    authDomain: 'stepwars-35179.firebaseapp.com',
-    storageBucket: 'stepwars-35179.firebasestorage.app',
-    measurementId: 'G-G2V5NEQJ4N',
+    apiKey: 'AIzaSyD-2bphSFlpzOliyg_wDt00hubL5jMGzus',
+    appId: '1:955460127665:web:7144a2cfb99f911d228b90',
+    messagingSenderId: '955460127665',
+    projectId: 'stepwarsnew',
+    authDomain: 'stepwarsnew.firebaseapp.com',
+    databaseURL: 'https://stepwarsnew-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'stepwarsnew.firebasestorage.app',
+    measurementId: 'G-5JLBKH1DQ2',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAsb_qtoB9EsRCzLXA_cWYAJAUuOLODhVc',
-    appId: '1:86207064073:android:91bbc6d147ab2a4ef530d8',
-    messagingSenderId: '86207064073',
-    projectId: 'stepwars-35179',
-    storageBucket: 'stepwars-35179.firebasestorage.app',
+    apiKey: 'AIzaSyATfJVT60JPNN8u_LTKjV1eCzso09Qe68I',
+    appId: '1:955460127665:android:d152f69cfeeb9366228b90',
+    messagingSenderId: '955460127665',
+    projectId: 'stepwarsnew',
+    databaseURL: 'https://stepwarsnew-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'stepwarsnew.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAWiH1U0js7jNnjsYop_TawvwRVMWcVxVI',
-    appId: '1:86207064073:ios:cd1e3d0cba1c8e8bf530d8',
-    messagingSenderId: '86207064073',
-    projectId: 'stepwars-35179',
-    storageBucket: 'stepwars-35179.firebasestorage.app',
+    apiKey: 'AIzaSyAtpISUwMVgMX_s2OFcXcqyrGZTGifuYac',
+    appId: '1:955460127665:ios:993de77e76b31847228b90',
+    messagingSenderId: '955460127665',
+    projectId: 'stepwarsnew',
+    databaseURL: 'https://stepwarsnew-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'stepwarsnew.firebasestorage.app',
+    androidClientId: '955460127665-6brdoj3j6sqs87ia8lpfi29l6g37s1v9.apps.googleusercontent.com',
+    iosClientId: '955460127665-gvlrvslqs49mt9k256lonsbvhamvgu2e.apps.googleusercontent.com',
     iosBundleId: 'com.example.stepwarsApp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyAWiH1U0js7jNnjsYop_TawvwRVMWcVxVI',
-    appId: '1:86207064073:ios:cd1e3d0cba1c8e8bf530d8',
-    messagingSenderId: '86207064073',
-    projectId: 'stepwars-35179',
-    storageBucket: 'stepwars-35179.firebasestorage.app',
+    apiKey: 'AIzaSyAtpISUwMVgMX_s2OFcXcqyrGZTGifuYac',
+    appId: '1:955460127665:ios:993de77e76b31847228b90',
+    messagingSenderId: '955460127665',
+    projectId: 'stepwarsnew',
+    databaseURL: 'https://stepwarsnew-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'stepwarsnew.firebasestorage.app',
+    androidClientId: '955460127665-6brdoj3j6sqs87ia8lpfi29l6g37s1v9.apps.googleusercontent.com',
+    iosClientId: '955460127665-gvlrvslqs49mt9k256lonsbvhamvgu2e.apps.googleusercontent.com',
     iosBundleId: 'com.example.stepwarsApp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyCKybkKTjRs6qFjE__s1xJwrChR0SErXPk',
-    appId: '1:86207064073:web:46b0b9df622a2bd3f530d8',
-    messagingSenderId: '86207064073',
-    projectId: 'stepwars-35179',
-    authDomain: 'stepwars-35179.firebaseapp.com',
-    storageBucket: 'stepwars-35179.firebasestorage.app',
-    measurementId: 'G-GPFWWFDEBS',
+    apiKey: 'AIzaSyD-2bphSFlpzOliyg_wDt00hubL5jMGzus',
+    appId: '1:955460127665:web:722f48ec12976cbf228b90',
+    messagingSenderId: '955460127665',
+    projectId: 'stepwarsnew',
+    authDomain: 'stepwarsnew.firebaseapp.com',
+    databaseURL: 'https://stepwarsnew-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'stepwarsnew.firebasestorage.app',
+    measurementId: 'G-QVSJYNPZE6',
   );
+
 }

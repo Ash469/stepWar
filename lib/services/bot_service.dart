@@ -68,6 +68,21 @@ class BotService {
         return 'bot_knight';
     }
   }
+  
+  /// Gets the image asset path for a given bot type.
+  String getBotImagePath(BotType botType) {
+    switch (botType) {
+      case BotType.pawn:
+        return 'assets/images/pawn.png';
+      case BotType.bishop:
+        return 'assets/images/bishop.png';
+      case BotType.rook:
+        return 'assets/images/rook.png';
+      case BotType.knight:
+        return 'assets/images/knight.png';
+    }
+  }
+
 
   /// Gets the bot type from a string identifier.
   BotType? getBotTypeFromId(String botId) {

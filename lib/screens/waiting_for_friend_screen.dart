@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../models/battle_RB.dart';
 import '../models/user_model.dart';
 import '../services/game_service.dart';
+import '../widget/game_rules.dart'; // Import the new rules widget
 import 'battle_screen.dart';
 
 class WaitingForFriendScreen extends StatefulWidget {
@@ -39,8 +40,7 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
       if (game != null &&
           game.player2Id != null &&
           game.gameStatus == GameStatus.ongoing) {
-        // Opponent joined, navigate to battle screen
-        _gameSubscription?.cancel(); // Stop listening
+        _gameSubscription?.cancel();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => BattleScreen(gameId: widget.gameId, user: widget.user),
@@ -67,71 +67,101 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
+        title: const Text('Friend Battle Lobby'),
+        centerTitle: true,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Players Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildPlayerCard(widget.user),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Text('VS', style: TextStyle(color: Colors.grey.shade600, fontSize: 28, fontWeight: FontWeight.bold)),
+                ),
+                _buildOpponentPlaceholder(),
+              ],
+            ),
+
+            // Game ID Section
+            Column(
+              children: [
+                const Text(
+                  'Share this ID with your friend',
+                  style: TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2a2a2a),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFFC107)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(widget.gameId, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 3)),
+                      IconButton(icon: const Icon(Icons.copy, color: Color(0xFFFFC107)), onPressed: _copyGameId),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 30),
+                const CircularProgressIndicator(color: Color(0xFFFFC107)),
+                const SizedBox(height: 12),
+                const Text('Waiting for opponent...', style: TextStyle(color: Colors.white70)),
+              ],
+            ),
+            
+            // Rules Section
+            const GameRulesWidget(),
+          ],
         ),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'Waiting for Friend',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Share the Game ID with your friend to start the battle.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
-              const SizedBox(height: 40),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2a2a2a),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFFC107)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        widget.gameId,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.copy, color: Color(0xFFFFC107)),
-                      onPressed: _copyGameId,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 40),
-              const CircularProgressIndicator(color: Color(0xFFFFC107)),
-              const SizedBox(height: 20),
-              const Text(
-                'Listening for opponent...',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ],
+    );
+  }
+
+  Widget _buildPlayerCard(UserModel user) {
+    return Expanded(
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundColor: Colors.grey.shade800,
+            backgroundImage: user.profileImageUrl != null ? NetworkImage(user.profileImageUrl!) : null,
+            child: user.profileImageUrl == null ? const Icon(Icons.person, size: 35, color: Colors.white70) : null,
           ),
-        ),
+          const SizedBox(height: 12),
+          Text(user.username ?? 'You',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildOpponentPlaceholder() {
+    return Expanded(
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundColor: const Color(0xFF2a2a2a),
+            child: Icon(Icons.person_search, size: 35, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 12),
+          Text('Waiting...',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }
