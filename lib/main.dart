@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
 import 'screens/loading_screen.dart';
 import 'theme/app_theme.dart';
@@ -10,8 +10,10 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  print('Firebase projectId: ${Firebase.app().options.projectId}');
-  runApp(const MyApp());
+  runApp(const ProviderScope(
+      child: MyApp(),
+    ),
+);
 }
 
 class MyApp extends StatelessWidget {

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
-import 'profile_completion_screen.dart'; 
+import 'profile_completion_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,8 +24,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final TextEditingController _emailController = TextEditingController();
   final List<TextEditingController> _otpControllers =
-      List.generate(4, (_) => TextEditingController());
-  final List<FocusNode> _otpFocusNodes = List.generate(4, (_) => FocusNode());
+      List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
 
   int _resendTimer = 45;
   Timer? _timer;
@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final user = _authService.currentUser;
     if (user == null || !mounted) return;
     setState(() => _isLoading = true);
-    
+
     final isNew = await _authService.isNewUser(user.uid);
 
     if (!mounted) return;
@@ -86,6 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     try {
       final user = await _authService.signInWithGoogle();
+
       if (user != null && mounted) {
         await _navigateAfterLogin();
       } else if (mounted) {
@@ -115,8 +116,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() => _isLoading = true);
     try {
-      await _authService.sendOtpToEmail(_emailController.text);
-      if(mounted) {
+      await _authService.sendOtpToEmail(_emailController.text.trim());
+      if (mounted) {
         setState(() {
           _loginState = LoginState.enterOtp;
           _startResendTimer();
@@ -135,9 +136,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _verifyOtp() async {
     final otp = _otpControllers.map((c) => c.text).join();
-    if (otp.length != 4) {
+    if (otp.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the full 4-digit OTP.')),
+        const SnackBar(content: Text('Please enter the full 6-digit OTP.')),
       );
       return;
     }
@@ -152,13 +153,13 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to verify OTP: ${e.toString()}')),
+          SnackBar(content: Text(e.toString().replaceFirst("Exception: ", ""))),
         );
       }
     } finally {
-       if (mounted && _authService.currentUser == null) {
-         setState(() => _isLoading = false);
-       }
+      if (mounted && _authService.currentUser == null) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -205,8 +206,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           const Text(
                             'Welcome to',
-                            style:
-                                TextStyle(fontSize: 24, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 24,
+                                color: Colors.black,
+                                fontFamily: 'Montserrat',
+                                fontWeight: FontWeight.bold),
                           ),
                           const Text(
                             'Step Wars',
@@ -222,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             duration: const Duration(milliseconds: 300),
                             child: _buildAuthForm(),
                           ),
-                          const SizedBox(height: 50), 
+                          const SizedBox(height: 50),
                         ],
                       ),
                     ),
@@ -252,7 +256,11 @@ class _LoginScreenState extends State<LoginScreen> {
       key: const ValueKey('initial'),
       children: [
         const Text('Sign in',
-            style: TextStyle(fontSize: 24, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                fontSize: 24,
+                color: Colors.black,
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 30),
         _buildButton('Sign in with Email', Icons.email, () {
           setState(() => _loginState = LoginState.enterEmail);
@@ -271,26 +279,40 @@ class _LoginScreenState extends State<LoginScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Sign in',
-            style: TextStyle(fontSize: 24, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                fontSize: 24,
+                color: Colors.black,
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 20),
-        const Text('Email', style: TextStyle(fontSize: 20, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.normal)),
+        const Text('Email',
+            style: TextStyle(
+                fontSize: 20,
+                color: Colors.black,
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.normal)),
         const SizedBox(height: 8),
         TextField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
-          style: const TextStyle(color: Colors.black),
+          style: const TextStyle(color: Color.fromARGB(255, 0, 0, 0)),
+          
           decoration: InputDecoration(
             hintText: 'Enter your email',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            hintStyle: TextStyle(color: Colors.grey.shade600),
           ),
         ),
         const SizedBox(height: 20),
-        _buildButton('Send OTP', null, _sendOtp, isPrimary: true, isLoading: _isLoading),
+        _buildButton('Send OTP', null, _sendOtp,
+            isPrimary: true, isLoading: _isLoading),
         const SizedBox(height: 16),
         _buildButton(
             'Sign in with Google', Icons.g_mobiledata, _signInWithGoogle,
             isLoading: _isLoading),
-        TextButton(onPressed: ()=> setState(()=> _loginState = LoginState.initial), child: const Text("Back"))
+        TextButton(
+            onPressed: () => setState(() => _loginState = LoginState.initial),
+            child: const Text("Back"))
       ],
     );
   }
@@ -301,10 +323,18 @@ class _LoginScreenState extends State<LoginScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Verify OTP',
-            style: TextStyle(fontSize: 20, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                fontSize: 20,
+                color: Colors.black,
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Text('OTP is successfully sent to ${_emailController.text}',
-            style: const TextStyle(fontSize: 16, color: Colors.black,fontFamily: 'Montserrat',fontWeight: FontWeight.normal)),
+            style: const TextStyle(
+                fontSize: 16,
+                color: Color.fromARGB(255, 6, 6, 6),
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.normal)),
         TextButton(
             onPressed: () =>
                 setState(() => _loginState = LoginState.enterEmail),
@@ -312,46 +342,73 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 20),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(4, (index) => _buildOtpBox(index)),
+          children: List.generate(6, (index) => _buildOtpBox(index)),
         ),
         const SizedBox(height: 20),
         Center(
           child: _timer != null && _timer!.isActive
               ? Text(
-                  'Resend OTP in 00:${_resendTimer.toString().padLeft(2, '0')}',style:  const TextStyle(fontSize: 14,color: Colors.blueAccent,fontWeight: FontWeight.normal))
+                  'Resend OTP in 00:${_resendTimer.toString().padLeft(2, '0')}',
+                  style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.blueAccent,
+                      fontWeight: FontWeight.normal))
               : TextButton(
-                  onPressed: _sendOtp, child: const Text('Resend OTP',style:  TextStyle(fontSize: 14,color: Colors.blueAccent,fontWeight: FontWeight.normal))),
+                  onPressed: _sendOtp,
+                  child: const Text('Resend OTP',
+                      style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.blueAccent,
+                          fontWeight: FontWeight.normal))),
         ),
         const SizedBox(height: 20),
-        _buildButton('Verify OTP', null, _verifyOtp, isPrimary: true, isLoading: _isLoading),
+        _buildButton('Verify OTP', null, _verifyOtp,
+            isPrimary: true, isLoading: _isLoading),
       ],
     );
   }
 
-  Widget _buildOtpBox(int index) {
-    return SizedBox(
-      width: 60,
-      height: 60,
-      child: TextFormField(
-        controller: _otpControllers[index],
-        focusNode: _otpFocusNodes[index],
-        textAlign: TextAlign.center,
-        keyboardType: TextInputType.number,
-        maxLength: 1,
-        decoration: InputDecoration(
-          counterText: '',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        onChanged: (value) {
-          if (value.length == 1 && index < 3) {
-            FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
-          } else if (value.isEmpty && index > 0) {
-            FocusScope.of(context).requestFocus(_otpFocusNodes[index - 1]);
-          }
-        },
+
+Widget _buildOtpBox(int index) {
+  return SizedBox(
+    width: 45,
+    height: 55,
+    child: TextFormField(
+      controller: _otpControllers[index],
+      focusNode: _otpFocusNodes[index],
+      textAlign: TextAlign.center,
+      keyboardType: TextInputType.number,
+      maxLength: 1, // Keep maxLength to 1 to enforce single digit visually
+      style: const TextStyle(
+        color: Colors.black,
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
       ),
-    );
-  }
+      decoration: InputDecoration(
+        counterText: '',
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.8),
+        contentPadding: EdgeInsets.zero,
+      ),
+      onChanged: (value) {
+        if (value.length == 1 && index < 5) {
+          FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
+        } else if (value.isEmpty && index > 0) {
+          FocusScope.of(context).requestFocus(_otpFocusNodes[index - 1]);
+        } else if (value.length > 1 && int.tryParse(value) != null) {
+          if (value.length == 6) {
+            for (int i = 0; i < 6; i++) {
+              _otpControllers[i].text = value[i];
+            }
+            FocusScope.of(context).requestFocus(_otpFocusNodes[5]);
+
+          }
+        }
+      },
+    ),
+  );
+}
 
   Widget _buildButton(String text, IconData? icon, VoidCallback? onPressed,
       {bool isPrimary = false, bool isLoading = false}) {
@@ -361,11 +418,14 @@ class _LoginScreenState extends State<LoginScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFFFDD85D),
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           minimumSize: const Size(double.infinity, 50),
         ),
         child: isLoading
-            ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.black),)
+            ? const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+              )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -382,7 +442,8 @@ class _LoginScreenState extends State<LoginScreen> {
         onPressed: isLoading ? null : onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           minimumSize: const Size(double.infinity, 50),
           side: const BorderSide(color: Colors.black26),
         ),

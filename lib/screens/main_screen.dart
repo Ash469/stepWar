@@ -44,13 +44,17 @@ class _MainScreenState extends State<MainScreen> {
             Expanded(
               child: Stack(
                 children: [
+                  // ✨ THE CHANGE IS HERE ✨
+                  // This will now create a new instance of the screen on every tab switch,
+                  // causing initState() and your _loadInitialData() function to run again.
                   _pages[_currentIndex],
+
                   Align(
                     alignment: Alignment.bottomCenter,
-                  child: _buildBottomNavBar(),
-                ),
-              ],
-            ),
+                    child: _buildBottomNavBar(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

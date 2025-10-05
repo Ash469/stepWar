@@ -81,7 +81,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         userId: widget.user.uid,
         email: widget.user.email,
         username: _usernameController.text.trim(),
-        profileImageUrl: widget.user.photoURL, // Added profile image URL
+        profileImageUrl: widget.user.photoURL, 
         dob: _selectedDate,
         gender: _selectedGender,
         weight: double.tryParse(_weightController.text.trim()),
@@ -93,7 +93,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
       try {
         await _authService.createUserProfile(userModel);
-        await _authService.saveUserSession(userModel); // Save session
+        await _authService.syncUserWithBackend(
+        uid: userModel.userId,
+        email: userModel.email,
+      );
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const MainScreen()), // Changed to MainScreen

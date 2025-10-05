@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
@@ -20,23 +21,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  UserModel? _user;
-  bool _isLoading = true;
   final AuthService _authService = AuthService();
   final HealthService _healthService = HealthService();
+  final GameService _gameService = GameService();
+
+  UserModel? _user;
+  bool _isLoading = true;
   StreamSubscription? _stepSubscription;
   Timer? _debounce;
-  int _latestSteps = 0;
-
-  // New variables for game creation
-  final GameService _gameService = GameService();
-  bool _isCreatingGame = false;
+  bool _isCreatingBotGame = false;
+  bool _isHandlingFriendGame = false;
+  int _stepsToShow = 0;
+  int dailyStepOffset = -1;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-    _initHealthService();
+    _loadData();
   }
 
   @override
@@ -47,80 +48,104 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
+  Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
-    final userProfileString = prefs.getString('userProfile');
-    if (userProfileString != null) {
-      final userJson = jsonDecode(userProfileString) as Map<String, dynamic>;
-      DateTime? parsedDob;
-      final dobData = userJson['dob'];
-      if (dobData != null && dobData is String) {
-        parsedDob = DateTime.tryParse(dobData);
-      }
-      if (mounted) {
-        setState(() {
-          _user = UserModel(
-            userId: userJson['userId'] ?? '',
-            email: userJson['email'],
-            username: userJson['username'],
-            profileImageUrl: userJson['profileImageUrl'],
-            dob: parsedDob,
-            gender: userJson['gender'],
-            weight: (userJson['weight'] as num?)?.toDouble(),
-            height: (userJson['height'] as num?)?.toDouble(),
-            contactNo: userJson['contactNo'],
-            stepGoal: (userJson['stepGoal'] as num?)?.toInt(),
-            todaysStepCount: (userJson['todaysStepCount'] as num?)?.toInt(),
-          );
-          _latestSteps = _user?.todaysStepCount ?? 0;
-          _isLoading = false;
-        });
-      }
-    } else {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  void _initHealthService() {
-    _healthService.initialize();
-    _stepSubscription =
-        _healthService.stepStream.listen(_onStepCount, onError: (error) {
-      print("Error from HealthService stream: $error");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
-        );
-      }
-    });
-  }
-
-  void _onStepCount(String stepsStr) {
-    final steps = int.tryParse(stepsStr);
-    if (steps == null) return;
-
-    if (mounted) {
+    final cachedProfile = prefs.getString('userProfile');
+    if (cachedProfile != null && mounted) {
+      final userJson = jsonDecode(cachedProfile);
       setState(() {
-        _user = _user?.copyWith(todaysStepCount: steps);
-        _latestSteps = steps;
+        _user = UserModel.fromJson(userJson);
+        _stepsToShow = _user?.todaysStepCount ?? 0;
+        _isLoading = false;
       });
     }
 
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(seconds: 15), _saveLatestSteps);
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    final loadedUser = await _authService.refreshUserProfile(currentUser.uid);
+    if (loadedUser != null && mounted) {
+      final lastOpenDate = prefs.getString('lastOpenDate');
+      final today = DateTime.now().toIso8601String().split('T').first;
+      final isNewDay = lastOpenDate != today;
+      UserModel userToDisplay = loadedUser;
+      if (isNewDay) {
+        print("New day detected. Resetting UI stats and clearing step offset.");
+        await prefs.remove('dailyStepOffset');
+        final zeroedStats = Map<String, dynamic>.from(loadedUser.stats ?? {});
+        zeroedStats['battlesWon'] = 0;
+        zeroedStats['knockouts'] = 0;
+        zeroedStats['totalBattles'] = 0;
+
+        userToDisplay = loadedUser.copyWith(
+          todaysStepCount: 0,
+          stats: zeroedStats,
+        );
+        await prefs.setString('lastOpenDate', today);
+      }
+      if (mounted) {
+        setState(() {
+          _user = userToDisplay;
+          _stepsToShow = userToDisplay.todaysStepCount ?? 0;
+          _isLoading = false;
+        });
+      }
+      _initStepCounter();
+    }
   }
 
-  Future<void> _saveLatestSteps() async {
-    if (_user != null) {
-      print("Saving step count: $_latestSteps");
-      final updatedUser = _user!.copyWith(todaysStepCount: _latestSteps);
-      try {
-        await _authService.updateUserProfile(updatedUser);
-        print("Successfully saved steps.");
-      } catch (e) {
-        print("Error saving step count: $e");
-      }
+  void _initStepCounter() async {
+    _stepSubscription?.cancel();
+    final prefs = await SharedPreferences.getInstance();
+    _healthService.initialize();
+    _stepSubscription = _healthService.stepStream.listen(
+      (stepsStr) {
+        final currentPedometerReading = int.tryParse(stepsStr);
+        if (currentPedometerReading == null) return;
+        int? dailyStepOffset = prefs.getInt('dailyStepOffset');
+        if (dailyStepOffset == null && _user != null) {
+          final dbSteps = _user!.todaysStepCount ?? 0;
+          dailyStepOffset = currentPedometerReading - dbSteps;
+          prefs.setInt('dailyStepOffset', dailyStepOffset);
+          print(
+              "Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, DB: $dbSteps)");
+        }
+        if (dailyStepOffset == null) return;
+        final calculatedDailySteps = currentPedometerReading - dailyStepOffset;
+        final stepsToSave = calculatedDailySteps > 0 ? calculatedDailySteps : 0;
+
+        if (mounted) {
+          setState(() {
+            _stepsToShow = stepsToSave;
+          });
+        }
+
+        _debounce?.cancel();
+        _debounce = Timer(
+            const Duration(seconds: 5), () => _saveLatestSteps(stepsToSave));
+      },
+    );
+  }
+
+  Future<void> _saveLatestSteps(int stepsToSave) async {
+    final userToSave = _user;
+    if (userToSave == null || userToSave.userId.isEmpty) {
+      print("Skipping save: User data is not available.");
+      return;
+    }
+
+    print(
+        "Saving calculated step count: $stepsToSave for user ${userToSave.userId}");
+
+    try {
+      await _authService.syncStepsToBackend(userToSave.userId, stepsToSave);
+      await _authService
+          .updateUserProfile(userToSave.copyWith(todaysStepCount: stepsToSave));
+      print("✅ Successfully saved steps to both services.");
+    } catch (e) {
+      print("❌ Error saving step count: $e");
     }
   }
 
@@ -129,22 +154,18 @@ class _HomeScreenState extends State<HomeScreen> {
       _showErrorSnackbar('Could not load user profile.');
       return;
     }
-
-    setState(() => _isCreatingGame = true);
-
+    setState(() => _isCreatingBotGame = true);
     try {
       if (mounted) {
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => BotSelectionScreen(user: _user!)
-          ),
+          MaterialPageRoute(builder: (_) => BotSelectionScreen(user: _user!)),
         );
       }
     } catch (e) {
       _showErrorSnackbar('Failed to start game: $e');
     } finally {
       if (mounted) {
-        setState(() => _isCreatingGame = false);
+        setState(() => _isCreatingBotGame = false);
       }
     }
   }
@@ -182,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _handleStartFriendBattle() async {
     if (_user == null) return;
-    setState(() => _isCreatingGame = true);
+    setState(() => _isHandlingFriendGame = true);
     try {
       final gameId = await _gameService.createFriendGame(_user!);
       if (mounted) {
@@ -196,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       _showErrorSnackbar('Failed to create game: $e');
     } finally {
-      if (mounted) setState(() => _isCreatingGame = false);
+      if (mounted) setState(() => _isHandlingFriendGame = false);
     }
   }
 
@@ -232,7 +253,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _joinGameById(gameId);
               }
             },
-            child: const Text('Join', style: TextStyle(color: Color(0xFFFFC107))),
+            child:
+                const Text('Join', style: TextStyle(color: Color(0xFFFFC107))),
           ),
         ],
       ),
@@ -241,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _joinGameById(String gameId) async {
     if (_user == null) return;
-    setState(() => _isCreatingGame = true);
+    setState(() => _isHandlingFriendGame = true);
     try {
       final success = await _gameService.joinFriendGame(gameId, _user!);
       if (success) {
@@ -258,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       _showErrorSnackbar('Error joining game: $e');
     } finally {
-      if (mounted) setState(() => _isCreatingGame = false);
+      if (mounted) setState(() => _isHandlingFriendGame = false);
     }
   }
 
@@ -275,90 +297,46 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(
           child: CircularProgressIndicator(color: Colors.yellow));
     }
-    return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(),
-            const SizedBox(height: 24),
-            _buildStepCounterCard(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("---------- Today's Scorecard ----------"),
-            const SizedBox(height: 16),
-            _buildScorecard(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("---------- Start A Battle ----------"),
-            const SizedBox(height: 16),
-            _buildBattleOptions(),
-            const SizedBox(height: 16),
-            const GameRulesWidget(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("---------- Rewards ----------"),
-            const SizedBox(height: 16),
-            _buildRewardsCard(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("---------- Mystery Box ----------"),
-            const SizedBox(height: 16),
-            _buildMysteryBoxes(),
-            const SizedBox(height: 16),
-            const StepWarsFooter(),
-          ],
-        ),
-      ),
-    );
-  }
+    if (_user == null) {
+      return const Center(
+          child: Text("Could not load user profile. Please restart the app."));
+    }
 
-  Widget _buildStepCounterCard() {
-    return Container(
-      padding: const EdgeInsets.all(20.0),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade900,
-        borderRadius: BorderRadius.circular(16.0),
-        gradient: LinearGradient(
-          colors: [Colors.yellow.shade800, Colors.yellow.shade600],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return Scaffold(
+      body: RefreshIndicator(
+        onRefresh: _loadData,
+        color: Colors.yellow,
+        backgroundColor: Colors.grey.shade900,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(),
+              _buildStepCounterCard(),
+              const SizedBox(height: 24),
+              _buildSectionTitle("---------- Today's Scorecard ----------"),
+              const SizedBox(height: 16),
+              _buildScorecard(),
+              const SizedBox(height: 24),
+              _buildSectionTitle("---------- Start A Battle ----------"),
+              const SizedBox(height: 16),
+              _buildBattleOptions(),
+              const SizedBox(height: 16),
+              const GameRulesWidget(),
+              const SizedBox(height: 24),
+              _buildSectionTitle("---------- Rewards ----------"),
+              const SizedBox(height: 16),
+              _buildRewardsCard(),
+              const SizedBox(height: 24),
+              _buildSectionTitle("---------- Mystery Box ----------"),
+              const SizedBox(height: 16),
+              _buildMysteryBoxes(),
+              const SizedBox(height: 16),
+              const StepWarsFooter(),
+            ],
+          ),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.yellow.shade800.withOpacity(0.5),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Today's Steps",
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _user?.todaysStepCount?.toString() ?? '0',
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 42,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.directions_walk, size: 60, color: Colors.black),
-        ],
       ),
     );
   }
@@ -390,16 +368,16 @@ class _HomeScreenState extends State<HomeScreen> {
             color: const Color.fromARGB(213, 249, 188, 35),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Image(
+              const Image(
                   image: AssetImage('assets/images/coin_icon.png'),
                   width: 24,
                   height: 24),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
-                '150',
-                style: TextStyle(
+                _user?.coins?.toString() ?? '0',
+                style: const TextStyle(
                   color: Colors.black,
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
@@ -409,6 +387,44 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildStepCounterCard() {
+    return Container(
+      padding: const EdgeInsets.all(20.0),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(16.0),
+        gradient: LinearGradient(
+          colors: [Colors.yellow.shade800, Colors.yellow.shade600],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Today's Steps",
+                    style: TextStyle(color: Colors.black, fontSize: 18)),
+                const SizedBox(height: 8),
+                Text(
+                  _stepsToShow.toString(),
+                  style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.directions_walk, size: 60, color: Colors.black),
+        ],
+      ),
     );
   }
 
@@ -423,12 +439,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildScorecard() {
+    final stats = _user?.stats ?? {};
+    final battlesWon = stats['battlesWon']?.toString() ?? '0';
+    final knockouts = stats['knockouts']?.toString() ?? '0';
+    final totalBattles = stats['totalBattles']?.toString() ?? '0';
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildScorecardItem('assets/images/battle_won.png', '04', 'Battle won'),
-        _buildScorecardItem('assets/images/ko_won.png', '03', 'Knockouts'),
-        _buildScorecardItem('assets/images/coin_won.png', '5685', 'Coins won'),
+        _buildScorecardItem(
+            'assets/images/battle_won.png', battlesWon, 'Battle won'),
+        _buildScorecardItem('assets/images/ko_won.png', knockouts, 'Knockouts'),
+        _buildScorecardItem(
+            'assets/images/coin_won.png', totalBattles, 'Total Battles'),
       ],
     );
   }
@@ -476,8 +499,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildBattleOption(
           'Online Battle',
           'assets/images/battle_online.png',
-          onTap: _isCreatingGame ? null : _startBotBattle,
-          isLoading: _isCreatingGame,
+          onTap: _isCreatingBotGame ? null : _startBotBattle,
+          isLoading: _isCreatingBotGame,
         ),
         const SizedBox(width: 16),
         _buildBattleOption(
@@ -530,7 +553,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 
   Widget _buildRewardsCard() {
     return Container(
@@ -627,33 +649,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-extension UserModelCopyWith on UserModel {
-  UserModel copyWith({
-    String? username,
-    String? email,
-    String? profileImageUrl,
-    DateTime? dob,
-    String? gender,
-    double? weight,
-    double? height,
-    String? contactNo,
-    int? stepGoal,
-    int? todaysStepCount,
-  }) {
-    return UserModel(
-      userId: userId,
-      email: email ?? this.email,
-      username: username ?? this.username,
-      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
-      dob: dob ?? this.dob,
-      gender: gender ?? this.gender,
-      weight: weight ?? this.weight,
-      height: height ?? this.height,
-      contactNo: contactNo ?? this.contactNo,
-      stepGoal: stepGoal ?? this.stepGoal,
-      todaysStepCount: todaysStepCount ?? this.todaysStepCount,
-    );
-  }
-}
-

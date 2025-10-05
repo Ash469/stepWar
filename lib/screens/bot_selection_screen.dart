@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../services/bot_service.dart';
@@ -38,9 +37,11 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   }
 
   void _startBotSelection() async {
-    // 1. Select the bot instantly for the backend
+    // 1. Select the bot instantly
     _selectedBot = _botService.selectRandomBot();
     final int selectedBotIndex = _allBots.indexOf(_selectedBot);
+    // Get the ID of the selected bot to send to the backend
+    final String selectedBotId = _botService.getBotId(_selectedBot);
 
     // 2. Animate the selection for the user
     await Future.delayed(const Duration(milliseconds: 500));
@@ -48,23 +49,20 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
 
     _pageController.animateToPage(
       _allBots.length * 10 + selectedBotIndex,
-      // CHANGED: Increased duration from 3 to 5 seconds for a slower scroll
       duration: const Duration(seconds: 5),
       curve: Curves.easeOutCubic,
     );
 
     // 3. Wait for animation to finish, then create game and navigate
-    // CHANGED: Increased delay from 4 to 6 seconds to match the longer animation
     await Future.delayed(const Duration(seconds: 6));
     if (!mounted) return;
 
     setState(() {
       _selectionComplete = true;
-      final botName = _botService.getBotNameFromId(_botService.getBotId(_selectedBot));
+      final botName = _botService.getBotNameFromId(selectedBotId);
       _statusText = '$botName Selected!';
     });
     
-    // Brief pause to show the selected bot
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     
@@ -73,7 +71,13 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
     });
 
     try {
-      final gameId = await _gameService.createBotGame(widget.user);
+      // --- THE FIX IS HERE ---
+      // Pass the selected bot ID to the backend when creating the game.
+      final gameId = await _gameService.createBotGame(
+        widget.user, 
+        botId: selectedBotId 
+      );
+
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -104,7 +108,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Top Status Text
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               transitionBuilder: (child, animation) {
@@ -112,7 +115,7 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
               },
               child: Text(
                 _statusText,
-                key: ValueKey<String>(_statusText), // Important for AnimatedSwitcher
+                key: ValueKey<String>(_statusText),
                 style: TextStyle(
                   color: _selectionComplete ? const Color(0xFFFFC107) : Colors.white,
                   fontSize: 22,
@@ -121,9 +124,8 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
               ),
             ),
             
-            // Middle: Bot Selector
             SizedBox(
-              height: 220, // Increased height for larger cards
+              height: 220,
               child: PageView.builder(
                 controller: _pageController,
                 itemBuilder: (context, index) {
@@ -133,7 +135,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
               ),
             ),
 
-            // Bottom: Rules
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24.0),
               child: GameRulesWidget(),
@@ -175,7 +176,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
           Image.asset(
             botImagePath,
             height: 80,
-            // Add a fallback error widget
             errorBuilder: (context, error, stackTrace) => 
               const Icon(Icons.smart_toy, size: 60, color: Colors.white70),
           ),

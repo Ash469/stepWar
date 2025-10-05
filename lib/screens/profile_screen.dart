@@ -19,10 +19,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   final AuthService _authService = AuthService();
 
+  Map<String, int> _stepHistory = {};
+  bool _isChartLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
+    _loadStepHistory(); 
   }
 
   Future<void> _loadUserProfile({bool forceReload = false}) async {
@@ -126,13 +130,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _loadStepHistory() async {
+    try {
+      final userId = _authService.currentUser?.uid;
+      if (userId == null) return;
+      final history = await _authService.getActivityHistory(userId);
+      Map<String, int> processedHistory = {
+        'MO': 0, 'TU': 0, 'WE': 0, 'TH': 0, 'FR': 0, 'SA': 0, 'SU': 0
+      };
+      const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+      for (var dayData in history) {
+        final date = DateTime.tryParse(dayData['date']);
+        if (date != null) {
+          String dayAbbreviation = dayAbbreviations[date.weekday - 1];
+          processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _stepHistory = processedHistory;
+          _isChartLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Error loading step history: $e");
+      if (mounted) setState(() => _isChartLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(
           child: CircularProgressIndicator(color: Colors.yellow));
     }
-
     if (_user == null) {
       return Center(
         child: Column(
@@ -350,48 +381,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditNameAndPhotoSheet() {
-    final nameController = TextEditingController(text: _user?.username);
-    const textStyle = TextStyle(color: Colors.black);
-    const labelStyle = TextStyle(color: Colors.black54);
-
-    _showEditSheet(
-      title: 'Edit Profile',
-      content: Column(
-        children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: Colors.grey.shade300,
-            backgroundImage: _user!.profileImageUrl != null
-                ? NetworkImage(_user!.profileImageUrl!)
-                : null,
-            child: _user!.profileImageUrl == null
-                ? Icon(Icons.person, size: 40, color: Colors.grey.shade800)
-                : null,
-          ),
-          TextButton(
-            onPressed: () {
-              // TODO: Implement image picking logic
-            },
-            child: const Text('Edit Photo'),
-          ),
-          TextField(
-            controller: nameController,
-            style: textStyle,
-            decoration: const InputDecoration(
-              labelText: 'Your name',
-              labelStyle: labelStyle,
-            ),
-          ),
-        ],
-      ),
-      onSave: () {
-        final updatedUser =
-            _user!.copyWith(username: nameController.text.trim());
-        _updateAndReloadProfile(updatedUser);
-      },
-    );
-  }
 
   void _showEditAboutYouSheet() {
     final weightController =
@@ -610,15 +599,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildStepsChart() {
-    final Map<String, int> stepsData = {
-      'MO': 9568,
-      'TU': 2563,
-      'WE': 7000,
-      'TH': 6500,
-      'FR': 8000,
-      'SA': 5000,
-      'SU': 2121
-    };
+final Map<String, int> stepsData = _isChartLoading ? {
+      'MO': 0, 'TU': 0, 'WE': 0, 'TH': 0, 'FR': 0, 'SA': 0, 'SU': 0
+    } : _stepHistory;
+    
     const int maxSteps = 10000;
 
     return Column(
@@ -650,17 +634,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 16),
         SizedBox(
           height: 150,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: stepsData.entries.map((entry) {
-              return _buildBar(
-                day: entry.key,
-                steps: entry.value,
-                maxSteps: maxSteps,
-              );
-            }).toList(),
-          ),
+          child: _isChartLoading
+            ? const Center(child: CircularProgressIndicator(color: Colors.yellow))
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: stepsData.entries.map((entry) {
+                  return _buildBar(
+                    day: entry.key,
+                    steps: entry.value,
+                    maxSteps: maxSteps,
+                  );
+                }).toList(),
+              ),
         ),
       ],
     );
@@ -689,35 +675,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 8),
         Text(day, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
       ],
-    );
-  }
-}
-
-extension UserModelCopyWith on UserModel {
-  UserModel copyWith({
-    String? username,
-    String? email,
-    String? profileImageUrl,
-    DateTime? dob,
-    String? gender,
-    double? weight,
-    double? height,
-    String? contactNo,
-    int? stepGoal,
-    int? todaysStepCount,
-  }) {
-    return UserModel(
-      userId: userId,
-      email: email ?? this.email,
-      username: username ?? this.username,
-      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
-      dob: dob ?? this.dob,
-      gender: gender ?? this.gender,
-      weight: weight ?? this.weight,
-      height: height ?? this.height,
-      contactNo: contactNo ?? this.contactNo,
-      stepGoal: stepGoal ?? this.stepGoal,
-      todaysStepCount: todaysStepCount ?? this.todaysStepCount,
     );
   }
 }

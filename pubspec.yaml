@@ -12,6 +12,8 @@ dependencies:
   shared_preferences: ^2.2.1
   google_fonts: ^6.2.1
   flutter_svg: ^2.2.1
+  flutter_riverpod: ^2.5.1 
+  rxdart: ^0.28.0
   
   
   # State Management

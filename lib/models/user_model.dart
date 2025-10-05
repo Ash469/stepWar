@@ -12,6 +12,10 @@ class UserModel {
   final String? contactNo;
   final int? stepGoal;
   final int? todaysStepCount;
+  final int? coins;
+  final Map<String, dynamic>? multipliers;
+  final Map<String, dynamic>? rewards;
+  final Map<String, dynamic>? stats;
 
   UserModel({
     required this.userId,
@@ -25,10 +29,12 @@ class UserModel {
     this.contactNo,
     this.stepGoal,
     this.todaysStepCount,
+    this.coins,
+    this.multipliers,
+    this.rewards,
+    this.stats,
   });
 
-  // Convert a UserModel into a Map. The keys must correspond to the names of the
-  // fields in Firestore.
   Map<String, dynamic> toJson() {
     return {
       'userId': userId,
@@ -42,24 +48,79 @@ class UserModel {
       'contactNo': contactNo,
       'stepGoal': stepGoal,
       'todaysStepCount': todaysStepCount,
+      'coins': coins,
+      'multipliers': multipliers,
+      'rewards': rewards,
+      'stats': stats,
     };
   }
 
-  // Create a UserModel from a Firestore document.
+  static DateTime? _parseDate(dynamic dateValue) {
+    if (dateValue == null) return null;
+    if (dateValue is Timestamp) {
+      return dateValue.toDate();
+    }
+    if (dateValue is String) {
+      return DateTime.tryParse(dateValue);
+    }
+    return null;
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      userId: json['userId'],
+      userId: json['uid'] ?? json['userId'] ?? '',
       email: json['email'],
       username: json['username'],
       profileImageUrl: json['profileImageUrl'],
-      dob: json['dob'] != null ? (json['dob'] as Timestamp).toDate() : null,
+      dob: _parseDate(json['dob']),
       gender: json['gender'],
       weight: (json['weight'] as num?)?.toDouble(),
       height: (json['height'] as num?)?.toDouble(),
       contactNo: json['contactNo'],
       stepGoal: (json['stepGoal'] as num?)?.toInt(),
       todaysStepCount: (json['todaysStepCount'] as num?)?.toInt(),
+      coins: (json['coins'] as num?)?.toInt(),
+      multipliers: json['multipliers'] as Map<String, dynamic>?,
+      rewards: json['rewards'] as Map<String, dynamic>?,
+      stats: json['stats'] as Map<String, dynamic>?,
     );
   }
 }
 
+extension UserModelCopyWith on UserModel {
+  UserModel copyWith({
+    String? userId,
+    String? email,
+    String? username,
+    String? profileImageUrl,
+    DateTime? dob,
+    String? gender,
+    double? weight,
+    double? height,
+    String? contactNo,
+    int? stepGoal,
+    int? todaysStepCount,
+    int? coins,
+    Map<String, dynamic>? multipliers,
+    Map<String, dynamic>? rewards,
+    Map<String, dynamic>? stats, 
+  }) {
+    return UserModel(
+      userId: userId ?? this.userId,
+      email: email ?? this.email,
+      username: username ?? this.username,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      dob: dob ?? this.dob,
+      gender: gender ?? this.gender,
+      weight: weight ?? this.weight,
+      height: height ?? this.height,
+      contactNo: contactNo ?? this.contactNo,
+      stepGoal: stepGoal ?? this.stepGoal,
+      todaysStepCount: todaysStepCount ?? this.todaysStepCount,
+      coins: coins ?? this.coins,
+      multipliers: multipliers ?? this.multipliers,
+      rewards: rewards ?? this.rewards,
+      stats: stats ?? this.stats, 
+    );
+  }
+}

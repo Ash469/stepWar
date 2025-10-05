@@ -1,136 +1,157 @@
-import 'dart:math';
+import 'dart:convert';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:http/http.dart' as http;
 import '../models/battle_RB.dart';
 import '../models/user_model.dart';
-import 'bot_service.dart';
 
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  final BotService _botService = BotService();
 
-  // Helper function to generate a random 6-character ID
-  String _generateRandomGameId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final random = Random();
-    return String.fromCharCodes(Iterable.generate(
-        6, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
-  }
+  final String _baseUrl = "https://stepwars-backend.onrender.com/api"; 
 
-  Future<String> createBotGame(UserModel player1) async {
+
+  Future<String> createBotGame(UserModel player1, {String? botId}) async {
     try {
-      final newGameRef = _dbRef.child('games').push();
-      final gameId = newGameRef.key;
-
-      if (gameId == null) {
-        throw Exception("Failed to create game: No key generated.");
+      final body = <String, dynamic>{
+        'userId': player1.userId,
+      };
+      if (botId != null) {
+        body['botId'] = botId;
       }
 
-      final botType = _botService.selectRandomBot();
-      final botId = _botService.getBotId(botType);
-
-      final newGame = Game(
-        gameId: gameId,
-        player1Id: player1.userId,
-        player2Id: botId,
-        gameStatus: GameStatus.ongoing,
-        startTime: DateTime.now().millisecondsSinceEpoch,
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/bot'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
       );
 
-      await newGameRef.set(newGame.toMap());
-      return gameId;
+      if (response.statusCode == 201) {
+        final responseBody = jsonDecode(response.body);
+        final gameId = responseBody['gameId'];
+        if (gameId != null) {
+          return gameId;
+        } else {
+           throw Exception('Failed to create bot game: Server did not return a gameId.');
+        }
+      } else {
+        final errorBody = jsonDecode(response.body);
+        throw Exception('Failed to create bot game: ${errorBody['error'] ?? 'Unknown server error'}');
+      }
     } catch (e) {
-      print("Error creating bot game: $e");
+      print("Error in createBotGame (Flutter): $e");
       rethrow;
     }
   }
 
   Future<String> createFriendGame(UserModel player1) async {
     try {
-      String gameId;
-      DatabaseReference gameRef;
-
-      // Loop to ensure the generated ID is unique
-      do {
-        gameId = _generateRandomGameId();
-        gameRef = _dbRef.child('games').child(gameId);
-      } while ((await gameRef.once()).snapshot.exists);
-
-
-      final newGame = Game(
-        gameId: gameId,
-        player1Id: player1.userId,
-        // player2Id is null until someone joins
-        gameStatus: GameStatus.waiting,
-        // startTime is null until player 2 joins
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/friend/create'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'userId': player1.userId}),
       );
 
-      await gameRef.set(newGame.toMap());
-      return gameId;
+      if (response.statusCode == 201) {
+        final body = jsonDecode(response.body);
+        final gameId = body['gameId'];
+        if (gameId != null) {
+          return gameId;
+        }
+      }
+      final errorBody = jsonDecode(response.body);
+      throw Exception('Failed to create friend game: ${errorBody['error'] ?? 'Unknown server error'}');
     } catch (e) {
-      print("Error creating friend game: $e");
+      print("Error in createFriendGame (Flutter): $e");
       rethrow;
     }
   }
 
   Future<bool> joinFriendGame(String gameId, UserModel player2) async {
     try {
-      final gameRef = _dbRef.child('games').child(gameId);
-      final snapshot = await gameRef.get();
-
-      if (snapshot.exists) {
-        final game = Game.fromMap(
-            Map<String, dynamic>.from(snapshot.value as Map), gameId);
-
-        // Check if the game is available to join
-        if (game.gameStatus == GameStatus.waiting && game.player2Id == null) {
-          await gameRef.update({
-            'player2_id': player2.userId,
-            'gameStatus': GameStatus.ongoing.name,
-            'startTime': DateTime.now().millisecondsSinceEpoch,
-          });
-          return true;
-        }
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/friend/join'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'gameId': gameId.trim(), 'userId': player2.userId}),
+      );
+      
+      if (response.statusCode != 200) {
+        print("Failed to join game: ${response.body}");
+        return false;
       }
-      return false; // Game not found or already full
+      return true;
     } catch (e) {
-      print("Error joining friend game: $e");
+      print("Error in joinFriendGame (Flutter): $e");
       return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> endBattle(String gameId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/end'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'gameId': gameId}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        final errorBody = jsonDecode(response.body);
+        throw Exception('Failed to end battle: ${errorBody['error'] ?? 'Unknown server error'}');
+      }
+    } catch (e) {
+      print("Error in endBattle (Flutter): $e");
+      rethrow;
     }
   }
 
   Stream<Game?> getGameStream(String gameId) {
     return _dbRef.child('games').child(gameId).onValue.map((event) {
       if (event.snapshot.exists) {
-        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-        return Game.fromMap(data, gameId);
+        try {
+          final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+          return Game.fromMap(data, gameId);
+        } catch (e) {
+          print("--- GameService FATAL ERROR: Failed to parse game data. Error: $e ---");
+          return null;
+        }
       }
       return null;
     });
-  }
-
-  Future<void> updatePlayerSteps(String gameId, int newSteps, bool isPlayer1) async {
-    try {
-      if (isPlayer1) {
-        await _dbRef.child('games').child(gameId).update({
-          'step1_count': newSteps,
-          'player1_score': newSteps,
-        });
-      } else {
-        await _dbRef.child('games').child(gameId).update({
-          'step2_count': newSteps,
-          'player2_score': newSteps,
-        });
-      }
-    } catch (e) {
-      print("Error updating player steps: $e");
-    }
   }
 
   Future<void> updateGame(String gameId, Map<String, Object?> data) async {
     try {
       await _dbRef.child('games').child(gameId).update(data);
     } catch (e) {
-      print("Error updating game: $e");
+      print("Error updating game in RTDB: $e");
     }
   }
+
+  Future<void> useMultiplier({
+    required String gameId,
+    required String userId,
+    required String multiplierType,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/use-multiplier'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'gameId': gameId,
+          'userId': userId,
+          'multiplierType': multiplierType,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        final errorBody = jsonDecode(response.body);
+        throw Exception(errorBody['error'] ?? 'Failed to activate multiplier');
+      }
+    } catch (e) {
+      print("Error in useMultiplier (Flutter): $e");
+      rethrow;
+    }
+  }
+
 }

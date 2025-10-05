@@ -7,11 +7,10 @@ class BotService {
 
   /// Selects a random bot from the available types.
   BotType selectRandomBot() {
-    final types = BotType.values;
+    const types = BotType.values;
     return types[_random.nextInt(types.length)];
   }
 
-  /// Generates steps for a single tick (1 second) based on the bot's unique probability distribution.
   int generateStepsForOneSecond(BotType botType) {
     final double rand = _random.nextDouble(); // A value between 0.0 and 1.0
 
@@ -55,7 +54,6 @@ class BotService {
     }
   }
 
-  /// Gets the string identifier for a given bot type.
   String getBotId(BotType botType) {
     switch (botType) {
       case BotType.pawn:
