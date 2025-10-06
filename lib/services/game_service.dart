@@ -7,7 +7,7 @@ import '../models/user_model.dart';
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  final String _baseUrl = "http://172.30.229.52:5000/api";
+  final String _baseUrl = "https://stepwars-backend.onrender.com/api";
 
   Future<String> createBotGame(UserModel player1, {String? botId}) async {
     try {

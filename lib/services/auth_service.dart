@@ -12,7 +12,7 @@ class AuthService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "http://172.30.229.52:5000";
+  final String _baseUrl = "https://stepwars-backend.onrender.com";
 
   Future<bool> isNewUser(String userId) async {
     try {
