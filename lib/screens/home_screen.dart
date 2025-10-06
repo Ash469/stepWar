@@ -721,16 +721,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       children: [
         CircleAvatar(
-          radius: 40,
-          backgroundImage: player.profileImageUrl != null &&
-                  player.profileImageUrl!.startsWith('http')
-              ? NetworkImage(player.profileImageUrl!)
-              : (player.profileImageUrl != null
-                  ? AssetImage(player.profileImageUrl!)
-                  : null) as ImageProvider?,
+          radius: 30, // The radius for the home screen card is smaller
+          backgroundColor: Colors.grey.shade800,
+          // If the image URL is null, display the placeholder icon.
+          // Otherwise, display the image inside a ClipOval.
           child: player.profileImageUrl == null
-              ? const Icon(Icons.person, size: 35)
-              : null,
+              ? const Icon(Icons.person, size: 25) // Icon for null URL
+              : ClipOval(
+                  child: player.profileImageUrl!.startsWith('assets/')
+                      // If it's an asset (for a bot)
+                      ? Image.asset(
+                          player.profileImageUrl!,
+                          fit: BoxFit
+                              .contain, // Use BoxFit.cover to fill the circle
+                          width: 80, // Diameter of the circle (radius * 2)
+                          height: 80,
+                        )
+                      // If it's a network URL (for a real player)
+                      : Image.network(
+                          player.profileImageUrl!,
+                          fit: BoxFit
+                              .cover, // Use BoxFit.cover to fill the circle
+                          width: 60,
+                          height: 60,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(Icons.person, size: 25),
+                        ),
+                ),
         ),
         const SizedBox(height: 8),
         Text(steps.toString(),

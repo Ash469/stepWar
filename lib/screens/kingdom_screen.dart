@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../widget/footer.dart';
 
@@ -18,7 +20,6 @@ class KingdomItem {
     required this.gradientColors,
   });
 
-  // Factory to create a KingdomItem from the JSON from our backend
   factory KingdomItem.fromJson(Map<String, dynamic> json) {
     String rarity = json['tier'] ?? 'Unknown';
     Color rarityColor;
@@ -40,7 +41,7 @@ class KingdomItem {
     }
     return KingdomItem(
       name: json['name'] ?? 'Unnamed',
-      imagePath: json['imagePath'] ?? '', 
+      imagePath: json['imagePath'] ?? '',
       rarity: rarity,
       rarityColor: rarityColor,
       gradientColors: [rarityColor.withOpacity(0.5), Colors.transparent],
@@ -57,77 +58,122 @@ class KingdomScreen extends StatefulWidget {
 
 class _KingdomScreenState extends State<KingdomScreen> {
   final AuthService _authService = AuthService();
-  late Future<Map<String, List<KingdomItem>>> _rewardsFuture;
-  String? _selectedFilter; 
-  final List<String> _filters = ['Fort', 'Monument', 'Legend', 'Badge'];
+
+  Map<String, List<KingdomItem>>? _allRewards;
+  bool _isLoading = true;
+  String _selectedFilter = 'All';
   List<KingdomItem> _currentItems = [];
 
   @override
   void initState() {
     super.initState();
-    _rewardsFuture = _fetchAndProcessRewards();
+    _loadRewardsFromCache();
   }
 
-  Future<Map<String, List<KingdomItem>>> _fetchAndProcessRewards() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      throw Exception("Not logged in");
-    }
-    final rawRewards = await _authService.getUserRewards(userId);
+  Future<void> _loadRewardsFromCache() async {
+    setState(() => _isLoading = true);
+    final prefs = await SharedPreferences.getInstance();
+    final cachedRewardsString = prefs.getString('userRewardsCache');
 
-    return rawRewards.map((key, value) {
+    if (cachedRewardsString != null) {
+      final rawRewards = Map<String, dynamic>.from(jsonDecode(cachedRewardsString));
+      _processAndSetRewards(rawRewards);
+    } else {
+      await _fetchAndCacheRewards();
+    }
+
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _fetchAndCacheRewards() async {
+    setState(() => _isLoading = true);
+    try {
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) throw Exception("Not logged in");
+
+      final rawRewards = await _authService.getUserRewards(userId);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
+
+      _processAndSetRewards(rawRewards);
+    } catch (e) {
+      print("Error fetching rewards: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error fetching rewards: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _processAndSetRewards(Map<String, dynamic> rawRewards) {
+    final processedRewards = rawRewards.map((key, value) {
       final items = (value as List).map((item) => KingdomItem.fromJson(item)).toList();
       return MapEntry(key, items);
     });
+    if (mounted) {
+      setState(() {
+        _allRewards = processedRewards;
+      });
+    }
   }
 
   @override
- Widget build(BuildContext context) {
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.yellow));
+    }
+
+    if (_allRewards == null || _allRewards!.values.every((list) => list.isEmpty)) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text("You haven't collected any rewards yet.", style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 16),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.yellow),
+              onPressed: _fetchAndCacheRewards,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final availableFilters = ['All', ..._allRewards!.keys];
+    if (_selectedFilter == 'All') {
+      _currentItems = _allRewards!.values.expand((list) => list).toList();
+    } else {
+      _currentItems = _allRewards![_selectedFilter] ?? [];
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: FutureBuilder<Map<String, List<KingdomItem>>>(
-        future: _rewardsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.yellow));
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
-          }
-          if (!snapshot.hasData || snapshot.data!.isEmpty || snapshot.data!.values.every((list) => list.isEmpty)) {
-            return const Center(child: Text("You haven't collected any rewards yet.", style: TextStyle(color: Colors.white70)));
-          }
-          final allRewards = snapshot.data!;
-          if (_selectedFilter == null && allRewards.keys.isNotEmpty) {
-            _selectedFilter = allRewards.keys.first;
-          }
-          _currentItems = allRewards[_selectedFilter] ?? [];
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(),
-                const SizedBox(height: 24),
-                _buildFilterChips(allRewards.keys.toList()),
-                const SizedBox(height: 24),
-                Text(
-                  '${_currentItems.length} items',
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                ),
-                const SizedBox(height: 12),
-                _buildKingdomGrid(),
-                const SizedBox(height: 40),
-                const StepWarsFooter(),
-              ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(),
+            const SizedBox(height: 24),
+            _buildFilterChips(availableFilters),
+            const SizedBox(height: 24),
+            Text(
+              '${_currentItems.length} items',
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
             ),
-          );
-        },
+            const SizedBox(height: 12),
+            _buildKingdomGrid(),
+            const SizedBox(height: 40),
+            const StepWarsFooter(),
+          ],
+        ),
       ),
     );
   }
-
-
 
   Widget _buildHeader() {
     return Row(
@@ -141,41 +187,16 @@ class _KingdomScreenState extends State<KingdomScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
-        PopupMenuButton<String>(
-          onSelected: (String newFilter) {
-            setState(() {
-              _selectedFilter = newFilter;
-            });
-          },
-          color: const Color(0xFF2a2a2a),
-          itemBuilder: (BuildContext context) {
-            return _filters.map((String filter) {
-              return PopupMenuItem<String>(
-                value: filter,
-                child: Text(filter, style: const TextStyle(color: Colors.white)),
-              );
-            }).toList();
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade800),
-              borderRadius: BorderRadius.circular(20.0),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.filter_list, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text('Filter', style: TextStyle(color: Colors.white)),
-              ],
-            ),
-          ),
+        IconButton(
+          icon: const Icon(Icons.refresh, color: Colors.yellow),
+          onPressed: _fetchAndCacheRewards,
+          tooltip: 'Refresh Rewards',
         ),
       ],
     );
   }
 
- Widget _buildFilterChips(List<String> availableFilters) {
+  Widget _buildFilterChips(List<String> availableFilters) {
     return SizedBox(
       height: 40,
       child: ListView.separated(
@@ -184,7 +205,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = availableFilters[index];
-          final isSelected = _selectedFilter == filter; 
+          final isSelected = _selectedFilter == filter;
           return ChoiceChip(
             label: Text(filter),
             selected: isSelected,
