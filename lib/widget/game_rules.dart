@@ -21,9 +21,9 @@ class GameRulesWidget extends StatelessWidget {
         _buildRule(
             "The player with the most steps at the end of 10 min wins the battle."),
         _buildRule(
-            "If a player leads by 1000 steps, they gets KO immediately."),
+            "If a player leads by 100 steps, they gets KO immediately."),
         _buildRule(
-            "If players have steps difference less than 50 at the end of 10 min, the game is a draw."),
+            "If players have steps difference less than 20 at the end of 10 min, the game is a draw."),
       ],
     );
   }

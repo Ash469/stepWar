@@ -43,7 +43,7 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
         _gameSubscription?.cancel();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => BattleScreen(gameId: widget.gameId, user: widget.user),
+            builder: (_) => BattleScreen(),
           ),
         );
       }

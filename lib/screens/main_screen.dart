@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
 import 'profile_screen.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart'; // Make sure provider is imported
+import '../services/active_battle_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -23,6 +27,50 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       _currentIndex = index;
     });
+  }
+
+  late final StreamSubscription _battleStateSubscription;
+  @override
+  void initState() {
+    super.initState();
+    final battleService = context.read<ActiveBattleService>();
+    _battleStateSubscription = battleService.stream.listen((_) {
+      if (battleService.finalBattleState != null) {
+        _showGameOverDialog(battleService.finalBattleState!);
+        battleService.dismissBattleResults();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _battleStateSubscription.cancel();
+    super.dispose();
+  }
+
+  void _showGameOverDialog(Map<String, dynamic> finalState) {
+    // This is your dialog logic, now living in the MainScreen
+    // You can customize this with the new design from your image
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: const Text("👑 Winner 👑",
+            textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
+        content: Text(
+            "You won! Rewards: ${finalState['finalState']?['rewards']?['coins'] ?? 0} coins.",
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            child: const Text('OK', style: TextStyle(color: Color(0xFFFFC107))),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override

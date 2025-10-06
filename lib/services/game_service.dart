@@ -7,8 +7,7 @@ import '../models/user_model.dart';
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  final String _baseUrl = "https://stepwars-backend.onrender.com/api"; 
-
+  final String _baseUrl = "http://172.30.229.52:5000/api";
 
   Future<String> createBotGame(UserModel player1, {String? botId}) async {
     try {
@@ -31,11 +30,13 @@ class GameService {
         if (gameId != null) {
           return gameId;
         } else {
-           throw Exception('Failed to create bot game: Server did not return a gameId.');
+          throw Exception(
+              'Failed to create bot game: Server did not return a gameId.');
         }
       } else {
         final errorBody = jsonDecode(response.body);
-        throw Exception('Failed to create bot game: ${errorBody['error'] ?? 'Unknown server error'}');
+        throw Exception(
+            'Failed to create bot game: ${errorBody['error'] ?? 'Unknown server error'}');
       }
     } catch (e) {
       print("Error in createBotGame (Flutter): $e");
@@ -59,7 +60,8 @@ class GameService {
         }
       }
       final errorBody = jsonDecode(response.body);
-      throw Exception('Failed to create friend game: ${errorBody['error'] ?? 'Unknown server error'}');
+      throw Exception(
+          'Failed to create friend game: ${errorBody['error'] ?? 'Unknown server error'}');
     } catch (e) {
       print("Error in createFriendGame (Flutter): $e");
       rethrow;
@@ -73,7 +75,7 @@ class GameService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'gameId': gameId.trim(), 'userId': player2.userId}),
       );
-      
+
       if (response.statusCode != 200) {
         print("Failed to join game: ${response.body}");
         return false;
@@ -85,25 +87,53 @@ class GameService {
     }
   }
 
-  Future<Map<String, dynamic>> endBattle(String gameId) async {
+  Future<Map<String, dynamic>> endBattle(String gameId,
+      {int? player1FinalScore, int? player2FinalScore}) async {
     try {
+      final body = <String, dynamic>{
+        'gameId': gameId,
+      };
+      if (player1FinalScore != null) {
+        body['player1FinalScore'] = player1FinalScore;
+      }
+      if (player2FinalScore != null) {
+        body['player2FinalScore'] = player2FinalScore;
+      }
       final response = await http.post(
         Uri.parse('$_baseUrl/battle/end'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'gameId': gameId}),
+         body: jsonEncode(body),
       );
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       } else {
         final errorBody = jsonDecode(response.body);
-        throw Exception('Failed to end battle: ${errorBody['error'] ?? 'Unknown server error'}');
+        throw Exception(
+            'Failed to end battle: ${errorBody['error'] ?? 'Unknown server error'}');
       }
     } catch (e) {
       print("Error in endBattle (Flutter): $e");
       rethrow;
     }
   }
+  
+  Future<void> cancelFriendGame(String gameId) async {
+  try {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/battle/friend/cancel'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'gameId': gameId}),
+    );
+    if (response.statusCode != 200) {
+      final errorBody = jsonDecode(response.body);
+      throw Exception('Failed to cancel game: ${errorBody['error'] ?? 'Unknown server error'}');
+    }
+  } catch (e) {
+    print("Error in cancelFriendGame (Flutter): $e");
+    rethrow;
+  }
+}
 
   Stream<Game?> getGameStream(String gameId) {
     return _dbRef.child('games').child(gameId).onValue.map((event) {
@@ -112,7 +142,8 @@ class GameService {
           final data = Map<String, dynamic>.from(event.snapshot.value as Map);
           return Game.fromMap(data, gameId);
         } catch (e) {
-          print("--- GameService FATAL ERROR: Failed to parse game data. Error: $e ---");
+          print(
+              "--- GameService FATAL ERROR: Failed to parse game data. Error: $e ---");
           return null;
         }
       }
@@ -153,5 +184,4 @@ class GameService {
       rethrow;
     }
   }
-
 }

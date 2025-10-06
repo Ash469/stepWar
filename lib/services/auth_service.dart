@@ -12,7 +12,7 @@ class AuthService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "https://stepwars-backend.onrender.com";
+  final String _baseUrl = "http://172.30.229.52:5000";
 
   Future<bool> isNewUser(String userId) async {
     try {
@@ -179,12 +179,8 @@ class AuthService {
 
   Future<UserModel?> refreshUserProfile(String userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final lastOpenDate = prefs.getString('lastOpenDate');
-      final uri = Uri.parse('$_baseUrl/api/user/profile/$userId')
-          .replace(queryParameters: {
-        if (lastOpenDate != null) 'lastActivityDate': lastOpenDate,
-      });
+      await SharedPreferences.getInstance();
+      final uri = Uri.parse('$_baseUrl/api/user/profile/$userId');
       final response =
           await http.get(uri, headers: {'Content-Type': 'application/json'});
       if (response.statusCode == 200) {

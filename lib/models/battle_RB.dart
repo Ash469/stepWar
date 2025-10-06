@@ -16,6 +16,9 @@ class Game {
   final GameResult? result;
   final String? winner;
   final int? startTime;
+  final bool player1MultiplierUsed;
+  final bool player2MultiplierUsed;
+  final Map<String, dynamic>? potentialReward;
 
   Game({
     required this.gameId,
@@ -31,6 +34,9 @@ class Game {
     this.result,
     this.winner,
     this.startTime,
+    this.player1MultiplierUsed = false,
+    this.player2MultiplierUsed = false,
+    this.potentialReward, 
   });
 
   // Factory constructor to create a Game instance from a map (e.g., from Firebase)
@@ -50,6 +56,12 @@ class Game {
       result: data['result'] != null ? _parseGameResult(data['result']) : null,
       winner: data['winner'],
       startTime: data['startTime'],
+      player1MultiplierUsed: data['player1MultiplierUsed'] ?? false,
+      player2MultiplierUsed: data['player2MultiplierUsed'] ?? false,
+      potentialReward: data['potentialReward'] != null
+          ? Map<String, dynamic>.from(data['potentialReward'])
+          : null,
+
     );
   }
 

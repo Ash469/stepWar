@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/bot_service.dart';
 import '../services/game_service.dart';
+import '../services/active_battle_service.dart';
 import '../widget/game_rules.dart';
 import 'battle_screen.dart';
 
@@ -19,7 +21,7 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   final GameService _gameService = GameService();
   final PageController _pageController = PageController(viewportFraction: 0.6);
   final List<BotType> _allBots = BotType.values;
-  
+
   late BotType _selectedBot;
   bool _selectionComplete = false;
   String _statusText = "Finding Your Opponent...";
@@ -27,6 +29,7 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   @override
   void initState() {
     super.initState();
+    // Start the selection and animation process as soon as the screen loads
     _startBotSelection();
   }
 
@@ -37,23 +40,23 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   }
 
   void _startBotSelection() async {
-    // 1. Select the bot instantly
+    // 1. Instantly select a random bot.
     _selectedBot = _botService.selectRandomBot();
     final int selectedBotIndex = _allBots.indexOf(_selectedBot);
-    // Get the ID of the selected bot to send to the backend
     final String selectedBotId = _botService.getBotId(_selectedBot);
 
-    // 2. Animate the selection for the user
+    // 2. Animate the PageView to simulate a "spin".
+    // We scroll through the list multiple times and land on the selected bot.
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
 
     _pageController.animateToPage(
-      _allBots.length * 10 + selectedBotIndex,
+      _allBots.length * 10 + selectedBotIndex, // Scroll 10 times past the list
       duration: const Duration(seconds: 5),
       curve: Curves.easeOutCubic,
     );
 
-    // 3. Wait for animation to finish, then create game and navigate
+    // 3. Wait for the animation to finish, update the status, and start the game.
     await Future.delayed(const Duration(seconds: 6));
     if (!mounted) return;
 
@@ -62,26 +65,28 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
       final botName = _botService.getBotNameFromId(selectedBotId);
       _statusText = '$botName Selected!';
     });
-    
+
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    
+
     setState(() {
       _statusText = 'Starting Battle...';
     });
 
     try {
-      // --- THE FIX IS HERE ---
-      // Pass the selected bot ID to the backend when creating the game.
+      // 4. Create the game on the backend and start the global service.
       final gameId = await _gameService.createBotGame(
-        widget.user, 
-        botId: selectedBotId 
+        widget.user,
+        botId: selectedBotId
       );
+      
+      context.read<ActiveBattleService>().startBattle(gameId, widget.user);
 
       if (mounted) {
+        // 5. Navigate to the BattleScreen.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => BattleScreen(gameId: gameId, user: widget.user),
+            builder: (_) => const BattleScreen(),
           ),
         );
       }
@@ -117,13 +122,11 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
                 _statusText,
                 key: ValueKey<String>(_statusText),
                 style: TextStyle(
-                  color: _selectionComplete ? const Color(0xFFFFC107) : Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold
-                ),
+                    color: _selectionComplete ? const Color(0xFFFFC107) : Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold),
               ),
             ),
-            
             SizedBox(
               height: 220,
               child: PageView.builder(
@@ -134,7 +137,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
                 },
               ),
             ),
-
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24.0),
               child: GameRulesWidget(),
@@ -162,13 +164,15 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
           color: isSelected ? const Color(0xFFFFC107) : Colors.grey.shade800,
           width: isSelected ? 3 : 1,
         ),
-        boxShadow: isSelected ? [
-          BoxShadow(
-            color: const Color(0xFFFFC107).withOpacity(0.5),
-            blurRadius: 15,
-            spreadRadius: 2,
-          )
-        ] : [],
+        boxShadow: isSelected
+            ? [
+                BoxShadow(
+                  color: const Color(0xFFFFC107).withOpacity(0.5),
+                  blurRadius: 15,
+                  spreadRadius: 2,
+                )
+              ]
+            : [],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -176,16 +180,15 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
           Image.asset(
             botImagePath,
             height: 80,
-            errorBuilder: (context, error, stackTrace) => 
-              const Icon(Icons.smart_toy, size: 60, color: Colors.white70),
+            errorBuilder: (context, error, stackTrace) =>
+                const Icon(Icons.smart_toy, size: 60, color: Colors.white70),
           ),
           Text(
             botName,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600
-            )
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600),
           ),
         ],
       ),
