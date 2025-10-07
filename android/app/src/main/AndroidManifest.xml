@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <uses-permission android:name="android.permission.health.WRITE_WHEELCHAIR_PUSHES" />
+       <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="StepWars"
@@ -39,6 +40,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="high_importance_channel" />
     </application>
     <queries>
         <intent>

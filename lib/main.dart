@@ -5,22 +5,27 @@ import 'screens/loading_screen.dart';
 import 'theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/active_battle_service.dart';
+
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("Handling a background message: ${message.messageId}");
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
    runApp(
-    // 2. Use MultiProvider to provide multiple services
     MultiProvider(
       providers: [
-        // Provider for your plain AuthService class
         Provider<AuthService>(create: (_) => AuthService()),
-        
-        // ChangeNotifierProvider for your stateful ActiveBattleService
-        ChangeNotifierProvider<ActiveBattleService>(create: (_) => ActiveBattleService()),
+       ChangeNotifierProvider<ActiveBattleService>(create: (_) => ActiveBattleService()),
       ],
       child: const MyApp(),
     ),

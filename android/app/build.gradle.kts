@@ -20,9 +20,7 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // Flag to enable support for the new language APIs
         isCoreLibraryDesugaringEnabled = true
-        // Sets Java compatibility to Java 8
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
@@ -30,6 +28,7 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
 
     defaultConfig {
         applicationId = "com.stepwars.stepwarsnew_app"
@@ -65,8 +64,7 @@ flutter {
 }
 
 dependencies {
-    // Core library desugaring for Java 8+ API support
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.window:window:1.2.0")
     implementation("androidx.window:window-java:1.2.0") 
     implementation("com.google.android.gms:play-services-location:21.0.1")

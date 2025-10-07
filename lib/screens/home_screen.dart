@@ -15,6 +15,7 @@ import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
 import 'bot_selection_screen.dart';
 import '../widget/game_rules.dart';
+import '../services/notification_service.dart'; 
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
   final BotService _botService = BotService();
+  final NotificationService _notificationService = NotificationService();
 
   UserModel? _user;
   UserModel? _opponentProfile;
@@ -45,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _requestNotificationPermission();
   }
 
   @override
@@ -53,6 +56,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _debounce?.cancel();
     _healthService.dispose();
     super.dispose();
+  }
+
+ Future<void> _requestNotificationPermission() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasRequested = prefs.getBool('hasRequestedNotificationPermission') ?? false;
+
+    if (!hasRequested) {
+      final user = _authService.currentUser;
+      if (user != null) {
+        print("[FCM] Requesting notification permission for the first time.");
+        await _notificationService.initializeAndRegister(user.uid);
+        await prefs.setBool('hasRequestedNotificationPermission', true);
+      }
+    }
   }
 
   Future<void> _fetchOpponentProfile(ActiveBattleService battleService) async {
@@ -92,20 +109,48 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final cachedProfile = prefs.getString('userProfile');
+
+    // --- NEW LOCAL RESET LOGIC ---
+    final lastOpenDate = prefs.getString('lastOpenDate');
+    final today = DateTime.now().toIso8601String().split('T').first;
+    final isNewDay = lastOpenDate != today;
+
     if (cachedProfile != null && mounted) {
       final userJson = jsonDecode(cachedProfile);
+      var user = UserModel.fromJson(userJson);
+
+      if (isNewDay) {
+        print("[Local Reset] New day detected. Resetting UI stats.");
+        // Create a new user object with reset stats for immediate UI update
+        user = user.copyWith(
+          todaysStepCount: 0,
+          stats: {
+            // Assuming 'stats' is a Map<String, dynamic>
+            'battlesWon': 0,
+            'knockouts': 0,
+            'totalBattles': 0,
+          },
+        );
+        // Immediately update the cache with the reset state
+        await _authService.saveUserSession(user);
+        await prefs.setString('lastOpenDate', today);
+      }
+
       setState(() {
-        _user = UserModel.fromJson(userJson);
-        _stepsToShow = _user?.todaysStepCount ?? 0;
+        _user = user;
+        _stepsToShow = user.todaysStepCount ?? 0;
         _isLoading = false;
       });
     }
+    // --- END NEW LOGIC ---
 
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
+
+    // This refresh will now just fetch the latest server state, not trigger a reset
     final loadedUser = await _authService.refreshUserProfile(currentUser.uid);
     if (loadedUser != null && mounted) {
       setState(() {
@@ -113,8 +158,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _stepsToShow = loadedUser.todaysStepCount ?? 0;
         _isLoading = false;
       });
+      _initStepCounter();
+    } else if (cachedProfile == null) {
+      // If there was no cache and the network call failed
+      setState(() => _isLoading = false);
     }
-    _initStepCounter();
   }
 
   void _initStepCounter() async {

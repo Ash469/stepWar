@@ -10,7 +10,6 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
   User? get currentUser => _auth.currentUser;
   final String _baseUrl = "https://stepwars-backend.onrender.com";
 
