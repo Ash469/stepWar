@@ -13,41 +13,53 @@ import '../services/step_counting.dart';
 import '../widget/footer.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
-import 'bot_selection_screen.dart';
+// --- 1. IMPORT THE NEW SCREEN ---
+import 'matchmaking_screen.dart'; 
 import '../widget/game_rules.dart';
-import '../services/notification_service.dart'; 
+import '../services/notification_service.dart';
+import '../services/mystery_box_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
   final BotService _botService = BotService();
   final NotificationService _notificationService = NotificationService();
+  final MysteryBoxService _mysteryBoxService = MysteryBoxService();
 
   UserModel? _user;
   UserModel? _opponentProfile;
   bool _isLoading = true;
   StreamSubscription? _stepSubscription;
   Timer? _debounce;
-  bool _isCreatingBotGame = false;
+  final bool _isCreatingBotGame = false;
   bool _isHandlingFriendGame = false;
   int _stepsToShow = 0;
   bool _isFetchingOpponent = false;
+  final bool _isCreatingGame = false;
 
-  bool _isCreatingGame = false;
+  bool _isOpeningBronzeBox = false;
+  bool _isOpeningSilverBox = false;
+  bool _isOpeningGoldBox = false;
+
+  Timer? _boxTimer;
+  Duration _bronzeTimeLeft = Duration.zero;
+  Duration _silverTimeLeft = Duration.zero;
+  Duration _goldTimeLeft = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _loadData();
-    _requestNotificationPermission();
+    _handleNotifications();
+    WidgetsBinding.instance.addObserver(this);
+    _startBoxTimers();
   }
 
   @override
@@ -55,19 +67,192 @@ class _HomeScreenState extends State<HomeScreen> {
     _stepSubscription?.cancel();
     _debounce?.cancel();
     _healthService.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _boxTimer?.cancel();
     super.dispose();
   }
 
- Future<void> _requestNotificationPermission() async {
-    final prefs = await SharedPreferences.getInstance();
-    final hasRequested = prefs.getBool('hasRequestedNotificationPermission') ?? false;
+  void _startBoxTimers() {
+    _boxTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _user?.mysteryBoxLastOpened == null) return;
 
-    if (!hasRequested) {
-      final user = _authService.currentUser;
-      if (user != null) {
-        print("[FCM] Requesting notification permission for the first time.");
-        await _notificationService.initializeAndRegister(user.uid);
-        await prefs.setBool('hasRequestedNotificationPermission', true);
+      final now = DateTime.now();
+      // Set the reset time to the beginning of the next day in the local timezone
+      final tomorrow = DateTime(now.year, now.month, now.day + 1);
+
+      setState(() {
+        _bronzeTimeLeft = _calculateTimeLeft('bronze', tomorrow);
+        _silverTimeLeft = _calculateTimeLeft('silver', tomorrow);
+        _goldTimeLeft = _calculateTimeLeft('gold', tomorrow);
+      });
+    });
+  }
+
+  Duration _calculateTimeLeft(String boxType, DateTime tomorrow) {
+    final lastOpenedString = _user?.mysteryBoxLastOpened?[boxType];
+    if (lastOpenedString == null) return Duration.zero;
+
+    final lastOpenedDate = DateTime.parse(lastOpenedString).toLocal();
+    final now = DateTime.now();
+
+    // Check if the last opening was on the same calendar day as 'now'
+    if (lastOpenedDate.year == now.year &&
+        lastOpenedDate.month == now.month &&
+        lastOpenedDate.day == now.day) {
+      final timeLeft = tomorrow.difference(now);
+      return timeLeft.isNegative ? Duration.zero : timeLeft;
+    }
+
+    return Duration.zero;
+  }
+  
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String hours = twoDigits(duration.inHours);
+    String minutes = twoDigits(duration.inMinutes.remainder(60));
+    String seconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$hours:$minutes:$seconds";
+  }
+
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      print("App resumed, reloading data...");
+      _loadData();
+      _handleNotifications();
+    }
+  }
+
+  Future<void> _openMysteryBox(String boxType, int price) async {
+    if (_user == null) return;
+
+    final canAfford = (_user!.coins ?? 0) >= price;
+    if (!canAfford) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("You don't have enough coins!"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final confirmed = await _showConfirmationDialog(boxType, price);
+    if (confirmed != true) return;
+
+    setState(() {
+      if (boxType == 'bronze') _isOpeningBronzeBox = true;
+      if (boxType == 'silver') _isOpeningSilverBox = true;
+      if (boxType == 'gold') _isOpeningGoldBox = true;
+    });
+
+    try {
+      final reward = await _mysteryBoxService.openMysteryBox(_user!.userId, boxType);
+      
+      final newCoinBalance = reward['newCoinBalance'] as int?;
+      if (newCoinBalance != null) {
+          setState(() {
+              _user = _user!.copyWith(coins: newCoinBalance);
+          });
+          await _authService.saveUserSession(_user!);
+      }
+      
+      _showRewardDialog(reward);
+
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst("Exception: ", "")), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (boxType == 'bronze') _isOpeningBronzeBox = false;
+          if (boxType == 'silver') _isOpeningSilverBox = false;
+          if (boxType == 'gold') _isOpeningGoldBox = false;
+          _loadData(forceRefresh: true);
+        });
+      }
+    }
+  }
+
+  Future<bool?> _showConfirmationDialog(String boxType, int price) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: Text('Confirm Purchase', style: TextStyle(color: Colors.white)),
+        content: Text('Open the ${boxType.capitalize()} box for $price coins?', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Confirm', style: TextStyle(color: Color(0xFFFFC107))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRewardDialog(Map<String, dynamic> reward) {
+      String title = "Congratulations!";
+      String content = "";
+
+      switch (reward['type']) {
+          case 'coins':
+              content = "You found ${reward['amount']} coins!";
+              break;
+          case 'multiplier':
+              content = "You received a ${reward['multiplierType']} multiplier token!";
+              break;
+          case 'collectible':
+              final itemName = reward['item']?['name'] ?? 'a new item';
+              content = "You unlocked a new collectible: $itemName!";
+              break;
+          default:
+              content = "You've received a special reward!";
+      }
+
+      showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF2a2a2a),
+              title: Text(title, style: TextStyle(color: Colors.white)),
+              content: Text(content, style: TextStyle(color: Colors.white70)),
+              actions: [
+                  TextButton(
+                      child: const Text('Awesome!', style: TextStyle(color: Color(0xFFFFC107))),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+              ],
+          ),
+      );
+  }
+
+
+  Future<void> _handleNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasRegisteredToken = prefs.getBool('hasRegisteredFcmToken') ?? false;
+
+    if (hasRegisteredToken) {
+      print("[FCM] Token is already registered with backend. Skipping.");
+      return;
+    }
+
+    final user = _authService.currentUser;
+    if (user != null) {
+      print("[FCM] Attempting to register FCM token...");
+      await _notificationService.initialize();
+      final token = await _notificationService.getFcmToken();
+      if (token != null) {
+        final success = await _notificationService.registerTokenWithBackend(user.uid, token);
+        if (success) {
+          await prefs.setBool('hasRegisteredFcmToken', true);
+          print("[FCM] Token registration successful and flag saved.");
+        }
       }
     }
   }
@@ -76,13 +261,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isFetchingOpponent ||
         _opponentProfile != null ||
         battleService.currentGame == null) return;
-
     setState(() => _isFetchingOpponent = true);
-
     final game = battleService.currentGame!;
     final isUserPlayer1 = game.player1Id == _user!.userId;
     final opponentId = isUserPlayer1 ? game.player2Id : game.player1Id;
-
     UserModel? opponent;
     if (opponentId != null && opponentId.isNotEmpty) {
       if (opponentId.startsWith('bot_')) {
@@ -106,62 +288,49 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
+    if (!mounted) return;
+    if (_user == null) {
+      setState(() => _isLoading = true);
+    }
     final prefs = await SharedPreferences.getInstance();
-    final cachedProfile = prefs.getString('userProfile');
-
-    // --- NEW LOCAL RESET LOGIC ---
+    final currentUser = FirebaseAuth.instance.currentUser;
     final lastOpenDate = prefs.getString('lastOpenDate');
     final today = DateTime.now().toIso8601String().split('T').first;
     final isNewDay = lastOpenDate != today;
-
+    final cachedProfile = prefs.getString('userProfile');
     if (cachedProfile != null && mounted) {
-      final userJson = jsonDecode(cachedProfile);
-      var user = UserModel.fromJson(userJson);
-
+      var user = UserModel.fromJson(jsonDecode(cachedProfile));
       if (isNewDay) {
         print("[Local Reset] New day detected. Resetting UI stats.");
-        // Create a new user object with reset stats for immediate UI update
         user = user.copyWith(
           todaysStepCount: 0,
-          stats: {
-            // Assuming 'stats' is a Map<String, dynamic>
-            'battlesWon': 0,
-            'knockouts': 0,
-            'totalBattles': 0,
-          },
+          stats: {'battlesWon': 0, 'knockouts': 0, 'totalBattles': 0},
         );
-        // Immediately update the cache with the reset state
+        await prefs.remove('dailyStepOffset');
         await _authService.saveUserSession(user);
         await prefs.setString('lastOpenDate', today);
       }
-
       setState(() {
         _user = user;
         _stepsToShow = user.todaysStepCount ?? 0;
         _isLoading = false;
       });
     }
-    // --- END NEW LOGIC ---
-
-    final currentUser = FirebaseAuth.instance.currentUser;
+    if ((isNewDay || forceRefresh) && currentUser != null) {
+      print("[Optimized] Fetching latest profile from server in background...");
+      final serverUser = await _authService.refreshUserProfile(currentUser.uid);
+      if (serverUser != null && mounted) {
+        setState(() {
+          _user = serverUser;
+          _stepsToShow = serverUser.todaysStepCount ?? 0;
+        });
+      }
+    }
+    _initStepCounter();
     if (currentUser == null) {
       if (mounted) setState(() => _isLoading = false);
       return;
-    }
-
-    // This refresh will now just fetch the latest server state, not trigger a reset
-    final loadedUser = await _authService.refreshUserProfile(currentUser.uid);
-    if (loadedUser != null && mounted) {
-      setState(() {
-        _user = loadedUser;
-        _stepsToShow = loadedUser.todaysStepCount ?? 0;
-        _isLoading = false;
-      });
-      _initStepCounter();
-    } else if (cachedProfile == null) {
-      // If there was no cache and the network call failed
-      setState(() => _isLoading = false);
     }
   }
 
@@ -184,13 +353,11 @@ class _HomeScreenState extends State<HomeScreen> {
         if (dailyStepOffset == null) return;
         final calculatedDailySteps = currentPedometerReading - dailyStepOffset;
         final stepsToSave = calculatedDailySteps > 0 ? calculatedDailySteps : 0;
-
         if (mounted) {
           setState(() {
             _stepsToShow = stepsToSave;
           });
         }
-
         _debounce?.cancel();
         _debounce = Timer(
             const Duration(seconds: 5), () => _saveLatestSteps(stepsToSave));
@@ -204,10 +371,8 @@ class _HomeScreenState extends State<HomeScreen> {
       print("Skipping save: User data is not available.");
       return;
     }
-
     print(
         "Saving calculated step count: $stepsToSave for user ${userToSave.userId}");
-
     try {
       await _authService.syncStepsToBackend(userToSave.userId, stepsToSave);
       await _authService
@@ -318,11 +483,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (success) {
         context.read<ActiveBattleService>().startBattle(gameId, _user!);
         if (mounted) {
-          // Navigator.of(context).push(
-          //   MaterialPageRoute(
-          //     builder: (_) => BattleScreen(gameId: gameId, user: _user!),
-          //   ),
-          // );
           if (mounted) {
             Navigator.of(context)
                 .push(MaterialPageRoute(builder: (_) => const BattleScreen()));
@@ -355,10 +515,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(
           child: Text("Could not load user profile. Please restart the app."));
     }
-
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: _loadData,
+         onRefresh: () => _loadData(forceRefresh: true), 
         color: Colors.yellow,
         backgroundColor: Colors.grey.shade900,
         child: SingleChildScrollView(
@@ -554,8 +713,9 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: _isCreatingGame
               ? null
               : () {
+                  // --- 2. UPDATE THE NAVIGATION ---
                   Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => BotSelectionScreen(user: _user!)));
+                      builder: (_) => MatchmakingScreen(user: _user!)));
                 },
           isLoading: _isCreatingBotGame,
         ),
@@ -571,17 +731,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBattleSection() {
     final battleService = context.watch<ActiveBattleService>();
-
     if (battleService.isBattleActive) {
       if (battleService.isWaitingForFriend) {
         return _buildWaitingForFriendCard(battleService);
       }
-
-      // If it's not waiting, it must be ongoing
       if (battleService.currentGame != null && _opponentProfile == null) {
         _fetchOpponentProfile(battleService);
       }
-
       if (battleService.currentGame == null || _opponentProfile == null) {
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: 24.0),
@@ -590,7 +746,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return _buildOngoingBattleCard(battleService);
     } else {
-      _opponentProfile = null; // Clear opponent profile when battle ends
+      _opponentProfile = null;
       return Column(
         children: [
           const SizedBox(height: 24),
@@ -604,7 +760,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildWaitingForFriendCard(ActiveBattleService battleService) {
     final gameId = battleService.currentGame?.gameId ?? '...';
-
     return Padding(
       padding: const EdgeInsets.only(top: 24.0),
       child: Card(
@@ -675,20 +830,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final game = battleService.currentGame!;
     final timeLeft = battleService.timeLeft;
     final isUserPlayer1 = game.player1Id == _user!.userId;
-
     final player1 = isUserPlayer1 ? _user! : _opponentProfile!;
     final player2 = isUserPlayer1 ? _opponentProfile! : _user!;
     final p1Steps = game.step1Count;
     final p2Steps = game.step2Count;
     final p1Score = game.player1Score;
     final p2Score = game.player2Score;
-
     final scoreDiff = p1Score - p2Score;
     final userIsAhead = isUserPlayer1 ? scoreDiff > 0 : scoreDiff < 0;
     final aheadByText = userIsAhead
         ? "Ahead by ${scoreDiff.abs()} steps"
         : "Behind by ${scoreDiff.abs()} steps";
-
     return Padding(
       padding: const EdgeInsets.only(top: 2.0),
       child: Card(
@@ -733,7 +885,6 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
-                // alignItems: CrossAxisAlignment.center,
                 children: [
                   _buildPlayerAvatar(player1, p1Steps, game.multiplier1),
                   const Text("VS",
@@ -742,7 +893,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              // You can add multiplier buttons here if desired
               const Divider(color: Colors.white24),
               TextButton(
                 onPressed: () {
@@ -769,27 +919,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       children: [
         CircleAvatar(
-          radius: 30, // The radius for the home screen card is smaller
+          radius: 30,
           backgroundColor: Colors.grey.shade800,
-          // If the image URL is null, display the placeholder icon.
-          // Otherwise, display the image inside a ClipOval.
           child: player.profileImageUrl == null
-              ? const Icon(Icons.person, size: 25) // Icon for null URL
+              ? const Icon(Icons.person, size: 25)
               : ClipOval(
                   child: player.profileImageUrl!.startsWith('assets/')
-                      // If it's an asset (for a bot)
                       ? Image.asset(
                           player.profileImageUrl!,
-                          fit: BoxFit
-                              .contain, // Use BoxFit.cover to fill the circle
-                          width: 80, // Diameter of the circle (radius * 2)
+                          fit: BoxFit.contain,
+                          width: 80,
                           height: 80,
                         )
-                      // If it's a network URL (for a real player)
                       : Image.network(
                           player.profileImageUrl!,
-                          fit: BoxFit
-                              .cover, // Use BoxFit.cover to fill the circle
+                          fit: BoxFit.cover,
                           width: 60,
                           height: 60,
                           errorBuilder: (context, error, stackTrace) =>
@@ -891,41 +1035,82 @@ class _HomeScreenState extends State<HomeScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildMysteryBox('assets/images/bronze_box.png', '10:25:10', true),
-        _buildMysteryBox('assets/images/silver_box.png', '1000', false),
-        _buildMysteryBox('assets/images/gold_box.png', '2000', false),
+        _buildMysteryBox(
+          imagePath: 'assets/images/bronze_box.png', 
+          boxType: 'bronze',
+          price: 5000,
+          isLoading: _isOpeningBronzeBox,
+          timeLeft: _bronzeTimeLeft,
+        ),
+        _buildMysteryBox(
+          imagePath: 'assets/images/silver_box.png', 
+          boxType: 'silver',
+          price: 10000,
+          isLoading: _isOpeningSilverBox,
+          timeLeft: _silverTimeLeft,
+        ),
+        _buildMysteryBox(
+          imagePath: 'assets/images/gold_box.png', 
+          boxType: 'gold',
+          price: 20000,
+          isLoading: _isOpeningGoldBox,
+          timeLeft: _goldTimeLeft,
+        ),
       ],
     );
   }
 
-  Widget _buildMysteryBox(String imagePath, String label, bool isTimer) {
+  Widget _buildMysteryBox({
+    required String imagePath, 
+    required String boxType,
+    required int price,
+    required bool isLoading,
+    required Duration timeLeft,
+  }) {
+    final bool isOpenedToday = timeLeft > Duration.zero;
+
     return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        child: Column(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12.0),
-              child: Image.asset(
-                imagePath,
-                height: 120,
-                width: double.infinity,
-                fit: BoxFit.cover,
+      child: GestureDetector(
+        onTap: (isOpenedToday || isLoading) ? null : () => _openMysteryBox(boxType, price),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12.0),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      imagePath,
+                      height: 120,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                    if (isLoading)
+                      const CircularProgressIndicator(color: Colors.white),
+                    if (isOpenedToday && !isLoading)
+                      Container(
+                        height: 120,
+                        width: double.infinity,
+                        color: Colors.black.withOpacity(0.6),
+                        child: const Icon(Icons.lock_clock, color: Colors.white, size: 40),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: isTimer ? Colors.transparent : Colors.yellow.shade800,
-                borderRadius: BorderRadius.circular(20),
-                border:
-                    isTimer ? Border.all(color: Colors.grey.shade700) : null,
-              ),
-              child: isTimer
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isOpenedToday ? Colors.transparent : Colors.yellow.shade800,
+                  borderRadius: BorderRadius.circular(20),
+                  border: isOpenedToday ? Border.all(color: Colors.grey.shade700) : null,
+                ),
+                child: isOpenedToday 
                   ? Text(
-                      label,
-                      style: const TextStyle(color: Colors.white),
+                      _formatDuration(timeLeft),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                     )
                   : Row(
                       mainAxisSize: MainAxisSize.min,
@@ -937,15 +1122,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          label,
+                          price.toString(),
                           style: const TextStyle(color: Colors.white),
                         ),
                       ],
                     ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+extension StringExtension on String {
+    String capitalize() {
+      return "${this[0].toUpperCase()}${this.substring(1)}";
+    }
 }

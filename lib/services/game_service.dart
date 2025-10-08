@@ -9,6 +9,36 @@ class GameService {
 
   final String _baseUrl = "https://stepwars-backend.onrender.com/api";
 
+  // --- NEW FUNCTION ---
+  Future<String> createPvpBattle(String player1Id, String player2Id) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/pvp/create'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'player1Id': player1Id,
+          'player2Id': player2Id,
+        }),
+      );
+      if (response.statusCode == 201) {
+        final responseBody = jsonDecode(response.body);
+        final gameId = responseBody['gameId'];
+        if (gameId != null) {
+          return gameId;
+        } else {
+          throw Exception('Server did not return a gameId for PvP battle.');
+        }
+      } else {
+        final errorBody = jsonDecode(response.body);
+        throw Exception(
+            'Failed to create PvP battle: ${errorBody['error'] ?? 'Unknown server error'}');
+      }
+    } catch (e) {
+      print("Error in createPvpBattle (Flutter): $e");
+      rethrow;
+    }
+  }
+
   Future<String> createBotGame(UserModel player1, {String? botId}) async {
     try {
       final body = <String, dynamic>{
@@ -23,7 +53,6 @@ class GameService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
-
       if (response.statusCode == 201) {
         final responseBody = jsonDecode(response.body);
         final gameId = responseBody['gameId'];
@@ -104,7 +133,6 @@ class GameService {
         headers: {'Content-Type': 'application/json'},
          body: jsonEncode(body),
       );
-
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       } else {
@@ -174,7 +202,6 @@ class GameService {
           'multiplierType': multiplierType,
         }),
       );
-
       if (response.statusCode != 200) {
         final errorBody = jsonDecode(response.body);
         throw Exception(errorBody['error'] ?? 'Failed to activate multiplier');

@@ -5,7 +5,7 @@ import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
 import 'profile_screen.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart'; // Make sure provider is imported
+import 'package:provider/provider.dart';
 import '../services/active_battle_service.dart';
 
 class MainScreen extends StatefulWidget {
@@ -15,7 +15,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
   int _currentIndex = 1;
   final List<Widget> _pages = [
     const KingdomScreen(),
@@ -40,17 +40,30 @@ class _MainScreenState extends State<MainScreen> {
         battleService.dismissBattleResults();
       }
     });
+     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
     _battleStateSubscription.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      final battleService = context.read<ActiveBattleService>();
+      if (battleService.isBattleActive && battleService.timeLeft.isNegative) {
+        print("[App Resume] Stale battle detected. Attempting to end it now.");
+        battleService.endBattle();
+      }
+    }
+  }
+
   void _showGameOverDialog(Map<String, dynamic> finalState) {
-    // This is your dialog logic, now living in the MainScreen
-    // You can customize this with the new design from your image
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -59,8 +72,8 @@ class _MainScreenState extends State<MainScreen> {
         title: const Text("👑 Winner 👑",
             textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
         content: Text(
-            "You won! Rewards: ${finalState['finalState']?['rewards']?['coins'] ?? 0} coins.",
-            style: TextStyle(color: Colors.white70)),
+            "You won! Rewards: ${finalState['finalState']?['rewards'] ?? 0}",
+            style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             child: const Text('OK', style: TextStyle(color: Color(0xFFFFC107))),
@@ -76,7 +89,6 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -92,11 +104,7 @@ class _MainScreenState extends State<MainScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  // ✨ THE CHANGE IS HERE ✨
-                  // This will now create a new instance of the screen on every tab switch,
-                  // causing initState() and your _loadInitialData() function to run again.
                   _pages[_currentIndex],
-
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: _buildBottomNavBar(),

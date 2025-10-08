@@ -5,10 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'package:http/http.dart' as http;
+import 'notification_service.dart'; 
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final NotificationService _notificationService= NotificationService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   User? get currentUser => _auth.currentUser;
   final String _baseUrl = "https://stepwars-backend.onrender.com";
@@ -177,6 +179,15 @@ Future<void> updateUserProfile(UserModel user) async {
   }
 
   Future<void> signOut() async {
+   try {
+      final uid = _auth.currentUser?.uid;
+      final token = await _notificationService.getFcmToken();
+      if (uid != null && token != null) {
+        await _notificationService.unregisterTokenFromBackend(uid, token);
+      }
+    } catch (e) {
+      print("Error during token un-registration on logout: $e");
+    }
     await _googleSignIn.signOut();
     await _auth.signOut();
     final prefs = await SharedPreferences.getInstance();

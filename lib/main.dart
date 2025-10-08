@@ -7,12 +7,18 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/active_battle_service.dart';
+import 'services/notification_service.dart';
 
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+
   print("Handling a background message: ${message.messageId}");
+
+  final NotificationService notificationService = NotificationService();
+  await notificationService.initialize(); 
+  notificationService.showLocalNotification(message); 
 }
 
 void main() async {

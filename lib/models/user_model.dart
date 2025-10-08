@@ -16,6 +16,7 @@ class UserModel {
   final Map<String, dynamic>? multipliers;
   final Map<String, dynamic>? rewards;
   final Map<String, dynamic>? stats;
+  final Map<String, String>? mysteryBoxLastOpened; // --- NEW ---
 
   UserModel({
     required this.userId,
@@ -33,6 +34,7 @@ class UserModel {
     this.multipliers,
     this.rewards,
     this.stats,
+    this.mysteryBoxLastOpened, // --- NEW ---
   });
 
   Map<String, dynamic> toJson() {
@@ -52,6 +54,7 @@ class UserModel {
       'multipliers': multipliers,
       'rewards': rewards,
       'stats': stats,
+      'mysteryBoxLastOpened': mysteryBoxLastOpened, // --- NEW ---
     };
   }
 
@@ -83,11 +86,13 @@ class UserModel {
       multipliers: json['multipliers'] as Map<String, dynamic>?,
       rewards: json['rewards'] as Map<String, dynamic>?,
       stats: json['stats'] as Map<String, dynamic>?,
+      // --- NEW --- Safely parse the map from JSON
+      mysteryBoxLastOpened: (json['mysteryBoxLastOpened'] as Map<String, dynamic>?)
+          ?.map((key, value) => MapEntry(key, value.toString())),
     );
   }
-}
 
-extension UserModelCopyWith on UserModel {
+  // --- MODIFIED --- Integrated copyWith into the class
   UserModel copyWith({
     String? userId,
     String? email,
@@ -103,7 +108,8 @@ extension UserModelCopyWith on UserModel {
     int? coins,
     Map<String, dynamic>? multipliers,
     Map<String, dynamic>? rewards,
-    Map<String, dynamic>? stats, 
+    Map<String, dynamic>? stats,
+    Map<String, String>? mysteryBoxLastOpened,
   }) {
     return UserModel(
       userId: userId ?? this.userId,
@@ -120,7 +126,8 @@ extension UserModelCopyWith on UserModel {
       coins: coins ?? this.coins,
       multipliers: multipliers ?? this.multipliers,
       rewards: rewards ?? this.rewards,
-      stats: stats ?? this.stats, 
+      stats: stats ?? this.stats,
+      mysteryBoxLastOpened: mysteryBoxLastOpened ?? this.mysteryBoxLastOpened,
     );
   }
 }

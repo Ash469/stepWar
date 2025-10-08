@@ -18,7 +18,7 @@ class HealthService {
   }
 
   Future<void> initialize() async {
-    _stepCountSubscription?.cancel(); // Prevent duplicate listeners
+    _stepCountSubscription?.cancel(); 
     final hasPermission = await _requestPermission();
     if (!hasPermission) {
       _stepController.addError('Permission denied.');
