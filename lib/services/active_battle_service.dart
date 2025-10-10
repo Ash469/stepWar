@@ -51,8 +51,7 @@ class ActiveBattleService with ChangeNotifier {
       if (isBotMatch && _botStepTimer == null) {
         _initializeBotStepGenerator();
       }
-      final koDifference =
-          isBotMatch ? 100 : 100; 
+      final koDifference = 200; 
       if (!_isGameOver &&
           (game.player1Score - game.player2Score).abs() >= koDifference) {
         endBattle();
@@ -68,18 +67,35 @@ class ActiveBattleService with ChangeNotifier {
 
   void _onPlayerStep(String stepsStr, String userId) {
     if (_currentGame == null || _isGameOver) return;
+
     final currentTotalSteps = int.tryParse(stepsStr);
     if (currentTotalSteps == null) return;
-    if (_initialPlayerSteps == -1) _initialPlayerSteps = currentTotalSteps;
-    final stepsThisGame = currentTotalSteps - _initialPlayerSteps;
-    if (stepsThisGame < 0) return;
+
+    if (_initialPlayerSteps == -1) {
+      // Set the initial step count when the first event arrives for this battle.
+      _initialPlayerSteps = currentTotalSteps;
+    }
+
+    int stepsThisGame = currentTotalSteps - _initialPlayerSteps;
+    
+    // --- THIS IS THE FIX ---
+    // If the pedometer resets (e.g., phone restart, OS glitch), the new total
+    // might be less than our initial value. This causes a negative count.
+    // If we detect this, we recalibrate our initial value to the new total.
+    if (stepsThisGame < 0) {
+      print("Pedometer reset detected! Recalibrating initial steps.");
+      _initialPlayerSteps = currentTotalSteps;
+      stepsThisGame = 0; // Reset the battle steps to 0 for the new baseline.
+    }
     final isUserPlayer1 = _currentGame!.player1Id == userId;
     final multiplier =
         isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
     final newScore = (stepsThisGame * multiplier).round();
+    
     final updateData = isUserPlayer1
         ? {'step1Count': stepsThisGame, 'player1Score': newScore}
         : {'step2Count': stepsThisGame, 'player2Score': newScore};
+
     _gameService.updateGame(_currentGame!.gameId, updateData);
   }
 

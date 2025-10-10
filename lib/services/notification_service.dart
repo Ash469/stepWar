@@ -16,7 +16,7 @@ class NotificationService {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  final String _baseUrl = "https://stepwars-backend.onrender.com";
+  final String _baseUrl = "http://172.30.229.52:5000";
 
   Completer<void>? _initCompleter;
 

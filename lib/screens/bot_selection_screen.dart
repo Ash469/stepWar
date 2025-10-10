@@ -5,7 +5,6 @@ import '../models/user_model.dart';
 import '../services/bot_service.dart';
 import '../services/game_service.dart';
 import '../services/active_battle_service.dart';
-import '../widget/game_rules.dart';
 import 'battle_screen.dart';
 
 class BotSelectionScreen extends StatefulWidget {
@@ -68,7 +67,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
     });
 
     try {
-      // 4. Create the game on the backend and start the global service.
       final gameId = await _gameService.createBotGame(
         widget.user,
         botId: selectedBotId
@@ -77,7 +75,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
       context.read<ActiveBattleService>().startBattle(gameId, widget.user);
 
       if (mounted) {
-        // 5. Navigate to the BattleScreen.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const BattleScreen(),
@@ -105,8 +102,8 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
       body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 24.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            const Spacer(),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               transitionBuilder: (child, animation) {
@@ -121,6 +118,7 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
                     fontWeight: FontWeight.bold),
               ),
             ),
+            const Spacer(),
             SizedBox(
               height: 220,
               child: PageView.builder(
@@ -131,17 +129,105 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
                 },
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24.0),
-              child: GameRulesWidget(),
+            const Spacer(flex: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: _buildBattleInfo(),
             ),
+            const Spacer(),
           ],
         ),
       ),
     );
   }
+  
+ Widget _buildBattleInfo() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(12.0),
+        border: Border.all(color: Colors.grey.shade800)
+      ),
+      child: Column(
+        children: [
+          // --- Multiplier Section ---
+          const Row(
+            children: [
+              Icon(Icons.flash_on, color: Color(0xFFFFC107), size: 20),
+              SizedBox(width: 8),
+              Text('Score Boosts', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Purchase multipliers during battle to skyrocket your score!',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildMultiplierTag('1.5X'),
+              _buildMultiplierTag('2X'),
+              _buildMultiplierTag('3X'),
+            ],
+          ),
+          const Divider(color: Colors.white24, height: 32),
+          // --- Rewards Section ---
+          const Row(
+            children: [
+              Icon(Icons.military_tech, color: Color(0xFFFFC107), size: 20),
+              SizedBox(width: 8),
+              Text('Coin Rewards', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildInfoRow('👑 K.O. Victory', 'Your Score + 5000 Coins'),
+          const SizedBox(height: 12),
+          _buildInfoRow('🏆 Win', 'Your Score + 2000 Coins'),
+          const SizedBox(height: 12),
+          _buildInfoRow('🤝 Draw', 'Your Score + 1000 Coins'),
+        ],
+      ),
+    );
+  }
+  
+  // --- ✨ NEW HELPER WIDGET for the cool tags ✨ ---
+  Widget _buildMultiplierTag(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF333333),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade700)
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(color: Color(0xFFFFC107), fontWeight: FontWeight.bold, fontSize: 14),
+      ),
+    );
+  }
+
+  // --- 🎨 REDESIGNED HELPER for the rewards list 🎨 ---
+  Widget _buildInfoRow(String title, String subtitle) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        const Spacer(),
+        Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+      ],
+    );
+  }
 
   Widget _buildBotCard(BotType botType) {
+    // ... (This widget remains the same)
     final botName = _botService.getBotNameFromId(_botService.getBotId(botType));
     final botImagePath = _botService.getBotImagePath(botType);
     final isSelected = _selectionComplete && botType == _selectedBot;

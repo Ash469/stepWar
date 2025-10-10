@@ -75,7 +75,6 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Players Section
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,

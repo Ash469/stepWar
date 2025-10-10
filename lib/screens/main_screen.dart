@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
@@ -7,7 +6,6 @@ import 'profile_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/active_battle_service.dart';
-// --- NEW ---
 import '../services/auth_service.dart'; 
 
 class MainScreen extends StatefulWidget {

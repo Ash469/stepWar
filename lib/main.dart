@@ -27,7 +27,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   final notificationService = NotificationService();
-  await notificationService.initialize(); // Initialize at app start
+  await notificationService.initialize(); 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
    runApp(
     MultiProvider(

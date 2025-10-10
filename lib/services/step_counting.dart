@@ -3,11 +3,14 @@ import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class HealthService {
+  HealthService._internal();
+  static final HealthService _instance = HealthService._internal();
+  factory HealthService() => _instance;
   late Stream<StepCount> _stepCountStream;
   StreamSubscription<StepCount>? _stepCountSubscription;
   final _stepController = StreamController<String>.broadcast();
   Stream<String> get stepStream => _stepController.stream;
-  
+
   Future<bool> _requestPermission() async {
     var status = await Permission.activityRecognition.status;
     if (status.isDenied) {
@@ -18,7 +21,7 @@ class HealthService {
   }
 
   Future<void> initialize() async {
-    _stepCountSubscription?.cancel(); 
+    _stepCountSubscription?.cancel();
     final hasPermission = await _requestPermission();
     if (!hasPermission) {
       _stepController.addError('Permission denied.');
@@ -37,7 +40,7 @@ class HealthService {
         cancelOnError: true,
       );
     } catch (error) {
-       _stepController.addError('Pedometer not available on this device.');
+      _stepController.addError('Pedometer not available on this device.');
     }
   }
 

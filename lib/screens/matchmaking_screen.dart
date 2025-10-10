@@ -6,7 +6,8 @@ import '../models/user_model.dart';
 import '../services/active_battle_service.dart';
 import '../services/game_service.dart';
 import 'battle_screen.dart';
-import 'bot_selection_screen.dart'; // --- NEW: Import BotSelectionScreen ---
+import 'bot_selection_screen.dart';
+import '../widget/game_rules.dart';
 
 class MatchmakingScreen extends StatefulWidget {
   final UserModel user;
@@ -22,13 +23,14 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
       FirebaseDatabase.instance.ref('matchmakingPool');
   StreamSubscription? _poolListener;
   StreamSubscription? _selfListener;
-  Timer? _countdownTimer; // Renamed for clarity
+  // ⛔️ The old manual timer is no longer needed!
+  // Timer? _countdownTimer;
 
   String _statusText = "Searching for an opponent...";
   bool _isSearching = true;
 
-  // --- NEW: State for the countdown timer ---
-  Duration _timeLeft = const Duration(seconds: 15);
+  // ⛔️ The old timeLeft state is also no longer needed!
+  // Duration _timeLeft = const Duration(seconds: 15);
 
   @override
   void initState() {
@@ -38,7 +40,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    // _countdownTimer?.cancel(); // No timer to cancel
     _poolListener?.cancel();
     _selfListener?.cancel();
     if (_isSearching) {
@@ -62,28 +64,14 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
     });
     await userNode.onDisconnect().remove();
 
-    // --- MODIFIED: Create a periodic timer that updates the UI ---
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-
-      if (_timeLeft.inSeconds > 0) {
-        setState(() {
-          _timeLeft -= const Duration(seconds: 1);
-        });
-      } else {
-        // When timer hits zero, stop it and trigger the timeout logic
-        timer.cancel();
-        _onTimeout();
-      }
-    });
+    // ⛔️ The old timer logic is removed from here.
+    // The animation builder in the build method now handles the countdown.
 
     _poolListener = _poolRef.onValue.listen(_checkForOpponent);
     _selfListener = userNode.onValue.listen(_onSelfStatusChanged);
   }
 
+  // ... (No changes to the functions below, only the build method is updated)
   Future<void> _checkForOpponent(DatabaseEvent event) async {
     if (!_isSearching || !mounted) return;
     final data = event.snapshot.value as Map?;
@@ -110,7 +98,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   Future<void> _tryToMatch(String opponentId) async {
     _isSearching = false;
     _poolListener?.cancel();
-    _countdownTimer?.cancel();
+    // _countdownTimer?.cancel();
 
     final transactionResult = await _poolRef.runTransaction((Object? data) {
       final pool = data as Map<String, dynamic>?;
@@ -150,7 +138,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
   Future<void> _navigateToBattle(String gameId) async {
     _isSearching = false;
-    _countdownTimer?.cancel();
+    // _countdownTimer?.cancel();
     _poolListener?.cancel();
     _selfListener?.cancel();
 
@@ -169,8 +157,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
     setState(() => _statusText = "No opponents found. Finding a bot...");
     _isSearching = false;
     await _leavePool();
-
-    // --- MODIFIED: Navigate to BotSelectionScreen instead of creating the game directly ---
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -179,12 +165,13 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
       );
     }
   }
-  
+
   Future<void> _leavePool() async {
     // Cancel the onDisconnect handler before manually removing the node
     await _poolRef.child(widget.user.userId).onDisconnect().cancel();
     await _poolRef.child(widget.user.userId).remove();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -206,29 +193,37 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // --- NEW: Stack to overlay the timer on the progress indicator ---
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: CircularProgressIndicator(
-                      value: _timeLeft.inSeconds / 15.0, // Show progress
-                      color: const Color(0xFFFFC107),
-                      backgroundColor: Colors.grey.shade800,
-                      strokeWidth: 6,
-                    ),
-                  ),
-                  Text(
-                    _formatDuration(_timeLeft),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                ],
+              // --- ✨ THIS IS THE NEW, SMOOTH, 30-SECOND TIMER ✨ ---
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 30.0, end: 0.0),
+                duration: const Duration(seconds: 30),
+                onEnd: _onTimeout, // This automatically handles the timeout!
+                builder: (context, value, child) {
+                  final duration = Duration(seconds: value.ceil());
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 80,
+                        height: 80,
+                        child: CircularProgressIndicator(
+                          value: value / 30.0, // Smoothly animates the progress
+                          color: const Color(0xFFFFC107),
+                          backgroundColor: Colors.grey.shade800,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                      Text(
+                        _formatDuration(duration),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 32),
               AnimatedSwitcher(
@@ -240,13 +235,47 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                 ),
               ),
               const SizedBox(height: 80),
+              // --- Your new button structure is preserved exactly ---
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text(
-                  'Cancel Search',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 16),
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFC107), 
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12), 
+                  ),
                 ),
-              )
+                onPressed: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => BotSelectionScreen(user: widget.user),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Play with Bot',
+                      style: TextStyle(
+                        color: Colors.red, // red text
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(width: 8), // space before the arrow
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.red, // red arrow
+                      size: 18,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 50),
+             
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.0),
+                child: GameRulesWidget(),
+              ),
             ],
           ),
         ),
