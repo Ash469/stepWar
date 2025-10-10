@@ -7,6 +7,8 @@ import 'profile_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/active_battle_service.dart';
+// --- NEW ---
+import '../services/auth_service.dart'; 
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -15,7 +17,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _currentIndex = 1;
   final List<Widget> _pages = [
     const KingdomScreen(),
@@ -37,10 +39,9 @@ class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
     _battleStateSubscription = battleService.stream.listen((_) {
       if (battleService.finalBattleState != null) {
         _showGameOverDialog(battleService.finalBattleState!);
-        battleService.dismissBattleResults();
       }
     });
-     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
@@ -50,45 +51,288 @@ class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
     super.dispose();
   }
 
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       final battleService = context.read<ActiveBattleService>();
       if (battleService.isBattleActive && battleService.timeLeft.isNegative) {
-        print("[App Resume] Stale battle detected. Attempting to end it now.");
         battleService.endBattle();
       }
     }
   }
 
   void _showGameOverDialog(Map<String, dynamic> finalState) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2a2a2a),
-        title: const Text("👑 Winner 👑",
-            textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
-        content: Text(
-            "You won! Rewards: ${finalState['finalState']?['rewards'] ?? 0}",
-            style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            child: const Text('OK', style: TextStyle(color: Color(0xFFFFC107))),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-            },
-          ),
-        ],
-      ),
-    );
+  final authService = context.read<AuthService>();
+  final currentUserId = authService.currentUser?.uid;
+  
+  final winnerId = finalState['finalState']?['winnerId'];
+  final result = finalState['finalState']?['result'];
+  final rewards = finalState['finalState']?['rewards'];
+  final coins = rewards?['coins'] ?? 0;
+  final rewardItem = rewards?['item'];
+  final isKnockout = result == 'KO';
+
+  String title;
+  String subtitle;
+  Color titleBorderColor;
+
+  if (result == 'DRAW') {
+    title = "It's a Draw!";
+    subtitle = "You both fought well!";
+    titleBorderColor = Colors.grey;
+  } else if (winnerId == currentUserId) {
+    if (isKnockout) {
+      title = "Winner";
+      subtitle = "You won this battle with a\nKnockout.";
+      titleBorderColor = const Color(0xFFFFC107);
+    } else {
+      title = "Winner";
+      subtitle = "You won this battle!";
+      titleBorderColor = const Color(0xFFFFC107);
+    }
+  } else {
+    title = "Defeat";
+    subtitle = "Better luck next time!";
+    titleBorderColor = Colors.red;
   }
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 300,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1a1a1a),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2a2a2a),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+                border: Border(
+                  top: BorderSide(color: titleBorderColor, width: 3),
+                  left: BorderSide(color: titleBorderColor, width: 3),
+                  right: BorderSide(color: titleBorderColor, width: 3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    '👑',
+                    style: TextStyle(fontSize: 20),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '👑',
+                    style: TextStyle(fontSize: 20),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Your Rewards",
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (winnerId == currentUserId && rewardItem != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2a2a2a),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF404040),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF9800),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.location_city,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  rewardItem['name'] ?? 'Mystery Reward',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  rewardItem['tier'] ?? 'New reward',
+                                  style: const TextStyle(
+                                    color: Colors.white60,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2a2a2a),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF404040),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFFFC107),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.monetization_on,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$coins coins',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (isKnockout && winnerId == currentUserId)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    '+ 1000 Knockout bonus',
+                                    style: TextStyle(
+                                      color: Color(0xFFFFC107),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Action Buttons
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        context.read<ActiveBattleService>().dismissBattleResults();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Battle Again',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -169,12 +413,11 @@ class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
     required int index,
   }) {
     final isSelected = _currentIndex == index;
-    final labelColor = isSelected ? Colors.black : Colors.white;
-
     return GestureDetector(
       onTap: () => _onTabTapped(index),
       behavior: HitTestBehavior.translucent,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
@@ -195,7 +438,7 @@ class _MainScreenState extends State<MainScreen>with WidgetsBindingObserver {
             Text(
               label,
               style: TextStyle(
-                  color: labelColor,
+                  color: isSelected ? Colors.black : Colors.white,
                   fontSize: 12,
                   fontFamily: 'Montserrat',
                   fontWeight: FontWeight.bold),

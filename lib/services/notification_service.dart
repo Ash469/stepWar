@@ -1,13 +1,42 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class NotificationService {
+  // --- Singleton Pattern ---
+  NotificationService._internal();
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
   final String _baseUrl = "https://stepwars-backend.onrender.com";
+
+  Completer<void>? _initCompleter;
+
+  // ---------------- Initialization ----------------
+  Future<void> initialize() {
+    if (_initCompleter != null) return _initCompleter!.future;
+
+    _initCompleter = Completer<void>();
+
+    _initializeLocalNotifications().then((_) async {
+      await _firebaseMessaging.requestPermission();
+
+      // Attach foreground listener
+      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+
+      _initCompleter!.complete();
+    });
+
+    return _initCompleter!.future;
+  }
 
   Future<void> _initializeLocalNotifications() async {
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
@@ -16,62 +45,101 @@ class NotificationService {
       description: 'This channel is used for important notifications.',
       importance: Importance.max,
     );
+
     await _localNotificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
+
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@drawable/ic_notification');
-    const DarwinInitializationSettings iosSettings =
-        DarwinInitializationSettings();
+        AndroidInitializationSettings('@drawable/ic_notification'); // Small icon
+
+    const DarwinInitializationSettings iosSettings = DarwinInitializationSettings();
+
     const InitializationSettings settings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
+
     await _localNotificationsPlugin.initialize(settings);
   }
 
-  void showLocalNotification(RemoteMessage message) {
+  Future<void> showLocalNotification(RemoteMessage message) async {
+    await initialize();
+
     final notification = message.notification;
     if (notification == null) return;
 
-    _localNotificationsPlugin.show(
-      notification.hashCode,
-      notification.title,
-      notification.body,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
+    const Color notificationColor = Color(0xFFFFC107);
+    AndroidNotificationDetails androidDetails;
+
+    final String? imageUrl = notification.android?.imageUrl;
+
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      try {
+        final response = await http.get(Uri.parse(imageUrl));
+        final directory = await getTemporaryDirectory();
+        final filePath = '${directory.path}/notification_image.png';
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+
+        final largeIcon = FilePathAndroidBitmap(filePath);
+
+        androidDetails = AndroidNotificationDetails(
           'high_importance_channel',
           'High Importance Notifications',
           importance: Importance.max,
           priority: Priority.high,
-          icon: '@drawable/ic_notification',
-        ),
-      ),
+          largeIcon: largeIcon, 
+          styleInformation: BigTextStyleInformation(
+            notification.body ?? '',
+            contentTitle: notification.title,
+          ),
+          color: notificationColor,
+          groupKey: 'com.stepwars.battle_notifications',
+        );
+      } catch (e) {
+        androidDetails = const AndroidNotificationDetails(
+          'high_importance_channel',
+          'High Importance Notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+          color: notificationColor,
+          groupKey: 'com.stepwars.battle_notifications',
+        );
+      }
+    } else {
+      androidDetails = const AndroidNotificationDetails(
+        'high_importance_channel',
+        'High Importance Notifications',
+        importance: Importance.max,
+        priority: Priority.high,
+        color: notificationColor,
+        groupKey: 'com.stepwars.battle_notifications',
+      );
+    }
+
+    final notificationDetails = NotificationDetails(android: androidDetails);
+    await _localNotificationsPlugin.show(
+      notification.hashCode,
+      notification.title,
+      notification.body,
+      notificationDetails,
     );
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
-    print("[FCM] Received foreground message: ${message.notification?.title}");
-    showLocalNotification(message); // Use the new shared method
-  }
-
-  Future<void> initialize() async {
-    await _initializeLocalNotifications();
-    await _firebaseMessaging.requestPermission();
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-    _firebaseMessaging.onTokenRefresh.listen((newToken) {
-      print("[FCM] Token refreshed: $newToken");
-    });
+    print("[FCM] Foreground message: ${message.notification?.title}");
+    showLocalNotification(message);
   }
 
   Future<String?> getFcmToken() async {
     try {
       final token = await _firebaseMessaging.getToken();
-      print("[FCM] Fetched token: $token");
+      print("[FCM] Token: $token");
       return token;
     } catch (e) {
-      print("Error getting FCM token: $e");
+      print("Error fetching FCM token: $e");
       return null;
     }
   }
@@ -84,15 +152,14 @@ class NotificationService {
         body: jsonEncode({'uid': uid, 'token': token}),
       );
       if (response.statusCode == 200) {
-        print(
-            "[NotificationService] Successfully registered FCM token with backend.");
+        print("[NotificationService] Token registered successfully.");
         return true;
       } else {
-        print("Failed to register FCM token: ${response.body}");
+        print("Failed to register token: ${response.body}");
         return false;
       }
     } catch (e) {
-      print("Error registering FCM token with backend: $e");
+      print("Error registering token: $e");
       return false;
     }
   }
@@ -105,13 +172,12 @@ class NotificationService {
         body: jsonEncode({'uid': uid, 'token': token}),
       );
       if (response.statusCode == 200) {
-        print(
-            "[NotificationService] Successfully unregistered FCM token from backend.");
+        print("[NotificationService] Token unregistered successfully.");
       } else {
-        print("Failed to unregister FCM token: ${response.body}");
+        print("Failed to unregister token: ${response.body}");
       }
     } catch (e) {
-      print("Error unregistering FCM token with backend: $e");
+      print("Error unregistering token: $e");
     }
   }
 

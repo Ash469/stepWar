@@ -30,27 +30,22 @@ class _BattleScreenState extends State<BattleScreen> {
 
   Future<void> _fetchBattleDataIfNeeded() async {
     if (mounted && (_isFetchingData || (_currentUserModel != null && _opponentProfile != null))) return;
-
     if (mounted) {
       setState(() {
         _isFetchingData = true;
       });
     }
-
     final battleService = context.read<ActiveBattleService>();
     final authService = context.read<AuthService>();
     final game = battleService.currentGame;
     final currentUserId = authService.currentUser?.uid;
-
     if (game == null || currentUserId == null) {
       if (mounted) setState(() => _isFetchingData = false);
       return;
     }
-
     final currentUserProfile = await authService.getUserProfile(currentUserId);
     final isUserPlayer1 = game.player1Id == currentUserId;
     final opponentId = isUserPlayer1 ? game.player2Id : game.player1Id;
-
     UserModel? opponent;
     if (opponentId != null && opponentId.isNotEmpty) {
       if (opponentId.startsWith('bot_')) {
@@ -66,7 +61,6 @@ class _BattleScreenState extends State<BattleScreen> {
         opponent = await authService.getUserProfile(opponentId);
       }
     }
-
     if (mounted) {
       setState(() {
         _currentUserModel = currentUserProfile;
@@ -79,9 +73,7 @@ class _BattleScreenState extends State<BattleScreen> {
   Future<void> _activateMultiplier(String multiplierType) async {
     final battleService = context.read<ActiveBattleService>();
     final userId = _currentUserModel?.userId;
-
     if (userId == null) return;
-
     try {
       await battleService.activateMultiplier(multiplierType, userId);
       if (mounted) {
@@ -104,11 +96,9 @@ class _BattleScreenState extends State<BattleScreen> {
 
   Widget _buildYourRewardsSection(Game game) {
   final potentialReward = game.potentialReward;
-  // If there's no potential reward for this battle, show nothing
   if (potentialReward == null || potentialReward.isEmpty) {
     return const SizedBox.shrink();
   }
-
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -125,7 +115,6 @@ class _BattleScreenState extends State<BattleScreen> {
         ),
         child: Row(
           children: [
-            // Note: You'll need to map the reward name to a local asset image path
             Image.asset('assets/images/mumbai.png', height: 40),
             const SizedBox(width: 12),
             Expanded(
@@ -154,23 +143,19 @@ class _BattleScreenState extends State<BattleScreen> {
   @override
   Widget build(BuildContext context) {
     final battleService = context.watch<ActiveBattleService>();
-
     if (battleService.currentGame != null && !_isFetchingData && (_currentUserModel == null || _opponentProfile == null)) {
       _fetchBattleDataIfNeeded();
     }
-
     if (!battleService.isBattleActive && ModalRoute.of(context)?.isCurrent == true) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       });
     }
-
     if (!battleService.isBattleActive || battleService.currentGame == null || _currentUserModel == null || _opponentProfile == null) {
       return const Scaffold(
           backgroundColor: Color(0xFF1E1E1E),
           body: Center(child: CircularProgressIndicator(color: Color(0xFFFFC107))));
     }
-
     final game = battleService.currentGame!;
     final isUserPlayer1 = game.player1Id == _currentUserModel!.userId;
     final player1 = isUserPlayer1 ? _currentUserModel! : _opponentProfile!;
@@ -179,7 +164,6 @@ class _BattleScreenState extends State<BattleScreen> {
     final p2Score = game.player2Score;
     final p1Steps = game.step1Count;
     final p2Steps = game.step2Count;
-
     return WillPopScope(
       onWillPop: () async => true,
       child: Scaffold(

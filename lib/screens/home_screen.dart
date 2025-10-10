@@ -13,7 +13,6 @@ import '../services/step_counting.dart';
 import '../widget/footer.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
-// --- 1. IMPORT THE NEW SCREEN ---
 import 'matchmaking_screen.dart'; 
 import '../widget/game_rules.dart';
 import '../services/notification_service.dart';
@@ -43,11 +42,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _stepsToShow = 0;
   bool _isFetchingOpponent = false;
   final bool _isCreatingGame = false;
-
   bool _isOpeningBronzeBox = false;
   bool _isOpeningSilverBox = false;
   bool _isOpeningGoldBox = false;
-
   Timer? _boxTimer;
   Duration _bronzeTimeLeft = Duration.zero;
   Duration _silverTimeLeft = Duration.zero;
@@ -75,11 +72,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _startBoxTimers() {
     _boxTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted || _user?.mysteryBoxLastOpened == null) return;
-
       final now = DateTime.now();
-      // Set the reset time to the beginning of the next day in the local timezone
       final tomorrow = DateTime(now.year, now.month, now.day + 1);
-
       setState(() {
         _bronzeTimeLeft = _calculateTimeLeft('bronze', tomorrow);
         _silverTimeLeft = _calculateTimeLeft('silver', tomorrow);
@@ -91,18 +85,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Duration _calculateTimeLeft(String boxType, DateTime tomorrow) {
     final lastOpenedString = _user?.mysteryBoxLastOpened?[boxType];
     if (lastOpenedString == null) return Duration.zero;
-
     final lastOpenedDate = DateTime.parse(lastOpenedString).toLocal();
     final now = DateTime.now();
 
-    // Check if the last opening was on the same calendar day as 'now'
     if (lastOpenedDate.year == now.year &&
         lastOpenedDate.month == now.month &&
         lastOpenedDate.day == now.day) {
       final timeLeft = tomorrow.difference(now);
       return timeLeft.isNegative ? Duration.zero : timeLeft;
     }
-
     return Duration.zero;
   }
   
@@ -113,7 +104,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String seconds = twoDigits(duration.inSeconds.remainder(60));
     return "$hours:$minutes:$seconds";
   }
-
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -127,7 +117,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _openMysteryBox(String boxType, int price) async {
     if (_user == null) return;
-
     final canAfford = (_user!.coins ?? 0) >= price;
     if (!canAfford) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -135,29 +124,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       return;
     }
-
     final confirmed = await _showConfirmationDialog(boxType, price);
     if (confirmed != true) return;
-
     setState(() {
       if (boxType == 'bronze') _isOpeningBronzeBox = true;
       if (boxType == 'silver') _isOpeningSilverBox = true;
       if (boxType == 'gold') _isOpeningGoldBox = true;
     });
-
     try {
-      final reward = await _mysteryBoxService.openMysteryBox(_user!.userId, boxType);
-      
+      final reward = await _mysteryBoxService.openMysteryBox(_user!.userId, boxType); 
       final newCoinBalance = reward['newCoinBalance'] as int?;
       if (newCoinBalance != null) {
           setState(() {
               _user = _user!.copyWith(coins: newCoinBalance);
           });
           await _authService.saveUserSession(_user!);
-      }
-      
+      }  
       _showRewardDialog(reward);
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
-        title: Text('Confirm Purchase', style: TextStyle(color: Colors.white)),
+        title: const Text('Confirm Purchase', style: TextStyle(color: Colors.white)),
         content: Text('Open the ${boxType.capitalize()} box for $price coins?', style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
@@ -215,13 +198,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           default:
               content = "You've received a special reward!";
       }
-
       showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
               backgroundColor: const Color(0xFF2a2a2a),
-              title: Text(title, style: TextStyle(color: Colors.white)),
-              content: Text(content, style: TextStyle(color: Colors.white70)),
+              title: Text(title, style: const TextStyle(color: Colors.white)),
+              content: Text(content, style: const TextStyle(color: Colors.white70)),
               actions: [
                   TextButton(
                       child: const Text('Awesome!', style: TextStyle(color: Color(0xFFFFC107))),
@@ -713,7 +695,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           onTap: _isCreatingGame
               ? null
               : () {
-                  // --- 2. UPDATE THE NAVIGATION ---
                   Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => MatchmakingScreen(user: _user!)));
                 },

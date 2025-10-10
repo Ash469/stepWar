@@ -9,7 +9,7 @@ class GameService {
 
   final String _baseUrl = "https://stepwars-backend.onrender.com/api";
 
-  // --- NEW FUNCTION ---
+
   Future<String> createPvpBattle(String player1Id, String player2Id) async {
     try {
       final response = await http.post(

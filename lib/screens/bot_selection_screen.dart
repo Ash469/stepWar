@@ -29,7 +29,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    // Start the selection and animation process as soon as the screen loads
     _startBotSelection();
   }
 
@@ -40,23 +39,18 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   }
 
   void _startBotSelection() async {
-    // 1. Instantly select a random bot.
     _selectedBot = _botService.selectRandomBot();
     final int selectedBotIndex = _allBots.indexOf(_selectedBot);
     final String selectedBotId = _botService.getBotId(_selectedBot);
-
-    // 2. Animate the PageView to simulate a "spin".
-    // We scroll through the list multiple times and land on the selected bot.
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
 
     _pageController.animateToPage(
-      _allBots.length * 10 + selectedBotIndex, // Scroll 10 times past the list
+      _allBots.length * 10 + selectedBotIndex,
       duration: const Duration(seconds: 5),
       curve: Curves.easeOutCubic,
     );
-
-    // 3. Wait for the animation to finish, update the status, and start the game.
+    
     await Future.delayed(const Duration(seconds: 6));
     if (!mounted) return;
 
