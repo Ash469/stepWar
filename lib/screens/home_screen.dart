@@ -316,14 +316,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _initStepCounter() async {
+   void _initStepCounter() async {
     _stepSubscription?.cancel();
     final prefs = await SharedPreferences.getInstance();
-    _healthService.initialize();
+    
+    await _healthService.initialize();
+
     _stepSubscription = _healthService.stepStream.listen(
       (stepsStr) {
         final currentPedometerReading = int.tryParse(stepsStr);
         if (currentPedometerReading == null) return;
+        
+        // This logic for calculating daily steps remains the same and is still correct.
         int? dailyStepOffset = prefs.getInt('dailyStepOffset');
         if (dailyStepOffset == null && _user != null) {
           final dbSteps = _user!.todaysStepCount ?? 0;
@@ -333,16 +337,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               "Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, DB: $dbSteps)");
         }
         if (dailyStepOffset == null) return;
+
         final calculatedDailySteps = currentPedometerReading - dailyStepOffset;
         final stepsToSave = calculatedDailySteps > 0 ? calculatedDailySteps : 0;
+        
         if (mounted) {
           setState(() {
             _stepsToShow = stepsToSave;
           });
         }
+        
         _debounce?.cancel();
         _debounce = Timer(
-            const Duration(seconds: 5), () => _saveLatestSteps(stepsToSave));
+            const Duration(seconds: 2), () => _saveLatestSteps(stepsToSave));
       },
     );
   }

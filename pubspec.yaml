@@ -14,14 +14,15 @@ dependencies:
   flutter_svg: ^2.2.1
   flutter_riverpod: ^2.5.1 
   rxdart: ^0.28.0
-  http: ^1.1.0 # For making HTTP requests to download the image
-  path_provider: ^2.0.11 # For finding a temporary directory to save the image
+  http: ^1.1.0 
+  path_provider: ^2.0.11
   
   
   # State Management
   provider: ^6.1.5+1
   permission_handler: ^11.0.1
   pedometer: ^4.1.1
+  health: ^13.2.0
   
   # Firebase
   firebase_core: ^3.15.2
