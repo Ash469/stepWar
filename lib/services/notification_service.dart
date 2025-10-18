@@ -16,7 +16,7 @@ class NotificationService {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  final String _baseUrl = "http://172.30.229.52:5000";
+  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
 
   Completer<void>? _initCompleter;
 
@@ -52,9 +52,11 @@ class NotificationService {
         ?.createNotificationChannel(channel);
 
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@drawable/ic_notification'); // Small icon
+        AndroidInitializationSettings(
+            '@drawable/ic_notification'); // Small icon
 
-    const DarwinInitializationSettings iosSettings = DarwinInitializationSettings();
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings();
 
     const InitializationSettings settings = InitializationSettings(
       android: androidSettings,
@@ -90,7 +92,7 @@ class NotificationService {
           'High Importance Notifications',
           importance: Importance.max,
           priority: Priority.high,
-          largeIcon: largeIcon, 
+          largeIcon: largeIcon,
           styleInformation: BigTextStyleInformation(
             notification.body ?? '',
             contentTitle: notification.title,

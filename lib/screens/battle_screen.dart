@@ -29,7 +29,9 @@ class _BattleScreenState extends State<BattleScreen> {
   }
 
   Future<void> _fetchBattleDataIfNeeded() async {
-    if (mounted && (_isFetchingData || (_currentUserModel != null && _opponentProfile != null))) return;
+    if (mounted &&
+        (_isFetchingData ||
+            (_currentUserModel != null && _opponentProfile != null))) return;
     if (mounted) {
       setState(() {
         _isFetchingData = true;
@@ -47,6 +49,7 @@ class _BattleScreenState extends State<BattleScreen> {
     final isUserPlayer1 = game.player1Id == currentUserId;
     final opponentId = isUserPlayer1 ? game.player2Id : game.player1Id;
     UserModel? opponent;
+
     if (opponentId != null && opponentId.isNotEmpty) {
       if (opponentId.startsWith('bot_')) {
         final botType = _botService.getBotTypeFromId(opponentId);
@@ -57,6 +60,12 @@ class _BattleScreenState extends State<BattleScreen> {
             profileImageUrl: _botService.getBotImagePath(botType),
           );
         }
+      } else if (opponentId == 'dummy_player_test_01') {
+        opponent = UserModel(
+          userId: opponentId,
+          username: 'Test Opponent',
+          profileImageUrl: null,
+        );
       } else {
         opponent = await authService.getUserProfile(opponentId);
       }
@@ -95,66 +104,96 @@ class _BattleScreenState extends State<BattleScreen> {
   }
 
   Widget _buildYourRewardsSection(Game game) {
-  final potentialReward = game.potentialReward;
-  if (potentialReward == null || potentialReward.isEmpty) {
-    return const SizedBox.shrink();
-  }
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const SizedBox(height: 24),
-      const Text("Your Potential Reward",
-          style: TextStyle(
-              color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 8),
-      Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF2a2a2a),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Image.asset('assets/images/mumbai.png', height: 40),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    potentialReward['name'] ?? 'Mystery Reward',
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    "Win the battle to claim this ${potentialReward['tier'] ?? ''} reward!",
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
+    final potentialReward = game.potentialReward;
+    if (potentialReward == null || potentialReward.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final String? imagePath = potentialReward['imagePath'];
+    final String? rewardName = potentialReward['name'];
+    final String? rewardTier = potentialReward['tier'];
+    final String? rewardDes = potentialReward['description'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Text("Your Potential Reward",
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2a2a2a),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              imagePath != null && imagePath.isNotEmpty
+                  ? Image.asset(
+                      imagePath,
+                      height: 40,
+                      errorBuilder: (context, error, stackTrace) => const Icon(
+                          Icons.shield,
+                          color: Colors.white70,
+                          size: 40),
+                    )
+                  : const Icon(Icons.shield, color: Colors.white70, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rewardName ?? 'Mystery Reward',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      "${rewardTier ?? ''} reward!",
+                      style: const TextStyle(
+                          color: Colors.white70, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      rewardDes ?? '',
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final battleService = context.watch<ActiveBattleService>();
-    if (battleService.currentGame != null && !_isFetchingData && (_currentUserModel == null || _opponentProfile == null)) {
+    if (battleService.currentGame != null &&
+        !_isFetchingData &&
+        (_currentUserModel == null || _opponentProfile == null)) {
       _fetchBattleDataIfNeeded();
     }
-    if (!battleService.isBattleActive && ModalRoute.of(context)?.isCurrent == true) {
+    if (!battleService.isBattleActive &&
+        ModalRoute.of(context)?.isCurrent == true) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       });
     }
-    if (!battleService.isBattleActive || battleService.currentGame == null || _currentUserModel == null || _opponentProfile == null) {
+    if (!battleService.isBattleActive ||
+        battleService.currentGame == null ||
+        _currentUserModel == null ||
+        _opponentProfile == null) {
       return const Scaffold(
           backgroundColor: Color(0xFF1E1E1E),
-          body: Center(child: CircularProgressIndicator(color: Color(0xFFFFC107))));
+          body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFFFC107))));
     }
     final game = battleService.currentGame!;
     final isUserPlayer1 = game.player1Id == _currentUserModel!.userId;
@@ -191,17 +230,17 @@ class _BattleScreenState extends State<BattleScreen> {
         ),
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 24.0, vertical: 20.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildTimer(battleService.timeLeft),
-                _buildPlayerStats(player1, p1Score, p1Steps,
-                    player2, p2Score, p2Steps, game),
+                _buildPlayerStats(
+                    player1, p1Score, p1Steps, player2, p2Score, p2Steps, game),
                 _buildBattleBar(p1Score, p2Score),
-                _buildMultiplierSection(isUserPlayer1, game),
-                 _buildYourRewardsSection(game),
+                _buildMultiplierSection(isUserPlayer1, game, _currentUserModel!), 
+                _buildYourRewardsSection(game),
               ],
             ),
           ),
@@ -211,10 +250,8 @@ class _BattleScreenState extends State<BattleScreen> {
   }
 
   Widget _buildTimer(Duration timeLeft) {
-    final minutes =
-        timeLeft.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds =
-        timeLeft.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final minutes = timeLeft.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = timeLeft.inSeconds.remainder(60).toString().padLeft(2, '0');
     return Column(
       children: [
         Text('$minutes:$seconds',
@@ -387,7 +424,7 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildMultiplierSection(bool isUserPlayer1, Game game) {
+ Widget _buildMultiplierSection(bool isUserPlayer1, Game game, UserModel currentUser) {
     final battleService = context.watch<ActiveBattleService>();
     final bool hasUsedMultiplier = isUserPlayer1
         ? game.player1MultiplierUsed
@@ -400,52 +437,107 @@ class _BattleScreenState extends State<BattleScreen> {
       return const Text("Multiplier used!",
           style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
     }
+
+    final multipliers = currentUser.multipliers ?? {};
+    final available1_5x = multipliers['1_5x'] ?? 0;
+    final available2x = multipliers['2x'] ?? 0;
+    final available3x = multipliers['3x'] ?? 0;
+
     return Column(
       children: [
-        const Text("Buy Steps multiplier",
+        const Text("Activate a Score Multiplier",
             style: TextStyle(color: Colors.white70)),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildMultiplierButton('1.5X', '1_5x', 15),
-            _buildMultiplierButton('2X', '2x', 20),
-            _buildMultiplierButton('3X', '3x', 30),
+            _buildMultiplierButton('1.5X', '1_5x', 100, available1_5x),
+            _buildMultiplierButton('2X', '2x', 200, available2x),
+            _buildMultiplierButton('3X', '3x', 300, available3x),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildMultiplierButton(String displayText, String apiKey, int cost) {
-    return ElevatedButton(
-      onPressed: () => _activateMultiplier(apiKey),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF333333),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      ),
-      child: Column(
-        children: [
-          Text(displayText,
-              style: const TextStyle(
-                  color: Color(0xFFFFC107),
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Row(
+
+  Widget _buildMultiplierButton(
+      String displayText, String apiKey, int cost, int available) {
+    final bool canUse = available > 0;
+
+    return Stack(
+      clipBehavior:
+          Clip.none, // Allows the badge to sit outside the button's bounds
+      children: [
+        ElevatedButton(
+          onPressed: () => _activateMultiplier(apiKey),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF333333),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Image(
-                  image: AssetImage('assets/images/coin_icon.png'),
-                  width: 24,
-                  height: 24),
-              const SizedBox(width: 4),
-              Text(cost.toString(),
-                  style: const TextStyle(color: Colors.white70)),
+              Text(displayText,
+                  style: const TextStyle(
+                      color: Color(0xFFFFC107),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              // Dynamically show "Use Token" text or the coin cost
+              if (canUse)
+                const Text('Use Token',
+                    style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12))
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset('assets/images/coin_icon.png',
+                        width: 20, height: 20),
+                    const SizedBox(width: 4),
+                    Text(cost.toString(),
+                        style: const TextStyle(color: Colors.white70)),
+                  ],
+                ),
             ],
           ),
-        ],
-      ),
+        ),
+
+        // This is the badge that appears only if the user has multipliers
+        if (canUse)
+          Positioned(
+            top: -8,
+            right: -8,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFC107), // Yellow badge color
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.black, width: 1.5),
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 22,
+                minHeight: 22,
+              ),
+              child: Center(
+                child: Text(
+                  '$available',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

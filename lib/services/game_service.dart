@@ -7,8 +7,7 @@ import '../models/user_model.dart';
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  final String _baseUrl = "http://172.30.229.52:5000/api";
-
+  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
 
   Future<String> createPvpBattle(String player1Id, String player2Id) async {
     try {
@@ -131,7 +130,7 @@ class GameService {
       final response = await http.post(
         Uri.parse('$_baseUrl/battle/end'),
         headers: {'Content-Type': 'application/json'},
-         body: jsonEncode(body),
+        body: jsonEncode(body),
       );
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -145,23 +144,24 @@ class GameService {
       rethrow;
     }
   }
-  
+
   Future<void> cancelFriendGame(String gameId) async {
-  try {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/battle/friend/cancel'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'gameId': gameId}),
-    );
-    if (response.statusCode != 200) {
-      final errorBody = jsonDecode(response.body);
-      throw Exception('Failed to cancel game: ${errorBody['error'] ?? 'Unknown server error'}');
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/battle/friend/cancel'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'gameId': gameId}),
+      );
+      if (response.statusCode != 200) {
+        final errorBody = jsonDecode(response.body);
+        throw Exception(
+            'Failed to cancel game: ${errorBody['error'] ?? 'Unknown server error'}');
+      }
+    } catch (e) {
+      print("Error in cancelFriendGame (Flutter): $e");
+      rethrow;
     }
-  } catch (e) {
-    print("Error in cancelFriendGame (Flutter): $e");
-    rethrow;
   }
-}
 
   Stream<Game?> getGameStream(String gameId) {
     return _dbRef.child('games').child(gameId).onValue.map((event) {

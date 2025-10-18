@@ -23,6 +23,7 @@ dependencies:
   permission_handler: ^11.0.1
   pedometer: ^4.1.1
   health: ^13.2.0
+  games_services: ^4.1.1
   
   # Firebase
   firebase_core: ^3.15.2
@@ -41,7 +42,7 @@ dev_dependencies:
   flutter_lints: ^2.0.0
   flutter_launcher_icons: ^0.14.4
 flutter_icons:
-  image_path: "assets/icons/icon2.png"
+  image_path: "assets/icons/icon.png"
   android: true
   ios: true
 

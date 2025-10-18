@@ -5,15 +5,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'package:http/http.dart' as http;
-import 'notification_service.dart'; 
+import 'notification_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
-  final NotificationService _notificationService= NotificationService();
+  final NotificationService _notificationService = NotificationService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "http://172.30.229.52:5000";
+  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
 
   Future<bool> isNewUser(String userId) async {
     try {
@@ -31,42 +31,35 @@ class AuthService {
     await syncUserWithBackend(uid: user.userId, email: user.email);
   }
 
-Future<void> updateUserProfile(UserModel user) async {
-  if (user.userId.isEmpty) {
-    throw Exception("Attempted to update profile with an empty user ID.");
-  }
-
-  try {
-    // 1. Update Firestore (as before)
-    await _firestore.collection('users').doc(user.userId).update(user.toJson());
-
-    // --- 2. FIX: Prepare a JSON-safe map before encoding ---
-    final userJson = user.toJson();
-    if (user.dob != null) {
-      // Convert the DateTime object to a standardized string format
-      userJson['dob'] = user.dob!.toIso8601String();
-    }
-    // --- END FIX ---
-
-    // 3. Send the corrected JSON to your Node.js backend
-    final response = await http.put(
-      Uri.parse('$_baseUrl/api/user/profile/${user.userId}'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(userJson), // Use the corrected, JSON-safe map
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to sync profile with server: ${response.body}');
+  Future<void> updateUserProfile(UserModel user) async {
+    if (user.userId.isEmpty) {
+      throw Exception("Attempted to update profile with an empty user ID.");
     }
 
-    // 4. Update the local cache/session (as before)
-    await saveUserSession(user);
+    try {
+      await _firestore
+          .collection('users')
+          .doc(user.userId)
+          .update(user.toJson());
+      final userJson = user.toJson();
+      if (user.dob != null) {
+        userJson['dob'] = user.dob!.toIso8601String();
+      }
+      final response = await http.put(
+        Uri.parse('$_baseUrl/api/user/profile/${user.userId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(userJson), // Use the corrected, JSON-safe map
+      );
 
-  } catch (e) {
-    print("Error in updateUserProfile: $e");
-    rethrow;
+      if (response.statusCode != 200) {
+        throw Exception('Failed to sync profile with server: ${response.body}');
+      }
+      await saveUserSession(user);
+    } catch (e) {
+      print("Error in updateUserProfile: $e");
+      rethrow;
+    }
   }
-}
 
   Future<UserModel?> getUserProfile(String userId) async {
     try {
@@ -179,7 +172,7 @@ Future<void> updateUserProfile(UserModel user) async {
   }
 
   Future<void> signOut() async {
-   try {
+    try {
       final uid = _auth.currentUser?.uid;
       final token = await _notificationService.getFcmToken();
       if (uid != null && token != null) {
@@ -289,7 +282,7 @@ Future<void> updateUserProfile(UserModel user) async {
     }
   }
 
-Future<List<dynamic>> getActivityHistory(String userId) async {
+  Future<List<dynamic>> getActivityHistory(String userId) async {
     if (userId.isEmpty) {
       throw Exception("User ID is required to fetch activity history.");
     }

@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/user_model.dart'; 
+import '../models/user_model.dart';
 
 class MysteryBoxService {
-  final String _baseUrl = "http://172.30.229.52:5000/api";
+  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
 
-  Future<Map<String, dynamic>> openMysteryBox(String userId, String boxType) async {
+  Future<Map<String, dynamic>> openMysteryBox(
+      String userId, String boxType) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/mystery-box/open'),

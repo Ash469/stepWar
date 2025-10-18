@@ -17,33 +17,44 @@ class MatchmakingScreen extends StatefulWidget {
   State<MatchmakingScreen> createState() => _MatchmakingScreenState();
 }
 
-class _MatchmakingScreenState extends State<MatchmakingScreen> {
+class _MatchmakingScreenState extends State<MatchmakingScreen>
+    with TickerProviderStateMixin {
   final GameService _gameService = GameService();
   final DatabaseReference _poolRef =
       FirebaseDatabase.instance.ref('matchmakingPool');
   StreamSubscription? _poolListener;
   StreamSubscription? _selfListener;
-  // ⛔️ The old manual timer is no longer needed!
-  // Timer? _countdownTimer;
+  Timer? _countdownTimer;
 
   String _statusText = "Searching for an opponent...";
   bool _isSearching = true;
+  bool _isNavigating = false;
+  Duration _timeLeft = const Duration(seconds: 10);
 
-  // ⛔️ The old timeLeft state is also no longer needed!
-  // Duration _timeLeft = const Duration(seconds: 15);
+  bool _matchmakingTimedOut = false;
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
 
   @override
   void initState() {
     super.initState();
     _startMatchmaking();
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _glowAnimation = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
   }
 
   @override
   void dispose() {
-    // _countdownTimer?.cancel(); // No timer to cancel
+    _countdownTimer?.cancel();
     _poolListener?.cancel();
     _selfListener?.cancel();
-    if (_isSearching) {
+    _glowController.dispose();
+    if (_isSearching && !_isNavigating) {
       _leavePool();
     }
     super.dispose();
@@ -52,6 +63,23 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     return twoDigits(duration.inSeconds.remainder(60));
+  }
+
+  void _startTimer() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        _countdownTimer?.cancel();
+        return;
+      }
+      if (_timeLeft.inSeconds <= 0) {
+        _countdownTimer?.cancel();
+        _onTimeout();
+      } else if (mounted) {
+        setState(() {
+          _timeLeft = _timeLeft - const Duration(seconds: 1);
+        });
+      }
+    });
   }
 
   Future<void> _startMatchmaking() async {
@@ -64,16 +92,28 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
     });
     await userNode.onDisconnect().remove();
 
-    // ⛔️ The old timer logic is removed from here.
-    // The animation builder in the build method now handles the countdown.
+    _startTimer();
 
     _poolListener = _poolRef.onValue.listen(_checkForOpponent);
     _selfListener = userNode.onValue.listen(_onSelfStatusChanged);
   }
 
-  // ... (No changes to the functions below, only the build method is updated)
+  void _onSelfStatusChanged(DatabaseEvent event) {
+    // FIXED: Check _isNavigating instead of _isSearching to allow proper navigation
+    if (!mounted || _isNavigating) return;
+
+    final selfData = event.snapshot.value as Map?;
+
+    // FIXED: Check if we're matched and have a gameId
+    if (selfData != null &&
+        selfData['status'] == 'matched' &&
+        selfData['gameId'] != null) {
+      _navigateToBattle(selfData['gameId']);
+    }
+  }
+
   Future<void> _checkForOpponent(DatabaseEvent event) async {
-    if (!_isSearching || !mounted) return;
+    if (!_isSearching || !mounted || _isNavigating) return;
     final data = event.snapshot.value as Map?;
     if (data == null || data.length < 2) return;
 
@@ -86,79 +126,140 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
     if (waitingPlayers.isEmpty) return;
 
-    waitingPlayers.sort((a, b) => a['entryTime'].compareTo(b['entryTime']));
     final opponent = waitingPlayers.first;
-    final myEntryTime = data[widget.user.userId]?['entryTime'] ?? 9999999999999;
 
-    if (myEntryTime < opponent['entryTime']) {
+    if (widget.user.userId.compareTo(opponent['uid']) < 0) {
       await _tryToMatch(opponent['uid']);
     }
   }
 
   Future<void> _tryToMatch(String opponentId) async {
+    if (!_isSearching || _isNavigating) return;
     _isSearching = false;
     _poolListener?.cancel();
-    // _countdownTimer?.cancel();
 
     final transactionResult = await _poolRef.runTransaction((Object? data) {
-      final pool = data as Map<String, dynamic>?;
-      if (pool == null) return Transaction.abort();
+      if (data == null) {
+        return Transaction.abort();
+      }
 
-      final me = pool[widget.user.userId];
-      final opponent = pool[opponentId];
+      final pool = Map<String, dynamic>.from(data as Map);
 
-      if (me?['status'] != 'waiting' || opponent?['status'] != 'waiting') {
+      final meData = pool[widget.user.userId];
+      final opponentData = pool[opponentId];
+
+      if (meData == null ||
+          opponentData == null ||
+          meData is! Map ||
+          opponentData is! Map) {
+        return Transaction.abort();
+      }
+
+      final me = Map<String, dynamic>.from(meData);
+      final opponent = Map<String, dynamic>.from(opponentData);
+
+      if (me['status'] != 'waiting' || opponent['status'] != 'waiting') {
         return Transaction.abort();
       }
 
       me['status'] = 'matched';
       opponent['status'] = 'matched';
+
+      pool[widget.user.userId] = me;
+      pool[opponentId] = opponent;
+
       return Transaction.success(pool);
     });
 
     if (transactionResult.committed) {
+      if (!mounted) return;
+
       setState(() => _statusText = "Opponent found! Creating battle...");
-      final gameId =
-          await _gameService.createPvpBattle(widget.user.userId, opponentId);
-      await _poolRef.child(widget.user.userId).update({'gameId': gameId});
-      await _poolRef.child(opponentId).update({'gameId': gameId});
+
+      // FIXED: Create game and update both nodes with gameId atomically
+      try {
+        final gameId =
+            await _gameService.createPvpBattle(widget.user.userId, opponentId);
+
+        // Update both players with gameId at the same time
+        await Future.wait([
+          _poolRef.child(widget.user.userId).update({'gameId': gameId}),
+          _poolRef.child(opponentId).update({'gameId': gameId}),
+        ]);
+
+        // FIXED: Navigate immediately after updating
+        await _navigateToBattle(gameId);
+      } catch (e) {
+        // If something fails, reset and try again
+        if (mounted) {
+          setState(() {
+            _isSearching = true;
+            _statusText = "Searching for an opponent...";
+          });
+          _poolListener = _poolRef.onValue.listen(_checkForOpponent);
+        }
+      }
     } else {
       _isSearching = true;
-      _poolListener = _poolRef.onValue.listen(_checkForOpponent);
-    }
-  }
-
-  void _onSelfStatusChanged(DatabaseEvent event) {
-    if (!mounted) return;
-    final selfData = event.snapshot.value as Map?;
-    if (selfData?['status'] == 'matched' && selfData?['gameId'] != null) {
-      _navigateToBattle(selfData!['gameId']);
+      if (mounted) {
+        _poolListener = _poolRef.onValue.listen(_checkForOpponent);
+      }
     }
   }
 
   Future<void> _navigateToBattle(String gameId) async {
+    // FIXED: Use _isNavigating to prevent double navigation
+    if (!mounted || _isNavigating) return;
+
+    _isNavigating = true;
     _isSearching = false;
-    // _countdownTimer?.cancel();
+    _countdownTimer?.cancel();
     _poolListener?.cancel();
     _selfListener?.cancel();
 
+    // FIXED: Add a small delay to ensure Firebase updates are processed
+    await Future.delayed(const Duration(milliseconds: 300));
+
     if (mounted) {
       context.read<ActiveBattleService>().startBattle(gameId, widget.user);
-      Navigator.of(context).pushReplacement(
+
+      // FIXED: Use pushAndRemoveUntil to prevent back navigation issues
+      await Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const BattleScreen()),
+        (route) => route.isFirst, // Keep only the first route
       );
     }
-    _leavePool();
+
+    await _leavePool();
   }
 
   Future<void> _onTimeout() async {
-    if (!_isSearching || !mounted) return;
+    if (!mounted || !_isSearching || _isNavigating) return;
 
-    setState(() => _statusText = "No opponents found. Finding a bot...");
     _isSearching = false;
+    _poolListener?.cancel();
+    _selfListener?.cancel();
     await _leavePool();
     if (mounted) {
-      Navigator.of(context).pushReplacement(
+      setState(() {
+        _statusText = "No opponent found. Play with a bot?";
+        _matchmakingTimedOut = true;
+      });
+    }
+  }
+
+  Future<void> _onPlayWithBotPressed() async {
+    if (!mounted || _isNavigating) return;
+
+    _isNavigating = true;
+    _isSearching = false;
+    _countdownTimer?.cancel();
+    _poolListener?.cancel();
+    _selfListener?.cancel();
+    await _leavePool();
+
+    if (mounted) {
+      await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => BotSelectionScreen(user: widget.user),
         ),
@@ -167,18 +268,21 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   }
 
   Future<void> _leavePool() async {
-    // Cancel the onDisconnect handler before manually removing the node
-    await _poolRef.child(widget.user.userId).onDisconnect().cancel();
-    await _poolRef.child(widget.user.userId).remove();
+    final userNode = _poolRef.child(widget.user.userId);
+    await userNode.onDisconnect().cancel();
+    try {
+      await userNode.remove();
+    } catch (_) {}
   }
-
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        _isSearching = false;
-        await _leavePool();
+        if (!_isNavigating) {
+          _isSearching = false;
+          await _leavePool();
+        }
         return true;
       },
       child: Scaffold(
@@ -193,39 +297,32 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // --- ✨ THIS IS THE NEW, SMOOTH, 30-SECOND TIMER ✨ ---
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 30.0, end: 0.0),
-                duration: const Duration(seconds: 30),
-                onEnd: _onTimeout, // This automatically handles the timeout!
-                builder: (context, value, child) {
-                  final duration = Duration(seconds: value.ceil());
-                  return Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        width: 80,
-                        height: 80,
-                        child: CircularProgressIndicator(
-                          value: value / 30.0, // Smoothly animates the progress
-                          color: const Color(0xFFFFC107),
-                          backgroundColor: Colors.grey.shade800,
-                          strokeWidth: 6,
-                        ),
-                      ),
-                      Text(
-                        _formatDuration(duration),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    ],
-                  );
-                },
-              ),
+              if (!_matchmakingTimedOut)
+                const SizedBox(
+                  width: 80,
+                  height: 80,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFFFC107),
+                    backgroundColor: Color.fromARGB(255, 68, 68, 68),
+                    strokeWidth: 6,
+                  ),
+                )
+              else
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey.shade800, width: 6),
+                  ),
+                  child: Icon(
+                    Icons.person_off,
+                    color: Colors.grey.shade400,
+                    size: 40,
+                  ),
+                ),
               const SizedBox(height: 32),
+              // --- ADDED: AnimatedSwitcher for status text ---
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 child: Text(
@@ -235,43 +332,63 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                 ),
               ),
               const SizedBox(height: 80),
-              // --- Your new button structure is preserved exactly ---
-              TextButton(
-                style: TextButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFC107), 
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12), 
+              // --- MODIFIED: Button is no longer conditional ---
+              AnimatedBuilder(
+                animation: _glowAnimation,
+                builder: (context, child) {
+                  final glow = _glowAnimation.value;
+                  return Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      // Only apply shadow if timeout has occurred
+                      boxShadow: _matchmakingTimedOut
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFFFFC107)
+                                    .withOpacity(0.7 * glow),
+                                blurRadius: 10 + (glow * 10),
+                                spreadRadius: 1 + (glow * 2),
+                              )
+                            ]
+                          : null, // No glow before timeout
+                    ),
+                    child: child,
+                  );
+                },
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFC107),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                ),
-                onPressed: () => Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (_) => BotSelectionScreen(user: widget.user),
-                  ),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Play with Bot',
-                      style: TextStyle(
-                        color: Colors.red, // red text
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                  onPressed: _isNavigating
+                      ? null
+                      : _onPlayWithBotPressed, // Button press logic
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Play with Bot',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    SizedBox(width: 8), // space before the arrow
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.red, // red arrow
-                      size: 18,
-                    ),
-                  ],
+                      SizedBox(width: 8),
+                      Icon(
+                        Icons.arrow_forward_ios,
+                        color: Colors.red,
+                        size: 18,
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 50),
-             
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 24.0),
                 child: GameRulesWidget(),

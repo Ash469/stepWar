@@ -9,6 +9,7 @@ class KingdomItem {
   final String name;
   final String imagePath;
   final String rarity;
+  final String description; 
   final Color rarityColor;
   final List<Color> gradientColors;
 
@@ -16,6 +17,7 @@ class KingdomItem {
     required this.name,
     required this.imagePath,
     required this.rarity,
+     required this.description,
     required this.rarityColor,
     required this.gradientColors,
   });
@@ -42,6 +44,7 @@ class KingdomItem {
     return KingdomItem(
       name: json['name'] ?? 'Unnamed',
       imagePath: json['imagePath'] ?? '',
+      description: json['description'] ?? 'No description available.', 
       rarity: rarity,
       rarityColor: rarityColor,
       gradientColors: [rarityColor.withOpacity(0.5), Colors.transparent],
@@ -119,6 +122,52 @@ class _KingdomScreenState extends State<KingdomScreen> {
         _allRewards = processedRewards;
       });
     }
+  }
+
+  void _showRewardDetailsDialog(KingdomItem item) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.0),
+            side: BorderSide(color: item.rarityColor.withOpacity(0.7)),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Image
+              Image.asset(item.imagePath, height: 120, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 80)),
+              const SizedBox(height: 16),
+              Text(
+                item.name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              // Rarity Tag
+              _buildRarityTag(item.rarity, item.rarityColor),
+              const SizedBox(height: 20),
+              // Description
+              Text(
+                item.description,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 15, height: 1.4),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text('Close', style: TextStyle(color: Color(0xFFFFD700), fontSize: 16)),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -262,49 +311,52 @@ class _KingdomScreenState extends State<KingdomScreen> {
     );
   }
 
-  Widget _buildKingdomItemCard(KingdomItem item) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16.0),
-        border: Border.all(color: Colors.grey.shade800, width: 1),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16.0),
-                gradient: RadialGradient(
-                  center: Alignment.topCenter,
-                  radius: 0.7,
-                  colors: item.gradientColors,
-                  stops: const [0.0, 1.0],
+   Widget _buildKingdomItemCard(KingdomItem item) {
+    return GestureDetector(
+      onTap: () => _showRewardDetailsDialog(item),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(16.0),
+          border: Border.all(color: Colors.grey.shade800, width: 1),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16.0),
+                  gradient: RadialGradient(
+                    center: Alignment.topCenter,
+                    radius: 0.7,
+                    colors: item.gradientColors,
+                    stops: const [0.0, 1.0],
+                  ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildRarityTag(item.rarity, item.rarityColor),
-                const Spacer(),
-                item.imagePath.isNotEmpty
-                    ? Image.asset(item.imagePath, height: 80, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 60))
-                    : const Icon(Icons.question_mark, color: Colors.white, size: 60),
-                const Spacer(),
-                Text(
-                  item.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ],
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _buildRarityTag(item.rarity, item.rarityColor),
+                  const Spacer(),
+                  item.imagePath.isNotEmpty
+                      ? Image.asset(item.imagePath, height: 80, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 60))
+                      : const Icon(Icons.question_mark, color: Colors.white, size: 60),
+                  const Spacer(),
+                  Text(
+                    item.name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

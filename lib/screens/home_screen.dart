@@ -17,6 +17,7 @@ import 'matchmaking_screen.dart';
 import '../widget/game_rules.dart';
 import '../services/notification_service.dart';
 import '../services/mystery_box_service.dart';
+import 'kingdom_screen.dart' show KingdomItem;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Duration _bronzeTimeLeft = Duration.zero;
   Duration _silverTimeLeft = Duration.zero;
   Duration _goldTimeLeft = Duration.zero;
+  KingdomItem? _latestReward;
 
   @override
   void initState() {
@@ -270,6 +272,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _setLatestRewardFromData(Map<String, dynamic> rawRewardsMap) {
+    if (!mounted) return;
+    
+    KingdomItem? latest;
+    for (var categoryList in rawRewardsMap.values) {
+      if (categoryList is List && categoryList.isNotEmpty) {
+        final lastItemMap = categoryList.last as Map<String, dynamic>?;
+        if (lastItemMap != null) {
+          latest = KingdomItem.fromJson(lastItemMap);
+          break; 
+        }
+      }
+    }
+  
+    setState(() {
+      _latestReward = latest;
+    });
+  }
+
   Future<void> _loadData({bool forceRefresh = false}) async {
     if (!mounted) return;
     if (_user == null) {
@@ -280,7 +301,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final lastOpenDate = prefs.getString('lastOpenDate');
     final today = DateTime.now().toIso8601String().split('T').first;
     final isNewDay = lastOpenDate != today;
+    
     final cachedProfile = prefs.getString('userProfile');
+    final cachedRewards = prefs.getString('userRewardsCache');
+
     if (cachedProfile != null && mounted) {
       var user = UserModel.fromJson(jsonDecode(cachedProfile));
       if (isNewDay) {
@@ -298,17 +322,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _stepsToShow = user.todaysStepCount ?? 0;
         _isLoading = false;
       });
-    }
-    if ((isNewDay || forceRefresh) && currentUser != null) {
-      print("[Optimized] Fetching latest profile from server in background...");
-      final serverUser = await _authService.refreshUserProfile(currentUser.uid);
-      if (serverUser != null && mounted) {
-        setState(() {
-          _user = serverUser;
-          _stepsToShow = serverUser.todaysStepCount ?? 0;
-        });
+      if (cachedRewards != null && !forceRefresh) {
+        _setLatestRewardFromData(Map<String, dynamic>.from(jsonDecode(cachedRewards)));
       }
     }
+    if ((isNewDay || forceRefresh || cachedProfile == null) && currentUser != null) {
+      print("[Optimized] Fetching latest profile and rewards from server in background...");
+      
+      try {
+        final results = await Future.wait([
+          _authService.refreshUserProfile(currentUser.uid),
+          _authService.getUserRewards(currentUser.uid) // This returns Map<String, List<dynamic>>
+        ]);
+
+        final serverUser = results[0] as UserModel?;
+        if (serverUser != null && mounted) {
+          setState(() {
+            _user = serverUser;
+            _stepsToShow = serverUser.todaysStepCount ?? 0;
+          });
+        }
+
+        // Process rewards
+        final rawRewards = results[1] as Map<String, dynamic>?;
+        if (rawRewards != null && mounted) {
+          await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
+          _setLatestRewardFromData(rawRewards);
+        }
+
+      } catch (e) {
+        print("Error during parallel fetch: $e");
+        // Handle error, maybe show a snackbar
+      }
+    }
+
     _initStepCounter();
     if (currentUser == null) {
       if (mounted) setState(() => _isLoading = false);
@@ -327,7 +374,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final currentPedometerReading = int.tryParse(stepsStr);
         if (currentPedometerReading == null) return;
         
-        // This logic for calculating daily steps remains the same and is still correct.
         int? dailyStepOffset = prefs.getInt('dailyStepOffset');
         if (dailyStepOffset == null && _user != null) {
           final dbSteps = _user!.todaysStepCount ?? 0;
@@ -987,6 +1033,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildRewardsCard() {
+    if (_latestReward == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade900,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.shield_moon_outlined, color: Colors.grey.shade400, size: 30),
+                const SizedBox(width: 12),
+                const Text("No Rewards Yet",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Win battles to collect new rewards for your Kingdom!",
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      );
+    }
+
+    // Show the latest reward
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -998,26 +1077,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              Icon(Icons.location_city,
-                  color: Colors.orange.shade400, size: 30),
+              // Use the imagePath from the reward
+              _latestReward!.imagePath.isNotEmpty
+                ? Image.asset(
+                    _latestReward!.imagePath, 
+                    height: 30, 
+                    errorBuilder: (c, e, s) => Icon(Icons.location_city, color: _latestReward!.rarityColor, size: 30),
+                  )
+                : Icon(Icons.location_city, color: _latestReward!.rarityColor, size: 30),
               const SizedBox(width: 12),
-              const Text("Mumbai",
-                  style: TextStyle(
+              // Use the name from the reward
+              Text(_latestReward!.name,
+                  style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 8),
+          // Use the description from the reward
           Text(
-            "Mumbai is the financial capital and the most populous city proper of India with an estimated...",
+            _latestReward!.description,
             style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 16),
         ],
       ),
     );
   }
+
 
   Widget _buildMysteryBoxes() {
     return Row(

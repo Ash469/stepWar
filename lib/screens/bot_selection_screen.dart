@@ -192,8 +192,7 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
       ),
     );
   }
-  
-  // --- ✨ NEW HELPER WIDGET for the cool tags ✨ ---
+
   Widget _buildMultiplierTag(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -209,7 +208,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
     );
   }
 
-  // --- 🎨 REDESIGNED HELPER for the rewards list 🎨 ---
   Widget _buildInfoRow(String title, String subtitle) {
     return Row(
       children: [
@@ -227,7 +225,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
   }
 
   Widget _buildBotCard(BotType botType) {
-    // ... (This widget remains the same)
     final botName = _botService.getBotNameFromId(_botService.getBotId(botType));
     final botImagePath = _botService.getBotImagePath(botType);
     final isSelected = _selectionComplete && botType == _selectedBot;

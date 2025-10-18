@@ -22,12 +22,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, int> _stepHistory = {};
   bool _isChartLoading = true;
 
+  late DateTime _currentWeekStart;
+
   @override
   void initState() {
     super.initState();
+    _currentWeekStart = _getStartOfWeek(DateTime.now());
     _loadUserProfile();
-    _loadStepHistory(); 
+    _loadStepHistory();
   }
+
+  DateTime _getStartOfWeek(DateTime date) {
+    return date.subtract(Duration(days: date.weekday - 1));
+  }
+
+  String _formatWeekRange(DateTime startOfWeek) {
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    final formatter = DateFormat('MMM d');
+    return '${formatter.format(startOfWeek)} - ${formatter.format(endOfWeek)}';
+  }
+
+  bool _isCurrentWeek(DateTime startOfWeek) {
+    final now = DateTime.now();
+    final startOfCurrentWeek = _getStartOfWeek(now);
+    return startOfWeek.year == startOfCurrentWeek.year &&
+           startOfWeek.month == startOfCurrentWeek.month &&
+           startOfWeek.day == startOfCurrentWeek.day;
+  }
+
 
   Future<void> _loadUserProfile({bool forceReload = false}) async {
     if (forceReload) {
@@ -59,14 +81,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoading = false;
       });
     } else {
-      setState(() {
-        _isLoading = false;
-      });
+       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _updateAndReloadProfile(UserModel updatedUser) async {
-    if (mounted) Navigator.of(context).pop();
+    // Check if the bottom sheet is still open before trying to pop
+    if(Navigator.of(context).canPop()) {
+       Navigator.of(context).pop();
+    }
+
 
     setState(() => _isLoading = true);
     try {
@@ -130,22 +154,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _loadStepHistory() async {
+
+  Future<void> _loadStepHistory({DateTime? weekStartDate}) async {
+     if (!mounted) return;
+    setState(() => _isChartLoading = true);
     try {
       final userId = _authService.currentUser?.uid;
-      if (userId == null) return;
+      if (userId == null) throw Exception("User not logged in");
+
       final history = await _authService.getActivityHistory(userId);
+
       Map<String, int> processedHistory = {
         'MO': 0, 'TU': 0, 'WE': 0, 'TH': 0, 'FR': 0, 'SA': 0, 'SU': 0
       };
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
       for (var dayData in history) {
         final date = DateTime.tryParse(dayData['date']);
         if (date != null) {
-          String dayAbbreviation = dayAbbreviations[date.weekday - 1];
-          processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
+          final startOfSelectedWeek = weekStartDate ?? _currentWeekStart;
+          final endOfSelectedWeek = startOfSelectedWeek.add(const Duration(days: 7));
+           if (!date.isBefore(startOfSelectedWeek) && date.isBefore(endOfSelectedWeek)) {
+             String dayAbbreviation = dayAbbreviations[date.weekday - 1];
+             processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
+          }
         }
       }
+
       if (mounted) {
         setState(() {
           _stepHistory = processedHistory;
@@ -157,6 +192,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) setState(() => _isChartLoading = false);
     }
   }
+
+
+  void _goToPreviousWeek() {
+    setState(() {
+      _currentWeekStart = _currentWeekStart.subtract(const Duration(days: 7));
+    });
+     _loadStepHistory(weekStartDate: _currentWeekStart);
+  }
+
+  void _goToNextWeek() {
+    if (!_isCurrentWeek(_currentWeekStart)) {
+      setState(() {
+        _currentWeekStart = _currentWeekStart.add(const Duration(days: 7));
+      });
+       _loadStepHistory(weekStartDate: _currentWeekStart);
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -183,27 +236,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Stack(
       children: [
-        // 1. YOUR SCROLLABLE CONTENT (at the bottom of the stack)
         SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: Padding(
-            // Add padding at the bottom to avoid the main navigation bar
             padding: const EdgeInsets.only(bottom: 100.0),
             child: Column(
               children: [
-                // Add space at the top so the header doesn't get hidden by the button
                 const SizedBox(height: 56),
                 _buildProfileHeader(),
                 const SizedBox(height: 24),
                 _buildInfoCard(
                     title: 'About you',
                     child: _buildAboutYouSection(),
-                    onEditTap: () => _showEditAboutYouSheet()),
+                    onEditTap: _showEditAboutYouSheet 
+                 ),
                 const SizedBox(height: 16),
-                _buildInfoCard(
-                    title: 'Your Profile',
-                    child: _buildYourProfileSection(),
-                    onEditTap: () => _showEditYourProfileSheet()),
+                 _buildInfoCard(
+                   title: 'Your Profile',
+                   child: _buildYourProfileSection(),
+                 ),
                 const SizedBox(height: 24),
                 _buildStepsChart(),
                 const SizedBox(height: 40),
@@ -213,8 +264,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         Positioned(
-          top: 16.0, 
-          right: 16.0, 
+          top: 16.0,
+          right: 16.0,
           child: IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             onPressed: _logout,
@@ -224,7 +275,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditSheet(
+ void _showEditSheet(
       {required String title,
       required Widget content,
       required VoidCallback onSave}) {
@@ -302,13 +353,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        Text(
-          _user!.username ?? 'Username',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                _user!.username ?? 'Username',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+                 overflow: TextOverflow.ellipsis,
+                 maxLines: 1,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 4.0),
+              child: IconButton(
+                icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
+                onPressed: _showEditUsernameSheet,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         Text(
@@ -319,10 +390,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildInfoCard(
-      {required String title,
-      required Widget child,
-      required VoidCallback onEditTap}) {
+
+ Widget _buildInfoCard({
+    required String title,
+    required Widget child,
+    VoidCallback? onEditTap,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -339,10 +412,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 title,
                 style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
               ),
-              GestureDetector(
-                onTap: onEditTap,
-                child: const Icon(Icons.edit, color: Colors.white, size: 20),
-              ),
+              // Show icon ONLY if onEditTap is provided
+              if (onEditTap != null)
+                GestureDetector(
+                  onTap: onEditTap,
+                  child: const Icon(Icons.edit, color: Colors.white, size: 20),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -351,7 +426,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+  // --- END MODIFICATION ---
 
+  // --- MODIFIED: Removed onEditTap from Weight/Height ---
   Widget _buildAboutYouSection() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -362,8 +439,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _user!.dob != null
                 ? DateFormat('dd/MM/yyyy').format(_user!.dob!)
                 : 'NA'),
-        _buildDetailItem('Weight', '${_user!.weight?.toString() ?? 'NA'} kg'),
-        _buildDetailItem('Height', '${_user!.height?.toString() ?? 'NA'} cm'),
+        _buildDetailItem('Weight', '${_user!.weight?.toStringAsFixed(1) ?? 'NA'} kg'), // Added formatting
+        _buildDetailItem('Height', '${_user!.height?.toStringAsFixed(0) ?? 'NA'} cm'), // Added formatting
       ],
     );
   }
@@ -372,21 +449,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildDetailItem('Email', _user!.email ?? 'Not provided',
-            isColumn: true),
+        // _buildDetailItem('Email', _user!.email ?? 'Not provided',
+        //     isColumn: true),
+        // const SizedBox(height: 16),
+        _buildDetailItem(
+          'Contact No.',
+          _user!.contactNo ?? 'Not provided',
+          isColumn: true,
+          onEditTap: _showEditContactSheet,
+        ),
         const SizedBox(height: 16),
-        _buildDetailItem('Contact No.', _user!.contactNo ?? 'Not provided',
-            isColumn: true),
+        _buildDetailItem(
+          'Daily Step Goal',
+           _user?.stepGoal != null && _user!.stepGoal! > 0
+              ? NumberFormat.decimalPattern().format(_user!.stepGoal)
+              : 'Not Set',
+          isColumn: true,
+          onEditTap: _showSetGoalSheet,
+        ),
       ],
     );
   }
 
+  void _showEditUsernameSheet() {
+    final usernameController = TextEditingController(text: _user?.username);
+
+    const textStyle = TextStyle(color: Colors.black);
+    const labelStyle = TextStyle(color: Colors.black54);
+
+    _showEditSheet(
+      title: 'Edit Username',
+      content: TextField(
+        controller: usernameController,
+        style: textStyle,
+         autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Username',
+          labelStyle: labelStyle,
+        ),
+        keyboardType: TextInputType.text,
+      ),
+      onSave: () {
+         if (usernameController.text.trim().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Username cannot be empty.'), backgroundColor: Colors.red),
+          );
+          return;
+        }
+        final updatedUser =
+            _user!.copyWith(username: usernameController.text.trim());
+        _updateAndReloadProfile(updatedUser);
+      },
+    );
+  }
 
   void _showEditAboutYouSheet() {
     final weightController =
-        TextEditingController(text: _user?.weight?.toString());
+        TextEditingController(text: _user?.weight?.toStringAsFixed(1));
     final heightController =
-        TextEditingController(text: _user?.height?.toString());
+        TextEditingController(text: _user?.height?.toStringAsFixed(0));
     DateTime? selectedDob = _user?.dob;
     String? selectedGender = _user?.gender;
 
@@ -520,19 +641,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditYourProfileSheet() {
+
+  void _showEditContactSheet() {
     final contactController = TextEditingController(text: _user?.contactNo);
 
     const textStyle = TextStyle(color: Colors.black);
     const labelStyle = TextStyle(color: Colors.black54);
 
     _showEditSheet(
-      title: 'Your Profile',
+      title: 'Edit Contact',
       content: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
             controller: contactController,
             style: textStyle,
+             autofocus: true,
             decoration: const InputDecoration(
               labelText: 'Contact No.',
               labelStyle: labelStyle,
@@ -549,6 +673,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+
   void _showSetGoalSheet() {
     final goalController =
         TextEditingController(text: _user?.stepGoal?.toString());
@@ -557,78 +682,106 @@ class _ProfileScreenState extends State<ProfileScreen> {
     const labelStyle = TextStyle(color: Colors.black54);
 
     _showEditSheet(
-      title: 'Set Goal',
+      title: 'Set Daily Step Goal',
       content: TextField(
         controller: goalController,
         style: textStyle,
+         autofocus: true,
         decoration: const InputDecoration(
-          labelText: 'Add Your Steps',
+          labelText: 'Daily Steps',
           labelStyle: labelStyle,
         ),
         keyboardType: TextInputType.number,
       ),
       onSave: () {
-        final updatedUser =
-            _user!.copyWith(stepGoal: int.tryParse(goalController.text.trim()));
+         final goalValue = int.tryParse(goalController.text.trim());
+        if (goalValue == null || goalValue <= 0) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Please enter a valid step goal.'), backgroundColor: Colors.red),
+           );
+           return;
+        }
+        final updatedUser = _user!.copyWith(stepGoal: goalValue);
         _updateAndReloadProfile(updatedUser);
       },
     );
   }
 
-  Widget _buildDetailItem(String label, String value, {bool isColumn = false}) {
-    if (isColumn) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value,
-              style: const TextStyle(color: Colors.white, fontSize: 16)),
-          const SizedBox(height: 4),
-          Text(label,
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-        ],
-      );
-    }
-    return Column(
+  Widget _buildDetailItem(String label, String value, {bool isColumn = false, VoidCallback? onEditTap}) {
+    final content = Column(
+      // Align value and label left
+      crossAxisAlignment: isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16)),
+        Text(value,
+            style: const TextStyle(color: Colors.white, fontSize: 16)),
         const SizedBox(height: 4),
         Text(label,
             style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
       ],
     );
+
+    if (isColumn) {
+      if (onEditTap != null) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: content),
+            const SizedBox(width: 8),
+            Padding(
+               padding: const EdgeInsets.only(top: 4.0),
+              child: IconButton(
+                icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
+                onPressed: onEditTap,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                splashRadius: 20,
+              ),
+            ),
+          ],
+        );
+      }
+      return Align(alignment: Alignment.centerLeft, child: content);
+    }
+
+  
+    return content;
   }
 
+
   Widget _buildStepsChart() {
-final Map<String, int> stepsData = _isChartLoading ? {
-      'MO': 0, 'TU': 0, 'WE': 0, 'TH': 0, 'FR': 0, 'SA': 0, 'SU': 0
-    } : _stepHistory;
-    
-    const int maxSteps = 10000;
+    final bool hasData = _stepHistory.values.any((steps) => steps > 0);
+    const int maxStepsDefault = 10000;
+    final int maxSteps = (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
+
 
     return Column(
       children: [
-        Row(
+        const Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Last 7 days steps',
-                style: TextStyle(color: Colors.white)),
-            GestureDetector(
-              onTap: _showSetGoalSheet,
-              child: Text('+ Add Goal',
-                  style: TextStyle(color: Colors.yellow.shade700)),
-            ),
+            Text('Weekly Steps', style: TextStyle(color: Colors.white)),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.chevron_left, color: Colors.white),
+            IconButton(
+              icon: const Icon(Icons.chevron_left, color: Colors.white),
+              onPressed: _goToPreviousWeek,
+              splashRadius: 20,
+            ),
             const SizedBox(width: 8),
-            Text('Sep 10 - Sep 17 2025',
+            Text(_formatWeekRange(_currentWeekStart),
                 style: TextStyle(color: Colors.grey.shade400)),
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, color: Colors.white),
+            IconButton(
+              icon: const Icon(Icons.chevron_right, color: Colors.white),
+              onPressed: _isCurrentWeek(_currentWeekStart) ? null : _goToNextWeek,
+               color: _isCurrentWeek(_currentWeekStart) ? Colors.grey.shade700 : Colors.white,
+              splashRadius: 20,
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -636,40 +789,53 @@ final Map<String, int> stepsData = _isChartLoading ? {
           height: 150,
           child: _isChartLoading
             ? const Center(child: CircularProgressIndicator(color: Colors.yellow))
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: stepsData.entries.map((entry) {
-                  return _buildBar(
-                    day: entry.key,
-                    steps: entry.value,
-                    maxSteps: maxSteps,
-                  );
-                }).toList(),
-              ),
+            : !hasData
+                ? Center(
+                    child: Text(
+                      "No step data available for this week.",
+                      style: TextStyle(color: Colors.grey.shade500),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: _stepHistory.entries.map((entry) {
+                      return _buildBar(
+                        day: entry.key,
+                        steps: entry.value,
+                        maxSteps: maxSteps,
+                        goalSteps: _user?.stepGoal,
+                      );
+                    }).toList(),
+                  ),
         ),
       ],
     );
   }
 
-  Widget _buildBar(
-      {required String day, required int steps, required int maxSteps}) {
-    final double barHeight = (steps / maxSteps) * 100.0;
-    final bool showLabel = day == 'MO' || day == 'TU' || day == 'SU';
+  Widget _buildBar({required String day, required int steps, required int maxSteps, int? goalSteps}) {
+     final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
+     final double barHeight = (steps / relativeMax * 120.0).clamp(5.0, 120.0);
+     final Color barColor = (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
+         ? Colors.green.shade400
+         : Colors.yellow.shade700;
+     final bool showLabel = true;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         if (showLabel)
-          Text(NumberFormat.compact().format(steps),
-              style: const TextStyle(color: Colors.white, fontSize: 12)),
+          Text(
+            NumberFormat.compact().format(steps),
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
         const SizedBox(height: 4),
         Container(
-          height: barHeight.clamp(7.0, 120.0),
-          width: 24,
+          height: barHeight,
+          width: 20,
           decoration: BoxDecoration(
-            color: Colors.yellow.shade700,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+            color: barColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
           ),
         ),
         const SizedBox(height: 8),

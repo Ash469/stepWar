@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
 import 'profile_completion_screen.dart';
+import '../services/notification_service.dart'; 
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -59,11 +60,16 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  // --- Navigation Logic ---
   Future<void> _navigateAfterLogin() async {
     final user = _authService.currentUser;
     if (user == null || !mounted) return;
     setState(() => _isLoading = true);
+
+    // --- NEW: Request notification permission after successful login ---
+    // This will trigger the system's permission dialog at a more appropriate time.
+    final notificationService = NotificationService();
+    await notificationService.initialize();
+    // --- END NEW ---
 
     final isNew = await _authService.isNewUser(user.uid);
 
