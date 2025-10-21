@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
 import 'profile_screen.dart';
-import 'google_fit_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../models/user_model.dart';
 import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
+import 'bot_selection_screen.dart';
+import 'matchmaking_screen.dart';
+import 'waiting_for_friend_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -55,7 +58,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       final battleService = context.read<ActiveBattleService>();
-      if (battleService.isBattleActive && battleService.timeLeft.isNegative) {
+      if (battleService.isBattleActive && (battleService.timeLeft.isNegative || battleService.timeLeft.inSeconds == 0)) {
         battleService.endBattle();
       }
     }
@@ -63,6 +66,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _showGameOverDialog(Map<String, dynamic> finalState) {
     final authService = context.read<AuthService>();
+    final battleService = context.read<ActiveBattleService>();
     final currentUserId = authService.currentUser?.uid;
 
     final gameState = finalState['finalState'];
@@ -71,6 +75,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final winnerId = gameState['winnerId'];
     final result = gameState['result'];
     final rewards = gameState['rewards'];
+    final gameType = gameState['gameType']; // 'PVP', 'BOT', 'FRIEND'
     final bool isWinner = winnerId == currentUserId;
     final int coinsToShow;
     if (result == 'DRAW') {
@@ -290,19 +295,41 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-
-              // Action Buttons
               Padding(
                 padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                 child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          context
-                              .read<ActiveBattleService>()
-                              .dismissBattleResults();
+                        onPressed: () async {
+                          Navigator.of(ctx).pop(); 
+                          battleService.dismissBattleResults();
+
+                          if (!mounted) return;
+
+                          final user = await authService.refreshUserProfile(currentUserId!);
+                          if (user == null || !mounted) return;
+                          
+                          print("--- BATTLE ENDED --- Navigating based on Game Type: '$gameType'");
+
+                          switch (gameType) {
+                            case 'PVP':
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
+                              );
+                              break;
+                            case 'BOT':
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
+                              );
+                              break;
+                            case 'FRIEND':
+                              // For FRIEND battles, just go back to the home screen.
+                              break;
+                            default:
+                              print("--- WARNING --- Unknown gameType '$gameType' received. Defaulting to home screen.");
+                              break;
+                          }
                         },
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -451,3 +478,4 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 }
+

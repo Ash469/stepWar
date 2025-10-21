@@ -86,7 +86,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _updateAndReloadProfile(UserModel updatedUser) async {
-    // Check if the bottom sheet is still open before trying to pop
     if(Navigator.of(context).canPop()) {
        Navigator.of(context).pop();
     }
@@ -248,7 +247,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _buildInfoCard(
                     title: 'About you',
                     child: _buildAboutYouSection(),
-                    onEditTap: _showEditAboutYouSheet 
+                    onEditTap: _showEditAboutYouSheet
                  ),
                 const SizedBox(height: 16),
                  _buildInfoCard(
@@ -390,7 +389,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-
  Widget _buildInfoCard({
     required String title,
     required Widget child,
@@ -412,7 +410,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 title,
                 style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
               ),
-              // Show icon ONLY if onEditTap is provided
               if (onEditTap != null)
                 GestureDetector(
                   onTap: onEditTap,
@@ -426,9 +423,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-  // --- END MODIFICATION ---
 
-  // --- MODIFIED: Removed onEditTap from Weight/Height ---
   Widget _buildAboutYouSection() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -439,8 +434,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _user!.dob != null
                 ? DateFormat('dd/MM/yyyy').format(_user!.dob!)
                 : 'NA'),
-        _buildDetailItem('Weight', '${_user!.weight?.toStringAsFixed(1) ?? 'NA'} kg'), // Added formatting
-        _buildDetailItem('Height', '${_user!.height?.toStringAsFixed(0) ?? 'NA'} cm'), // Added formatting
+        _buildDetailItem('Weight', '${_user!.weight?.toStringAsFixed(1) ?? 'NA'} kg'),
+        _buildDetailItem('Height', '${_user!.height?.toStringAsFixed(0) ?? 'NA'} cm'),
       ],
     );
   }
@@ -449,9 +444,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // _buildDetailItem('Email', _user!.email ?? 'Not provided',
-        //     isColumn: true),
-        // const SizedBox(height: 16),
+        _buildDetailItem('Email', _user!.email ?? 'Not provided',
+            isColumn: true),
+        const SizedBox(height: 16),
         _buildDetailItem(
           'Contact No.',
           _user!.contactNo ?? 'Not provided',
@@ -709,7 +704,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildDetailItem(String label, String value, {bool isColumn = false, VoidCallback? onEditTap}) {
     final content = Column(
-      // Align value and label left
       crossAxisAlignment: isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
         Text(value,
@@ -743,17 +737,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       return Align(alignment: Alignment.centerLeft, child: content);
     }
-
-  
+    
     return content;
   }
 
-
+  // --- MODIFIED FUNCTION for chart ---
   Widget _buildStepsChart() {
-    final bool hasData = _stepHistory.values.any((steps) => steps > 0);
+    // --- Create a mutable copy and inject today's steps ---
+    final Map<String, int> stepsData = Map.from(_stepHistory);
+    if (_isCurrentWeek(_currentWeekStart) && _user != null) {
+      const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+      final todayAbbreviation = dayAbbreviations[DateTime.now().weekday - 1];
+      stepsData[todayAbbreviation] = _user!.todaysStepCount ?? 0;
+    }
+
+    final bool hasData = stepsData.values.any((steps) => steps > 0);
     const int maxStepsDefault = 10000;
     final int maxSteps = (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
-
 
     return Column(
       children: [
@@ -799,7 +799,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     crossAxisAlignment: CrossAxisAlignment.end,
-                    children: _stepHistory.entries.map((entry) {
+                    children: stepsData.entries.map((entry) {
                       return _buildBar(
                         day: entry.key,
                         steps: entry.value,
@@ -813,22 +813,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // --- MODIFIED FUNCTION for chart bars ---
   Widget _buildBar({required String day, required int steps, required int maxSteps, int? goalSteps}) {
      final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
      final double barHeight = (steps / relativeMax * 120.0).clamp(5.0, 120.0);
      final Color barColor = (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
          ? Colors.green.shade400
          : Colors.yellow.shade700;
-     final bool showLabel = true;
-
+     
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        if (showLabel)
-          Text(
-            NumberFormat.compact().format(steps),
-            style: const TextStyle(color: Colors.white, fontSize: 10),
-          ),
+        // --- Always show the label ---
+        Text(
+          NumberFormat.compact().format(steps),
+          style: const TextStyle(color: Colors.white, fontSize: 10),
+        ),
         const SizedBox(height: 4),
         Container(
           height: barHeight,

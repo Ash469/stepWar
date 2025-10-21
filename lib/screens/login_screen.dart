@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
 import 'profile_completion_screen.dart';
-import '../services/notification_service.dart'; 
+// --- MODIFICATION: Removed unused import ---
+// import '../services/notification_service.dart'; 
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -65,11 +66,9 @@ class _LoginScreenState extends State<LoginScreen> {
     if (user == null || !mounted) return;
     setState(() => _isLoading = true);
 
-    // --- NEW: Request notification permission after successful login ---
-    // This will trigger the system's permission dialog at a more appropriate time.
-    final notificationService = NotificationService();
-    await notificationService.initialize();
-    // --- END NEW ---
+    // --- MODIFICATION: Removed notification initialization from here ---
+    // This logic is now correctly handled in home_screen.dart, which runs
+    // after this navigation is complete.
 
     final isNew = await _authService.isNewUser(user.uid);
 
@@ -384,7 +383,7 @@ Widget _buildOtpBox(int index) {
       focusNode: _otpFocusNodes[index],
       textAlign: TextAlign.center,
       keyboardType: TextInputType.number,
-      maxLength: 1, // Keep maxLength to 1 to enforce single digit visually
+      maxLength: 1,
       style: const TextStyle(
         color: Colors.black,
         fontSize: 22,

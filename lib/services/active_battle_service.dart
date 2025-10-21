@@ -30,6 +30,7 @@ class ActiveBattleService with ChangeNotifier {
   Stream<void> get stream => _controller.stream;
   bool get isWaitingForFriend => currentGame?.gameStatus == GameStatus.waiting;
   bool _isEndingBattle = false;
+  bool get isEndingBattle => _isEndingBattle;
 
 
   Future<void> startBattle(String gameId, UserModel user) async {
@@ -72,20 +73,15 @@ class ActiveBattleService with ChangeNotifier {
     if (currentTotalSteps == null) return;
 
     if (_initialPlayerSteps == -1) {
-      // Set the initial step count when the first event arrives for this battle.
       _initialPlayerSteps = currentTotalSteps;
     }
 
     int stepsThisGame = currentTotalSteps - _initialPlayerSteps;
     
-    // --- THIS IS THE FIX ---
-    // If the pedometer resets (e.g., phone restart, OS glitch), the new total
-    // might be less than our initial value. This causes a negative count.
-    // If we detect this, we recalibrate our initial value to the new total.
     if (stepsThisGame < 0) {
       print("Pedometer reset detected! Recalibrating initial steps.");
       _initialPlayerSteps = currentTotalSteps;
-      stepsThisGame = 0; // Reset the battle steps to 0 for the new baseline.
+      stepsThisGame = 0;
     }
     final isUserPlayer1 = _currentGame!.player1Id == userId;
     final multiplier =
@@ -206,3 +202,4 @@ class ActiveBattleService with ChangeNotifier {
     }
   }
 }
+

@@ -1,1 +1,25 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"stepwarsnew","appId":"1:955460127665:android:d152f69cfeeb9366228b90","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"stepwarsnew","configurations":{"android":"1:955460127665:android:d152f69cfeeb9366228b90","ios":"1:955460127665:ios:993de77e76b31847228b90","macos":"1:955460127665:ios:993de77e76b31847228b90","web":"1:955460127665:web:7144a2cfb99f911d228b90","windows":"1:955460127665:web:722f48ec12976cbf228b90"}}}}}}
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "stepwarsnew",
+                    "appId": "1:955460127665:android:d152f69cfeeb9366228b90",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "stepwarsnew",
+                    "configurations": {
+                        "android": "1:955460127665:android:d152f69cfeeb9366228b90",
+                        "ios": "1:955460127665:ios:993de77e76b31847228b90",
+                        "macos": "1:955460127665:ios:993de77e76b31847228b90",
+                        "web": "1:955460127665:web:7144a2cfb99f911d228b90",
+                        "windows": "1:955460127665:web:722f48ec12976cbf228b90"
+                    }
+                }
+            }
+        }
+    }
+}

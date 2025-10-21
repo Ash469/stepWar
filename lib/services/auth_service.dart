@@ -48,7 +48,7 @@ class AuthService {
       final response = await http.put(
         Uri.parse('$_baseUrl/api/user/profile/${user.userId}'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(userJson), // Use the corrected, JSON-safe map
+        body: jsonEncode(userJson),
       );
 
       if (response.statusCode != 200) {
@@ -61,16 +61,14 @@ class AuthService {
     }
   }
 
+  // --- MODIFIED FUNCTION ---
+  // This function now ensures data consistency by fetching from the backend API,
+  // which is the single source of truth for user data like coins.
   Future<UserModel?> getUserProfile(String userId) async {
-    try {
-      final doc = await _firestore.collection('users').doc(userId).get();
-      if (doc.exists) {
-        return UserModel.fromJson(doc.data()!);
-      }
-    } catch (e) {
-      print("Error getting user profile: $e");
-    }
-    return null;
+    print("[AuthService] getUserProfile called. Re-routing to refreshUserProfile to ensure data consistency.");
+    // By calling refreshUserProfile, we guarantee we get the latest data from the
+    // backend API (MongoDB) instead of a potentially stale Firestore document.
+    return await refreshUserProfile(userId);
   }
 
   Future<void> syncUserWithBackend({String? uid, String? email}) async {
@@ -200,9 +198,12 @@ class AuthService {
       userJson['dob'] = user.dob!.toIso8601String();
     } else {
       // Search for dob from firestore and if it exists convert it to iso8601 string
-      final firestoreUser = await getUserProfile(user.userId);
-      if (firestoreUser?.dob != null) {
-        userJson['dob'] = firestoreUser!.dob!.toIso8601String();
+      final firestoreDoc = await _firestore.collection('users').doc(user.userId).get();
+      if (firestoreDoc.exists) {
+        final firestoreUser = UserModel.fromJson(firestoreDoc.data()!);
+         if (firestoreUser.dob != null) {
+           userJson['dob'] = firestoreUser.dob!.toIso8601String();
+         }
       }
     }
     final userProfileString = jsonEncode(userJson);
@@ -211,12 +212,14 @@ class AuthService {
 
   Future<UserModel?> refreshUserProfile(String userId) async {
     try {
-      await SharedPreferences.getInstance();
       final uri = Uri.parse('$_baseUrl/api/user/profile/$userId');
       final response =
           await http.get(uri, headers: {'Content-Type': 'application/json'});
       if (response.statusCode == 200) {
-        final user = UserModel.fromJson(jsonDecode(response.body));
+        final userData = jsonDecode(response.body);
+        // --- ADDED LOGGING ---
+        print("[AuthService] Fetched profile from backend. Coins: ${userData['coins']}");
+        final user = UserModel.fromJson(userData);
         await saveUserSession(user);
         return user;
       } else {
@@ -229,7 +232,6 @@ class AuthService {
   }
 
   Future<void> syncStepsToBackend(String userId, int steps) async {
-    // print("making api reuest with $userId and $steps");
     if (userId.isEmpty) return;
 
     try {
@@ -303,3 +305,4 @@ class AuthService {
     }
   }
 }
+

@@ -253,7 +253,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         const Icon(Icons.card_giftcard, size: 100),
                   ),
                 ),
-                // The top, overlapping image (party/confetti)
                 SizedBox(
                   width: 280,
                   height: 280,
@@ -305,9 +304,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 flex: 4,
                 child: Stack(
                   alignment: Alignment.center,
-                  clipBehavior: Clip.none, // Allow image to overflow
+                  clipBehavior: Clip.none,
                   children: [
-                    // The circle
                     Container(
                       width: circleDiameter,
                       height: circleDiameter,
@@ -317,11 +315,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         border: Border.all(color: Colors.white, width: 6),
                       ),
                     ),
-                    // Overlapping image cutting from the bottom
                     Positioned(
-                      bottom: -20, // Position image to cut the circle
+                      bottom: -20,
                       child: SizedBox(
-                        width: circleDiameter * 1.1, // Slightly larger
+                        width: circleDiameter * 1.1,
                         height: circleDiameter,
                         child: Image.asset(
                           'assets/images/onboarding_5.png',
@@ -379,12 +376,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildWinConditionItem(
-              'assets/images/ko_image.png', "KO Victory", "5000 step lead"),
+              'assets/images/ko_image.png', "KO Victory", "200 step lead"),
           const SizedBox(height: 24),
           _buildWinConditionItem('assets/images/medel.png', "Win", "More steps"),
           const SizedBox(height: 24),
           _buildWinConditionItem(
-              'assets/images/flag.png', "Draw", "Within 100 steps"),
+              'assets/images/flag.png', "Draw", "Within 50 steps"),
         ],
       ),
     );
@@ -402,13 +399,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           child: CircleAvatar(
             radius: 30,
-            backgroundColor: const Color(0xFFFDE047), // Yellow background
+            backgroundColor: const Color(0xFFFDE047),
             child: Padding(
-              padding: const EdgeInsets.all(8.0), // Padding inside the circle
+              padding: const EdgeInsets.all(8.0), 
               child: Image.asset(
                 imagePath,
                 fit: BoxFit.contain,
-                // Fallback icon if the image fails to load
                 errorBuilder: (context, error, stackTrace) =>
                     const Icon(Icons.help_outline, color: Colors.black54),
               ),
@@ -416,7 +412,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
         const SizedBox(width: 20),
-        // Text content for the win condition
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -445,7 +440,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // --- Navigation Logic ---
   void _onIntroEnd() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasSeenOnboarding', true);

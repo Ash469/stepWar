@@ -19,6 +19,8 @@ class _BattleScreenState extends State<BattleScreen> {
   UserModel? _opponentProfile;
   bool _isFetchingData = false;
   final BotService _botService = BotService();
+  
+  bool _isEndingBattle = false;
 
   @override
   void initState() {
@@ -79,6 +81,25 @@ class _BattleScreenState extends State<BattleScreen> {
     }
   }
 
+  // --- NEW FUNCTION TO REFRESH USER DATA ---
+  Future<void> _refreshCurrentUserProfile() async {
+    if (_currentUserModel == null || !mounted) return;
+    
+    // Use the auth service to get the latest profile from the backend
+    final authService = context.read<AuthService>();
+    final updatedUser = await authService.refreshUserProfile(_currentUserModel!.userId);
+    
+    if (updatedUser != null && mounted) {
+      setState(() {
+        _currentUserModel = updatedUser;
+      });
+      print("Battle screen coin count updated via setState to: ${updatedUser.coins}");
+    } else {
+      print("Failed to refresh user profile on battle screen.");
+    }
+  }
+  
+  // --- MODIFIED FUNCTION ---
   Future<void> _activateMultiplier(String multiplierType) async {
     final battleService = context.read<ActiveBattleService>();
     final userId = _currentUserModel?.userId;
@@ -91,6 +112,8 @@ class _BattleScreenState extends State<BattleScreen> {
               content: Text('$multiplierType Multiplier Activated!'),
               backgroundColor: Colors.green),
         );
+        // --- THE FIX: Refresh the user profile to get the new coin count ---
+        await _refreshCurrentUserProfile();
       }
     } catch (e) {
       if (mounted) {
@@ -102,6 +125,48 @@ class _BattleScreenState extends State<BattleScreen> {
       }
     }
   }
+
+  Future<void> _showEndBattleConfirmation() async {
+    final battleService = context.read<ActiveBattleService>();
+    if (_isEndingBattle || battleService.isEndingBattle) return;
+
+    final didConfirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: const Text('End Battle?', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Are you sure you want to end the battle? This will be counted as a loss.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('End Battle', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (didConfirm == true && mounted) {
+      setState(() => _isEndingBattle = true);
+      try {
+        await battleService.endBattle();
+      } catch (e) {
+        if(mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error ending battle: $e'), backgroundColor: Colors.red),
+          );
+           setState(() => _isEndingBattle = false);
+        }
+      }
+    }
+  }
+
 
   Widget _buildYourRewardsSection(Game game) {
     final potentialReward = game.potentialReward;
@@ -117,7 +182,7 @@ class _BattleScreenState extends State<BattleScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         const Text("Your Potential Reward",
             style: TextStyle(
                 color: Colors.white,
@@ -231,16 +296,17 @@ class _BattleScreenState extends State<BattleScreen> {
         body: SafeArea(
           child: Padding(
             padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildTimer(battleService.timeLeft),
+                _buildTopSection(battleService, p1Score, p2Score, isUserPlayer1),
                 _buildPlayerStats(
                     player1, p1Score, p1Steps, player2, p2Score, p2Steps, game),
                 _buildBattleBar(p1Score, p2Score),
                 _buildMultiplierSection(isUserPlayer1, game, _currentUserModel!), 
                 _buildYourRewardsSection(game),
+                const Spacer(),
               ],
             ),
           ),
@@ -249,19 +315,84 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildTimer(Duration timeLeft) {
+  Widget _buildTopSection(ActiveBattleService battleService, int p1Score, int p2Score, bool isUserP1) {
+    final timeLeft = battleService.timeLeft;
     final minutes = timeLeft.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = timeLeft.inSeconds.remainder(60).toString().padLeft(2, '0');
+    
+    final scoreDiff = isUserP1 ? (p1Score - p2Score) : (p2Score - p1Score);
+    final bool isAhead = scoreDiff > 0;
+    final bool isDraw = scoreDiff.abs() <= 50;
+    
+    final bool canEndBattle = timeLeft.inSeconds <= 480;
+
+    String statusText;
+    Color statusColor;
+
+    if (isDraw) {
+      statusText = "It's a Draw!";
+      statusColor = Colors.grey;
+    } else if (isAhead) {
+      statusText = "Ahead by ${scoreDiff.abs()} Score";
+      statusColor = Colors.greenAccent;
+    } else {
+      statusText = "Behind by ${scoreDiff.abs()} Score";
+      statusColor = Colors.redAccent;
+    }
+
     return Column(
       children: [
-        Text('$minutes:$seconds',
-            style: const TextStyle(
-                color: Color(0xFFE53935),
-                fontSize: 48,
-                fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        const Text('Time left',
-            style: TextStyle(color: Colors.white70, fontSize: 16)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(width: 80), 
+            Column(
+              children: [
+                Text('$minutes:$seconds',
+                    style: const TextStyle(
+                        color: Color(0xFFE53935),
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text('Time left',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+              ],
+            ),
+            if (_isEndingBattle)
+              const SizedBox(
+                width: 80,
+                child: Center(child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
+              )
+            else
+             SizedBox(
+               width: 80,
+               child: Visibility(
+                 visible: canEndBattle,
+                 maintainSize: true,
+                 maintainAnimation: true,
+                 maintainState: true,
+                 child: TextButton(
+                    onPressed: _showEndBattleConfirmation,
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.redAccent.withOpacity(0.8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                    child: const Text(
+                      'End Battle',
+                      style: TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ),
+               ),
+             ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(statusText,
+            style: TextStyle(color: statusColor, fontSize: 18, fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -368,14 +499,14 @@ class _BattleScreenState extends State<BattleScreen> {
 
   Widget _buildBattleBar(int p1Score, int p2Score) {
     final diff = p1Score - p2Score;
-    double normalizedValue = (diff.clamp(-1000, 1000) + 1000) / 2000;
+    double normalizedValue = (diff.clamp(-200, 200) + 200) / 400;
     return Column(
       children: [
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         LayoutBuilder(builder: (context, constraints) {
           final barWidth = constraints.maxWidth;
           return SizedBox(
-            height: 50,
+            height: 40,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -437,7 +568,7 @@ class _BattleScreenState extends State<BattleScreen> {
       return const Text("Multiplier used!",
           style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
     }
-
+    
     final multipliers = currentUser.multipliers ?? {};
     final available1_5x = multipliers['1_5x'] ?? 0;
     final available2x = multipliers['2x'] ?? 0;
@@ -467,7 +598,7 @@ class _BattleScreenState extends State<BattleScreen> {
 
     return Stack(
       clipBehavior:
-          Clip.none, // Allows the badge to sit outside the button's bounds
+          Clip.none,
       children: [
         ElevatedButton(
           onPressed: () => _activateMultiplier(apiKey),
@@ -486,7 +617,6 @@ class _BattleScreenState extends State<BattleScreen> {
                       fontSize: 20,
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              // Dynamically show "Use Token" text or the coin cost
               if (canUse)
                 const Text('Use Token',
                     style: TextStyle(
@@ -508,7 +638,6 @@ class _BattleScreenState extends State<BattleScreen> {
           ),
         ),
 
-        // This is the badge that appears only if the user has multipliers
         if (canUse)
           Positioned(
             top: -8,
@@ -516,7 +645,7 @@ class _BattleScreenState extends State<BattleScreen> {
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFC107), // Yellow badge color
+                color: const Color(0xFFFFC107),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.black, width: 1.5),
               ),
@@ -541,3 +670,4 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 }
+

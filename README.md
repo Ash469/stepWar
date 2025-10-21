@@ -14,9 +14,23 @@ A gamified fitness App where your daily steps fuel real-time battles against fri
 
 -   **Dynamic Score System**: Steps are converted into points, which can be amplified with in-game multipliers (1.5x, 2x, 3x).
 
--   **Multiple Win Conditions**: Win by having the highest score at the end of the 60-minute timer, or achieve an instant "KO" by leading your opponent by 3000 points.
+-   **Multiple Win Conditions**: Win by having the highest score at the end of the 10-minute timer, or achieve an instant "KO" by leading your opponent by 200 points.
 
--   **Forfeit Handling**: Players who leave an ongoing match will automatically lose, ensuring fair play.
+-   **Friend Battle**: Invite your friend to a duel with your unique battle code.
+
+**Reward Types**
+- Forts → famous cities/regions  
+- Monuments → global landmarks  
+- Legends → historical/present figures  
+- Badges → themes, causes, fanbases  
+
+**Tiers & Rates**
+- Rare – 60%  
+- Epic – 25%  
+- Mythic – 12%  
+- Legendary – 3%  
+
+Each online battle win grants exactly one random reward.
 
 ### UI/UX Design
 
@@ -28,69 +42,71 @@ A gamified fitness App where your daily steps fuel real-time battles against fri
 
 -   **Responsive Design**: The interface is optimized for a seamless experience on various mobile devices.
 
-### Technical Features
+## ⚙️ Technical Features
 
--   **Firebase Backend**: Uses Firebase Authentication for email and Google Sign-In, Cloud Firestore for user profiles, and Realtime Database for live battle data.
+### Hybrid Backend Architecture
+A scalable backend built with **Node.js** and **Express**, deployed on **AWS Elastic Beanstalk**.  
+Uses **MongoDB** for persistent data storage (user profiles, rewards, battle history) and integrates **Firebase** for specific functionalities.
 
--   **Pedometer Integration**: Leverages the `pedometer` package for efficient, low-battery step tracking.
+### Firebase Integration
+- **Authentication**: Secure user sign-up/sign-in via **Firebase Authentication** (Google Sign-In).  
+- **Realtime Battles**: Uses **Firebase Realtime Database** to sync live battle data (scores, steps, multipliers) with minimal latency.  
+- **Push Notifications**: **Firebase Cloud Messaging (FCM)** delivers real-time notifications for battle outcomes and key events.
 
--   **Stateful Management**: Built with Flutter's core `StatefulWidget` and `setState` for reactive UI updates.
+### Pedometer Integration
+Efficient, low-battery step tracking using native device sensors via the **pedometer** package.  
+Step data is synchronized with the backend to ensure accuracy and prevent inconsistencies.
 
--   **Modular Architecture**: A clean separation of concerns with dedicated services for authentication, game logic, and step counting.
+### State Management
+Combines **Flutter’s StatefulWidget** for local UI state and **Provider** for global app state management.  
+Example: `ActiveBattleService` maintains live battle state across different screens.
+
+### Modular Service Layer
+Follows a clean separation of concerns with a robust service layer.  
+Dedicated services handle:
+- **AuthService** → Authentication  
+- **GameService** → Game logic  
+- **BotService** → Bot intelligence  
+- **ActiveBattleService** → Live battle state  
+- **NotificationService** → Push notifications  
+- **MysteryBoxService** → Reward systems  
+
+---
+
 
 🏗️ Project Structure
 ---------------------
 
 ```
 lib/
-├── main.dart
+├── main.dart # App entry point
 ├── models/
-│   ├── user_model.dart           # User profile data model (Firestore)
-│   └── battle_RB.dart            # Real-time battle data model (Realtime DB)
+│ ├── user_model.dart # Data model for user profiles and stats
+│ └── battle_RB.dart # Data model for live battle data in Realtime DB
 ├── screens/
-│   ├── home_screen.dart          # Main dashboard for starting battles
-│   ├── battle_screen.dart        # Real-time battle interface
-│   ├── kingdom_screen.dart       # Gallery for collected items/rewards
-│   ├── profile_screen.dart       # User profile and statistics
-│   ├── login_screen.dart         # User authentication
-│   └── onboarding_screen.dart    # Introduction for new users
+│ ├── main_screen.dart # Main navigation hub with bottom nav bar
+│ ├── home_screen.dart # Dashboard to start battles and view stats
+│ ├── battle_screen.dart # Real-time battle UI
+│ ├── matchmaking_screen.dart # UI for finding online opponents
+│ ├── waiting_for_friend_screen.dart # Lobby for private friend battles
+│ ├── kingdom_screen.dart # Displays user's collected rewards
+│ ├── profile_screen.dart # User profile, settings, and activity history
+│ ├── login_screen.dart # Authentication screen
+│ └── onboarding_screen.dart # First-time user introduction
 ├── services/
-│   ├── auth_service.dart         # Handles user authentication
-│   ├── game_service.dart         # Manages battle creation and state
-│   ├── bot_service.dart          # Logic for bot opponents
-│   └── step_counting.dart      # Manages pedometer integration
-└── ... (other widgets and assets)
-
+│ ├── auth_service.dart # Handles user sign-in, sign-out, and profile data
+│ ├── game_service.dart # API calls for creating/ending battles
+│ ├── active_battle_service.dart # Manages live battle state with Provider
+│ ├── bot_service.dart # Logic for bot opponent behavior
+│ ├── notification_service.dart # Manages FCM token registration and notifications
+│ ├── mystery_box_service.dart # Handles logic for opening reward boxes
+│ └── step_counting.dart # Manages hardware pedometer integration
+└── theme/
+└── widget/
+├── game_rules.dart # Reusable game rules widget
+└── footer.dart # App footer widget
 ```
 
-🎨 Design System
-----------------
-
-### Color Palette
-
--   **Background**: Dark Gray/Black (#121212, #1E1E1E)
-
--   **Primary/Accent**: Yellow (#FDD85D, #FFC107)
-
--   **Error/Danger**: Red (#E53935)
-
--   **Positive**: Green (#69F0AE)
-
--   **Text**: White (#FFFFFF) / Light Gray (#B0BEC5)
-
-### Typography
-
--   **Headings & UI**: Montserrat
-
--   **Body**: Default platform fonts
-
-### Components
-
--   **Cards**: Rounded corners (12dp-16dp) with dark backgrounds.
-
--   **Buttons**: Large, rounded with vibrant accent colors.
-
--   **Dialogs**: Custom-styled dialogs for game over and leave battle confirmations.
 
 🚀 Getting Started
 ------------------
@@ -133,49 +149,21 @@ lib/
 
     ```
 
-### Dependencies
-
-```
-dependencies:
-  flutter:
-    sdk: flutter
-
-  # UI
-  cupertino_icons: ^1.0.2
-
-  # Firebase
-  firebase_core: ^2.24.2
-  firebase_auth: ^4.16.0
-  cloud_firestore: ^4.14.0
-  firebase_database: ^10.4.0 # For real-time battles
-  google_sign_in: ^6.2.1
-
-  # Sensors & Permissions
-  pedometer: ^4.0.1
-  permission_handler: ^11.3.0
-
-  # Utils
-  shared_preferences: ^2.2.2
-  intl: ^0.19.0
-
-```
-
 🎯 Game Mechanics
 -----------------
 
 ### Battle Rules
 
--   **Duration**: Each battle lasts for 60 minutes.
+-   **Duration**: Each battle lasts for 10 minutes.
 
 -   **Objective**: Get a higher score than your opponent. Your score is your step count, amplified by any active multipliers.
 
--   **KO Victory**: Instantly win the game if your score lead becomes 3000 or more.
+-   **KO Victory**: Instantly win the game if your score lead becomes 200 or more.
 
--   **Timed Victory**: If no KO occurs, the player with the higher score at the end of 60 minutes wins.
+-   **Timed Victory**: If no KO occurs, the player with the higher score at the end of 10 minutes wins.
 
--   **Draw**: If the score difference is 100 or less when the timer ends, the game is a draw.
+-   **Draw**: If the score difference is 50 or less when the timer ends, the game is a draw.
 
--   **Forfeit**: Leaving a battle before it concludes results in an automatic loss.
 
 ### Multipliers
 
@@ -185,39 +173,5 @@ dependencies:
 
 -   Only the player's own multiplier affects their score.
 
-📱 Screens Overview
--------------------
-
-### Home Screen
-
--   Displays the user's daily step count.
-
--   Provides options to start an "Online Battle" (against a bot) or "Battle a Friend" (PvP).
-
--   Shows a summary of battle stats and game rules.
-
-### Battle Screen
-
--   Displays both players' scores and multipliers in real-time.
-
--   Features a countdown timer for the 60-minute duration.
-
--   An animated "Battle Bar" visualizes the current score difference between players.
-
--   Allows players to select and activate score multipliers.
-
-### Kingdom Screen
-
--   A gallery view showcasing collectible items or rewards that can be earned.
-
--   (Note: The logic for earning these items is a future enhancement.)
-
-### Profile Screen
-
--   Shows user details like username, email, and other personal stats.
-
--   Includes a chart to visualize step history over the last 7 days.
-
--   Allows users to edit their profile information and set a daily step goal.
 
 **StepWars** - Outwalk the competition! 🚀

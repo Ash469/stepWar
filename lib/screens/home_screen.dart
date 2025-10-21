@@ -13,11 +13,14 @@ import '../services/step_counting.dart';
 import '../widget/footer.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
-import 'matchmaking_screen.dart'; 
+import 'matchmaking_screen.dart';
 import '../widget/game_rules.dart';
 import '../services/notification_service.dart';
 import '../services/mystery_box_service.dart';
 import 'kingdom_screen.dart' show KingdomItem;
+import '../widget/mystery_box_section.dart';
+import '../widget/reward_dialog.dart';
+import '../widget/string_extension.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -55,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadData(isInitialLoad: true);
     _handleNotifications();
     WidgetsBinding.instance.addObserver(this);
     _startBoxTimers();
@@ -99,21 +102,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Duration.zero;
   }
   
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String hours = twoDigits(duration.inHours);
-    String minutes = twoDigits(duration.inMinutes.remainder(60));
-    String seconds = twoDigits(duration.inSeconds.remainder(60));
-    return "$hours:$minutes:$seconds";
-  }
-
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  void didChangeAppLifecycleState(AppLifecycleState state) async { 
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      print("App is pausing. Forcing final step save.");
+      _debounce?.cancel();
+      await _saveLatestSteps(_stepsToShow);
+    }
     if (state == AppLifecycleState.resumed) {
-      print("App resumed, reloading data...");
-      _loadData();
-      _handleNotifications();
+      print("App resumed. Triggering data load sequence.");
+      _loadData(); 
     }
   }
 
@@ -183,37 +182,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showRewardDialog(Map<String, dynamic> reward) {
-      String title = "Congratulations!";
-      String content = "";
+    Widget rewardContent;
+    String titleText;
+    String subtitleText = "";
 
-      switch (reward['type']) {
-          case 'coins':
-              content = "You found ${reward['amount']} coins!";
-              break;
-          case 'multiplier':
-              content = "You received a ${reward['multiplierType']} multiplier token!";
-              break;
-          case 'collectible':
-              final itemName = reward['item']?['name'] ?? 'a new item';
-              content = "You unlocked a new collectible: $itemName!";
-              break;
-          default:
-              content = "You've received a special reward!";
-      }
-      showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-              backgroundColor: const Color(0xFF2a2a2a),
-              title: Text(title, style: const TextStyle(color: Colors.white)),
-              content: Text(content, style: const TextStyle(color: Colors.white70)),
-              actions: [
-                  TextButton(
-                      child: const Text('Awesome!', style: TextStyle(color: Color(0xFFFFC107))),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-              ],
+    switch (reward['type']) {
+      case 'coins':
+        titleText = "${reward['amount']} Coins!";
+        rewardContent = Image.asset('assets/images/coin_icon.png', height: 80);
+        break;
+      case 'multiplier':
+        titleText = "Multiplier Token!";
+        
+        subtitleText = "You got a ${reward['multiplierType']} token";
+        rewardContent = Text(
+          reward['multiplierType'].toString().replaceAll('_', '.'),
+          style: const TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
           ),
-      );
+        );
+        break;
+      case 'collectible':
+        final item = reward['item'];
+        titleText = "New Collectible!";
+        subtitleText = item?['name'] ?? 'A new item';
+        rewardContent = item?['imagePath'] != null
+            ? Image.asset(item!['imagePath'], height: 80)
+            : const Icon(Icons.shield, size: 80, color: Colors.black);
+        break;
+      default:
+        titleText = "Special Reward!";
+        rewardContent =
+            const Icon(Icons.star, size: 80, color: Colors.black);
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => RewardDialog(
+        title: titleText,
+        subtitle: subtitleText,
+        rewardContent: rewardContent,
+      ),
+    );
   }
 
 
@@ -222,20 +235,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final hasRegisteredToken = prefs.getBool('hasRegisteredFcmToken') ?? false;
 
     if (hasRegisteredToken) {
-      print("[FCM] Token is already registered with backend. Skipping.");
       return;
     }
 
     final user = _authService.currentUser;
     if (user != null) {
-      print("[FCM] Attempting to register FCM token...");
       await _notificationService.initialize();
       final token = await _notificationService.getFcmToken();
       if (token != null) {
         final success = await _notificationService.registerTokenWithBackend(user.uid, token);
         if (success) {
           await prefs.setBool('hasRegisteredFcmToken', true);
-          print("[FCM] Token registration successful and flag saved.");
         }
       }
     }
@@ -276,12 +286,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     
     KingdomItem? latest;
+    
     for (var categoryList in rawRewardsMap.values) {
       if (categoryList is List && categoryList.isNotEmpty) {
         final lastItemMap = categoryList.last as Map<String, dynamic>?;
         if (lastItemMap != null) {
           latest = KingdomItem.fromJson(lastItemMap);
-          break; 
+          break;
         }
       }
     }
@@ -291,48 +302,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _loadData({bool forceRefresh = false}) async {
+  Future<void> _loadData({bool forceRefresh = false, bool isInitialLoad = false}) async {
     if (!mounted) return;
-    if (_user == null) {
-      setState(() => _isLoading = true);
-    }
+    
     final prefs = await SharedPreferences.getInstance();
     final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (forceRefresh) {
+      if (!_isLoading) setState(() => _isLoading = true);
+      print("[Data Sync] Manual refresh triggered. Saving local steps first.");
+      _debounce?.cancel();
+      await _saveLatestSteps(_stepsToShow);
+    }
+    
+    bool shouldFetchFromServer = false;
+    const refreshThreshold = Duration(minutes: 5);
+    final lastRefreshString = prefs.getString('lastProfileRefreshTimestamp');
     final lastOpenDate = prefs.getString('lastOpenDate');
     final today = DateTime.now().toIso8601String().split('T').first;
     final isNewDay = lastOpenDate != today;
-    
-    final cachedProfile = prefs.getString('userProfile');
-    final cachedRewards = prefs.getString('userRewardsCache');
 
-    if (cachedProfile != null && mounted) {
-      var user = UserModel.fromJson(jsonDecode(cachedProfile));
-      if (isNewDay) {
-        print("[Local Reset] New day detected. Resetting UI stats.");
-        user = user.copyWith(
-          todaysStepCount: 0,
-          stats: {'battlesWon': 0, 'knockouts': 0, 'totalBattles': 0},
-        );
+    if (forceRefresh || isNewDay || prefs.getString('userProfile') == null) {
+      shouldFetchFromServer = true;
+    } else if (!isInitialLoad && lastRefreshString != null) {
+      final lastRefreshTime = DateTime.tryParse(lastRefreshString);
+      if (lastRefreshTime != null && DateTime.now().difference(lastRefreshTime) > refreshThreshold) {
+        shouldFetchFromServer = true;
+      }
+    } else if (lastRefreshString == null) {
+      shouldFetchFromServer = true;
+    }
+    
+    if (shouldFetchFromServer && currentUser != null) {
+      print("Fetching latest data from server...");
+      if (isInitialLoad && !_isLoading) setState(() => _isLoading = true);
+
+      if (isNewDay || forceRefresh) {
+        print("[Data Sync] Clearing local step offset before server fetch.");
         await prefs.remove('dailyStepOffset');
-        await _authService.saveUserSession(user);
+      }
+      if (isNewDay) {
         await prefs.setString('lastOpenDate', today);
       }
-      setState(() {
-        _user = user;
-        _stepsToShow = user.todaysStepCount ?? 0;
-        _isLoading = false;
-      });
-      if (cachedRewards != null && !forceRefresh) {
-        _setLatestRewardFromData(Map<String, dynamic>.from(jsonDecode(cachedRewards)));
-      }
-    }
-    if ((isNewDay || forceRefresh || cachedProfile == null) && currentUser != null) {
-      print("[Optimized] Fetching latest profile and rewards from server in background...");
-      
+
       try {
         final results = await Future.wait([
           _authService.refreshUserProfile(currentUser.uid),
-          _authService.getUserRewards(currentUser.uid) // This returns Map<String, List<dynamic>>
+          _authService.getUserRewards(currentUser.uid)
         ]);
 
         final serverUser = results[0] as UserModel?;
@@ -343,24 +359,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           });
         }
 
-        // Process rewards
         final rawRewards = results[1] as Map<String, dynamic>?;
         if (rawRewards != null && mounted) {
           await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
           _setLatestRewardFromData(rawRewards);
         }
-
+        
+        if (mounted) {
+          await prefs.setString('lastProfileRefreshTimestamp', DateTime.now().toIso8601String());
+          print("Saved new refresh timestamp.");
+        }
       } catch (e) {
-        print("Error during parallel fetch: $e");
-        // Handle error, maybe show a snackbar
+        print("Error during data fetch: $e");
+      } finally {
+        if (mounted && _isLoading) setState(() => _isLoading = false);
+      }
+    } else {
+      print("Loading data from cache.");
+      final cachedProfile = prefs.getString('userProfile');
+      if (cachedProfile != null && mounted) {
+        final user = UserModel.fromJson(jsonDecode(cachedProfile));
+        setState(() {
+          _user = user;
+          _stepsToShow = user.todaysStepCount ?? 0;
+          if (_isLoading) _isLoading = false;
+        });
+      } else if (currentUser == null) {
+         if (mounted && _isLoading) setState(() => _isLoading = false);
       }
     }
-
+    
     _initStepCounter();
-    if (currentUser == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
   }
 
    void _initStepCounter() async {
@@ -380,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           dailyStepOffset = currentPedometerReading - dbSteps;
           prefs.setInt('dailyStepOffset', dailyStepOffset);
           print(
-              "Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, DB: $dbSteps)");
+              "New Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, Server Steps: $dbSteps)");
         }
         if (dailyStepOffset == null) return;
 
@@ -395,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         
         _debounce?.cancel();
         _debounce = Timer(
-            const Duration(seconds: 2), () => _saveLatestSteps(stepsToSave));
+            const Duration(seconds: 15), () => _saveLatestSteps(stepsToSave));
       },
     );
   }
@@ -406,13 +435,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print("Skipping save: User data is not available.");
       return;
     }
-    print(
-        "Saving calculated step count: $stepsToSave for user ${userToSave.userId}");
+    
+    if (userToSave.todaysStepCount == stepsToSave) {
+      return;
+    }
+
+    print("Saving calculated step count: $stepsToSave for user ${userToSave.userId}");
     try {
       await _authService.syncStepsToBackend(userToSave.userId, stepsToSave);
-      await _authService
-          .updateUserProfile(userToSave.copyWith(todaysStepCount: stepsToSave));
-      print("✅ Successfully saved steps to both services.");
+      
+      final updatedUser = userToSave.copyWith(todaysStepCount: stepsToSave);
+      
+      await _authService.saveUserSession(updatedUser);
+      
+      if (mounted) {
+        setState(() {
+          _user = updatedUser;
+        });
+      }
+      print("✅ Successfully saved steps to backend and updated local cache.");
     } catch (e) {
       print("❌ Error saving step count: $e");
     }
@@ -542,14 +583,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.yellow));
+    if (_user == null && _isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.yellow)));
     }
-    if (_user == null) {
-      return const Center(
-          child: Text("Could not load user profile. Please restart the app."));
+    if (_user == null && !_isLoading) {
+       return const Scaffold(body: Center(child: Text("Could not load user profile. Please restart the app.")));
     }
+    
     return Scaffold(
       body: RefreshIndicator(
          onRefresh: () => _loadData(forceRefresh: true), 
@@ -577,7 +617,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               const SizedBox(height: 24),
               _buildSectionTitle("---------- Mystery Box ----------"),
               const SizedBox(height: 16),
-              _buildMysteryBoxes(),
+              // --- USE THE NEW WIDGET ---
+              MysteryBoxSection(
+                onOpenBox: _openMysteryBox,
+                isOpeningBronze: _isOpeningBronzeBox,
+                isOpeningSilver: _isOpeningSilverBox,
+                isOpeningGold: _isOpeningGoldBox,
+                bronzeTimeLeft: _bronzeTimeLeft,
+                silverTimeLeft: _silverTimeLeft,
+                goldTimeLeft: _goldTimeLeft,
+              ),
               const SizedBox(height: 16),
               const StepWarsFooter(),
             ],
@@ -873,8 +922,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final scoreDiff = p1Score - p2Score;
     final userIsAhead = isUserPlayer1 ? scoreDiff > 0 : scoreDiff < 0;
     final aheadByText = userIsAhead
-        ? "Ahead by ${scoreDiff.abs()} steps"
-        : "Behind by ${scoreDiff.abs()} steps";
+        ? "Ahead by ${scoreDiff.abs()}"
+        : "Behind by ${scoreDiff.abs()}";
     return Padding(
       padding: const EdgeInsets.only(top: 2.0),
       child: Card(
@@ -952,28 +1001,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildPlayerAvatar(UserModel player, int steps, double multiplier) {
     return Column(
       children: [
-        CircleAvatar(
-          radius: 30,
-          backgroundColor: Colors.grey.shade800,
-          child: player.profileImageUrl == null
-              ? const Icon(Icons.person, size: 25)
-              : ClipOval(
-                  child: player.profileImageUrl!.startsWith('assets/')
-                      ? Image.asset(
-                          player.profileImageUrl!,
-                          fit: BoxFit.contain,
-                          width: 80,
-                          height: 80,
-                        )
-                      : Image.network(
-                          player.profileImageUrl!,
-                          fit: BoxFit.cover,
-                          width: 60,
-                          height: 60,
-                          errorBuilder: (context, error, stackTrace) =>
-                              const Icon(Icons.person, size: 25),
-                        ),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: Colors.grey.shade800,
+              child: player.profileImageUrl == null
+                  ? const Icon(Icons.person, size: 25)
+                  : ClipOval(
+                      child: player.profileImageUrl!.startsWith('assets/')
+                          ? Image.asset(
+                              player.profileImageUrl!,
+                              fit: BoxFit.contain,
+                              width: 80,
+                              height: 80,
+                            )
+                          : Image.network(
+                              player.profileImageUrl!,
+                              fit: BoxFit.cover,
+                              width: 60,
+                              height: 60,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(Icons.person, size: 25),
+                            ),
+                    ),
+            ),
+             if (multiplier > 1.0)
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFFFC107),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.black, width: 1)),
+                    child: Text('${multiplier}x',
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10)),
+                  ),
                 ),
+          ],
         ),
         const SizedBox(height: 8),
         Text(steps.toString(),
@@ -1065,7 +1137,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
-    // Show the latest reward
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1077,7 +1148,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              // Use the imagePath from the reward
               _latestReward!.imagePath.isNotEmpty
                 ? Image.asset(
                     _latestReward!.imagePath, 
@@ -1086,7 +1156,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   )
                 : Icon(Icons.location_city, color: _latestReward!.rarityColor, size: 30),
               const SizedBox(width: 12),
-              // Use the name from the reward
               Text(_latestReward!.name,
                   style: const TextStyle(
                       color: Colors.white,
@@ -1095,7 +1164,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
           const SizedBox(height: 8),
-          // Use the description from the reward
           Text(
             _latestReward!.description,
             style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
@@ -1107,115 +1175,5 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
-
-  Widget _buildMysteryBoxes() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _buildMysteryBox(
-          imagePath: 'assets/images/bronze_box.png', 
-          boxType: 'bronze',
-          price: 5000,
-          isLoading: _isOpeningBronzeBox,
-          timeLeft: _bronzeTimeLeft,
-        ),
-        _buildMysteryBox(
-          imagePath: 'assets/images/silver_box.png', 
-          boxType: 'silver',
-          price: 10000,
-          isLoading: _isOpeningSilverBox,
-          timeLeft: _silverTimeLeft,
-        ),
-        _buildMysteryBox(
-          imagePath: 'assets/images/gold_box.png', 
-          boxType: 'gold',
-          price: 20000,
-          isLoading: _isOpeningGoldBox,
-          timeLeft: _goldTimeLeft,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMysteryBox({
-    required String imagePath, 
-    required String boxType,
-    required int price,
-    required bool isLoading,
-    required Duration timeLeft,
-  }) {
-    final bool isOpenedToday = timeLeft > Duration.zero;
-
-    return Expanded(
-      child: GestureDetector(
-        onTap: (isOpenedToday || isLoading) ? null : () => _openMysteryBox(boxType, price),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 6),
-          child: Column(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12.0),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.asset(
-                      imagePath,
-                      height: 120,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                    if (isLoading)
-                      const CircularProgressIndicator(color: Colors.white),
-                    if (isOpenedToday && !isLoading)
-                      Container(
-                        height: 120,
-                        width: double.infinity,
-                        color: Colors.black.withOpacity(0.6),
-                        child: const Icon(Icons.lock_clock, color: Colors.white, size: 40),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isOpenedToday ? Colors.transparent : Colors.yellow.shade800,
-                  borderRadius: BorderRadius.circular(20),
-                  border: isOpenedToday ? Border.all(color: Colors.grey.shade700) : null,
-                ),
-                child: isOpenedToday 
-                  ? Text(
-                      _formatDuration(timeLeft),
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                    )
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Image.asset(
-                          'assets/images/coin_icon.png',
-                          width: 20,
-                          height: 20,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          price.toString(),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-extension StringExtension on String {
-    String capitalize() {
-      return "${this[0].toUpperCase()}${this.substring(1)}";
-    }
-}
