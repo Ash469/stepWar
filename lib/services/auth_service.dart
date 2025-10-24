@@ -13,7 +13,7 @@ class AuthService {
   final NotificationService _notificationService = NotificationService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
+  final String _baseUrl = "http://10.137.31.52:5000";
 
   Future<bool> isNewUser(String userId) async {
     try {
@@ -65,7 +65,8 @@ class AuthService {
   // This function now ensures data consistency by fetching from the backend API,
   // which is the single source of truth for user data like coins.
   Future<UserModel?> getUserProfile(String userId) async {
-    print("[AuthService] getUserProfile called. Re-routing to refreshUserProfile to ensure data consistency.");
+    print(
+        "[AuthService] getUserProfile called. Re-routing to refreshUserProfile to ensure data consistency.");
     // By calling refreshUserProfile, we guarantee we get the latest data from the
     // backend API (MongoDB) instead of a potentially stale Firestore document.
     return await refreshUserProfile(userId);
@@ -198,12 +199,13 @@ class AuthService {
       userJson['dob'] = user.dob!.toIso8601String();
     } else {
       // Search for dob from firestore and if it exists convert it to iso8601 string
-      final firestoreDoc = await _firestore.collection('users').doc(user.userId).get();
+      final firestoreDoc =
+          await _firestore.collection('users').doc(user.userId).get();
       if (firestoreDoc.exists) {
         final firestoreUser = UserModel.fromJson(firestoreDoc.data()!);
-         if (firestoreUser.dob != null) {
-           userJson['dob'] = firestoreUser.dob!.toIso8601String();
-         }
+        if (firestoreUser.dob != null) {
+          userJson['dob'] = firestoreUser.dob!.toIso8601String();
+        }
       }
     }
     final userProfileString = jsonEncode(userJson);
@@ -218,7 +220,8 @@ class AuthService {
       if (response.statusCode == 200) {
         final userData = jsonDecode(response.body);
         // --- ADDED LOGGING ---
-        print("[AuthService] Fetched profile from backend. Coins: ${userData['coins']}");
+        print(
+            "[AuthService] Fetched profile from backend. Coins: ${userData['coins']}");
         final user = UserModel.fromJson(userData);
         await saveUserSession(user);
         return user;
@@ -305,4 +308,3 @@ class AuthService {
     }
   }
 }
-

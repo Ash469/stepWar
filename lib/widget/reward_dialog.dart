@@ -129,7 +129,7 @@ class _RewardDialogState extends State<RewardDialog>
                       color: Color.fromARGB(255, 255, 234, 0),
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      shadows: [ // Added shadow for better readability
+                      shadows: [ 
                         Shadow(
                           blurRadius: 2.0,
                           color: Colors.white54,

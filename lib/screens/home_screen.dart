@@ -58,7 +58,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _loadData(isInitialLoad: true);
+    // Use WidgetsBinding to ensure the first load happens after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+       _loadData(isInitialLoad: true); // Start initial data load sequence
+    });
     _handleNotifications();
     WidgetsBinding.instance.addObserver(this);
     _startBoxTimers();
@@ -102,13 +105,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Duration.zero;
   }
   
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String hours = twoDigits(duration.inHours);
+    String minutes = twoDigits(duration.inMinutes.remainder(60));
+    String seconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$hours:$minutes:$seconds";
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async { 
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       print("App is pausing. Forcing final step save.");
       _debounce?.cancel();
-      await _saveLatestSteps(_stepsToShow);
+      // Await save to ensure it completes before potential termination
+      await _saveLatestSteps(_stepsToShow); 
     }
     if (state == AppLifecycleState.resumed) {
       print("App resumed. Triggering data load sequence.");
@@ -193,7 +205,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         break;
       case 'multiplier':
         titleText = "Multiplier Token!";
-        
         subtitleText = "You got a ${reward['multiplierType']} token";
         rewardContent = Text(
           reward['multiplierType'].toString().replaceAll('_', '.'),
@@ -302,19 +313,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  // --- REFACTORED AND CONSOLIDATED LOGIC ---
   Future<void> _loadData({bool forceRefresh = false, bool isInitialLoad = false}) async {
     if (!mounted) return;
+    
+    // Show loading indicator only on initial load or manual refresh
+    if ((isInitialLoad || forceRefresh) && !_isLoading) {
+      setState(() => _isLoading = true);
+    }
     
     final prefs = await SharedPreferences.getInstance();
     final currentUser = FirebaseAuth.instance.currentUser;
 
+    // --- Sync local steps BEFORE fetching on manual refresh ---
     if (forceRefresh) {
-      if (!_isLoading) setState(() => _isLoading = true);
       print("[Data Sync] Manual refresh triggered. Saving local steps first.");
-      _debounce?.cancel();
-      await _saveLatestSteps(_stepsToShow);
+      _debounce?.cancel(); 
+      await _saveLatestSteps(_stepsToShow); 
     }
-    
+
+    // --- 1. Decide if a server fetch is necessary ---
     bool shouldFetchFromServer = false;
     const refreshThreshold = Duration(minutes: 5);
     final lastRefreshString = prefs.getString('lastProfileRefreshTimestamp');
@@ -324,20 +342,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (forceRefresh || isNewDay || prefs.getString('userProfile') == null) {
       shouldFetchFromServer = true;
-    } else if (!isInitialLoad && lastRefreshString != null) {
+    } else if (!isInitialLoad && lastRefreshString != null) { 
       final lastRefreshTime = DateTime.tryParse(lastRefreshString);
       if (lastRefreshTime != null && DateTime.now().difference(lastRefreshTime) > refreshThreshold) {
         shouldFetchFromServer = true;
       }
     } else if (lastRefreshString == null) {
-      shouldFetchFromServer = true;
+      shouldFetchFromServer = true; 
     }
     
+    // --- 2. EXECUTE FETCH OR LOAD FROM CACHE ---
+    UserModel? loadedUser; // Temporary variable to hold loaded user
     if (shouldFetchFromServer && currentUser != null) {
       print("Fetching latest data from server...");
-      if (isInitialLoad && !_isLoading) setState(() => _isLoading = true);
-
-      if (isNewDay || forceRefresh) {
+      
+      // Clear offset only if it's a new day or forced refresh (which already saved steps)
+      if (isNewDay || forceRefresh) { 
         print("[Data Sync] Clearing local step offset before server fetch.");
         await prefs.remove('dailyStepOffset');
       }
@@ -351,14 +371,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _authService.getUserRewards(currentUser.uid)
         ]);
 
-        final serverUser = results[0] as UserModel?;
-        if (serverUser != null && mounted) {
-          setState(() {
-            _user = serverUser;
-            _stepsToShow = serverUser.todaysStepCount ?? 0;
-          });
-        }
-
+        loadedUser = results[0] as UserModel?; // Assign to temporary variable
+        
         final rawRewards = results[1] as Map<String, dynamic>?;
         if (rawRewards != null && mounted) {
           await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
@@ -371,30 +385,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       } catch (e) {
         print("Error during data fetch: $e");
-      } finally {
-        if (mounted && _isLoading) setState(() => _isLoading = false);
       }
     } else {
       print("Loading data from cache.");
       final cachedProfile = prefs.getString('userProfile');
-      if (cachedProfile != null && mounted) {
-        final user = UserModel.fromJson(jsonDecode(cachedProfile));
-        setState(() {
-          _user = user;
-          _stepsToShow = user.todaysStepCount ?? 0;
-          if (_isLoading) _isLoading = false;
-        });
-      } else if (currentUser == null) {
-         if (mounted && _isLoading) setState(() => _isLoading = false);
+      if (cachedProfile != null) {
+         loadedUser = UserModel.fromJson(jsonDecode(cachedProfile)); // Assign to temporary variable
       }
     }
     
-    _initStepCounter();
+    // --- 3. Update State and Initialize Pedometer ---
+    if (mounted) {
+      bool needsSetState = false;
+      if (loadedUser != null) {
+        _user = loadedUser; // Update the main user state variable
+        _stepsToShow = _user!.todaysStepCount ?? 0;
+        needsSetState = true;
+      }
+      if (_isLoading) {
+         _isLoading = false; // Turn off loading indicator
+         needsSetState = true;
+      }
+      if (needsSetState) {
+        setState(() {}); // Update UI with loaded data
+      }
+
+      // --- CRITICAL FIX: Initialize pedometer AFTER user state is set ---
+      _initStepCounter(); 
+    }
   }
 
    void _initStepCounter() async {
-    _stepSubscription?.cancel();
+     print("Initializing Step Counter..."); // Log initialization
+    _stepSubscription?.cancel(); // Cancel previous subscription if exists
     final prefs = await SharedPreferences.getInstance();
+    
+    // --- CRITICAL: Ensure _user is not null before proceeding ---
+    if (_user == null) {
+      print("Cannot initialize step counter: User data not loaded yet.");
+      return; 
+    }
     
     await _healthService.initialize();
 
@@ -404,19 +434,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (currentPedometerReading == null) return;
         
         int? dailyStepOffset = prefs.getInt('dailyStepOffset');
-        if (dailyStepOffset == null && _user != null) {
-          final dbSteps = _user!.todaysStepCount ?? 0;
+        
+        // --- Recalculate offset ONLY if it's null (first run of the day/install) ---
+        if (dailyStepOffset == null) {
+          // Use the definitive _user state that was just loaded by _loadData
+          final dbSteps = _user!.todaysStepCount ?? 0; 
           dailyStepOffset = currentPedometerReading - dbSteps;
           prefs.setInt('dailyStepOffset', dailyStepOffset);
           print(
-              "New Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, Server Steps: $dbSteps)");
+              "New Daily Step Offset Calculated & PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, User State Steps: $dbSteps)");
         }
-        if (dailyStepOffset == null) return;
-
+        
+        // This calculation should now always be correct
         final calculatedDailySteps = currentPedometerReading - dailyStepOffset;
         final stepsToSave = calculatedDailySteps > 0 ? calculatedDailySteps : 0;
         
-        if (mounted) {
+        // Avoid unnecessary setState if the value hasn't changed
+        if (mounted && _stepsToShow != stepsToSave) {
           setState(() {
             _stepsToShow = stepsToSave;
           });
@@ -426,7 +460,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _debounce = Timer(
             const Duration(seconds: 15), () => _saveLatestSteps(stepsToSave));
       },
+      onError: (error) {
+         print("Error in step stream: $error");
+         // Handle error appropriately, maybe stop listening or show a message
+      }
     );
+     print("Step Counter Initialized and listening.");
   }
 
   Future<void> _saveLatestSteps(int stepsToSave) async {
@@ -436,7 +475,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     
-    if (userToSave.todaysStepCount == stepsToSave) {
+    // --- CRITICAL: Check against the *current* state value, not the parameter ---
+    // This prevents saving stale data if another update happened quickly.
+    final currentStepsInState = _user?.todaysStepCount ?? -1;
+    if (currentStepsInState == stepsToSave) {
+       print("Skipping save: Step count hasn't changed ($stepsToSave).");
       return;
     }
 
@@ -451,6 +494,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _user = updatedUser;
+          // Sync _stepsToShow just in case there was a discrepancy, though unlikely now
+          _stepsToShow = stepsToSave; 
         });
       }
       print("✅ Successfully saved steps to backend and updated local cache.");
@@ -617,7 +662,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               const SizedBox(height: 24),
               _buildSectionTitle("---------- Mystery Box ----------"),
               const SizedBox(height: 16),
-              // --- USE THE NEW WIDGET ---
               MysteryBoxSection(
                 onOpenBox: _openMysteryBox,
                 isOpeningBronze: _isOpeningBronzeBox,

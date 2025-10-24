@@ -19,7 +19,7 @@ class _BattleScreenState extends State<BattleScreen> {
   UserModel? _opponentProfile;
   bool _isFetchingData = false;
   final BotService _botService = BotService();
-  
+
   bool _isEndingBattle = false;
 
   @override
@@ -84,21 +84,23 @@ class _BattleScreenState extends State<BattleScreen> {
   // --- NEW FUNCTION TO REFRESH USER DATA ---
   Future<void> _refreshCurrentUserProfile() async {
     if (_currentUserModel == null || !mounted) return;
-    
+
     // Use the auth service to get the latest profile from the backend
     final authService = context.read<AuthService>();
-    final updatedUser = await authService.refreshUserProfile(_currentUserModel!.userId);
-    
+    final updatedUser =
+        await authService.refreshUserProfile(_currentUserModel!.userId);
+
     if (updatedUser != null && mounted) {
       setState(() {
         _currentUserModel = updatedUser;
       });
-      print("Battle screen coin count updated via setState to: ${updatedUser.coins}");
+      print(
+          "Battle screen coin count updated via setState to: ${updatedUser.coins}");
     } else {
       print("Failed to refresh user profile on battle screen.");
     }
   }
-  
+
   // --- MODIFIED FUNCTION ---
   Future<void> _activateMultiplier(String multiplierType) async {
     final battleService = context.read<ActiveBattleService>();
@@ -142,11 +144,13 @@ class _BattleScreenState extends State<BattleScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('End Battle', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('End Battle',
+                style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -157,16 +161,17 @@ class _BattleScreenState extends State<BattleScreen> {
       try {
         await battleService.endBattle();
       } catch (e) {
-        if(mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error ending battle: $e'), backgroundColor: Colors.red),
+            SnackBar(
+                content: Text('Error ending battle: $e'),
+                backgroundColor: Colors.red),
           );
-           setState(() => _isEndingBattle = false);
+          setState(() => _isEndingBattle = false);
         }
       }
     }
   }
-
 
   Widget _buildYourRewardsSection(Game game) {
     final potentialReward = game.potentialReward;
@@ -300,11 +305,13 @@ class _BattleScreenState extends State<BattleScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildTopSection(battleService, p1Score, p2Score, isUserPlayer1),
+                _buildTopSection(
+                    battleService, p1Score, p2Score, isUserPlayer1),
                 _buildPlayerStats(
                     player1, p1Score, p1Steps, player2, p2Score, p2Steps, game),
                 _buildBattleBar(p1Score, p2Score),
-                _buildMultiplierSection(isUserPlayer1, game, _currentUserModel!), 
+                _buildMultiplierSection(
+                    isUserPlayer1, game, _currentUserModel!),
                 _buildYourRewardsSection(game),
                 const Spacer(),
               ],
@@ -315,24 +322,22 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-  Widget _buildTopSection(ActiveBattleService battleService, int p1Score, int p2Score, bool isUserP1) {
+  Widget _buildTopSection(ActiveBattleService battleService, int p1Score,
+      int p2Score, bool isUserP1) {
     final timeLeft = battleService.timeLeft;
     final minutes = timeLeft.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = timeLeft.inSeconds.remainder(60).toString().padLeft(2, '0');
-    
+
     final scoreDiff = isUserP1 ? (p1Score - p2Score) : (p2Score - p1Score);
     final bool isAhead = scoreDiff > 0;
     final bool isDraw = scoreDiff.abs() <= 50;
-    
+
     final bool canEndBattle = timeLeft.inSeconds <= 480;
 
     String statusText;
     Color statusColor;
 
-    if (isDraw) {
-      statusText = "It's a Draw!";
-      statusColor = Colors.grey;
-    } else if (isAhead) {
+    if (isAhead) {
       statusText = "Ahead by ${scoreDiff.abs()} Score";
       statusColor = Colors.greenAccent;
     } else {
@@ -346,7 +351,7 @@ class _BattleScreenState extends State<BattleScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(width: 80), 
+            const SizedBox(width: 80),
             Column(
               children: [
                 Text('$minutes:$seconds',
@@ -362,37 +367,41 @@ class _BattleScreenState extends State<BattleScreen> {
             if (_isEndingBattle)
               const SizedBox(
                 width: 80,
-                child: Center(child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
+                child: Center(
+                    child: CircularProgressIndicator(
+                        color: Colors.redAccent, strokeWidth: 2)),
               )
             else
-             SizedBox(
-               width: 80,
-               child: Visibility(
-                 visible: canEndBattle,
-                 maintainSize: true,
-                 maintainAnimation: true,
-                 maintainState: true,
-                 child: TextButton(
+              SizedBox(
+                width: 80,
+                child: Visibility(
+                  visible: canEndBattle,
+                  maintainSize: true,
+                  maintainAnimation: true,
+                  maintainState: true,
+                  child: TextButton(
                     onPressed: _showEndBattleConfirmation,
                     style: TextButton.styleFrom(
                       backgroundColor: Colors.redAccent.withOpacity(0.8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                     ),
                     child: const Text(
                       'End Battle',
                       style: TextStyle(fontSize: 12, color: Colors.white),
                     ),
                   ),
-               ),
-             ),
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 8),
         Text(statusText,
-            style: TextStyle(color: statusColor, fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                color: statusColor, fontSize: 18, fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -555,11 +564,11 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
- Widget _buildMultiplierSection(bool isUserPlayer1, Game game, UserModel currentUser) {
+  Widget _buildMultiplierSection(
+      bool isUserPlayer1, Game game, UserModel currentUser) {
     final battleService = context.watch<ActiveBattleService>();
-    final bool hasUsedMultiplier = isUserPlayer1
-        ? game.player1MultiplierUsed
-        : game.player2MultiplierUsed;
+    final bool hasUsedMultiplier =
+        isUserPlayer1 ? game.player1MultiplierUsed : game.player2MultiplierUsed;
 
     if (battleService.isActivatingMultiplier) {
       return const CircularProgressIndicator(color: Color(0xFFFFC107));
@@ -568,7 +577,7 @@ class _BattleScreenState extends State<BattleScreen> {
       return const Text("Multiplier used!",
           style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
     }
-    
+
     final multipliers = currentUser.multipliers ?? {};
     final available1_5x = multipliers['1_5x'] ?? 0;
     final available2x = multipliers['2x'] ?? 0;
@@ -591,14 +600,12 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 
-
   Widget _buildMultiplierButton(
       String displayText, String apiKey, int cost, int available) {
     final bool canUse = available > 0;
 
     return Stack(
-      clipBehavior:
-          Clip.none,
+      clipBehavior: Clip.none,
       children: [
         ElevatedButton(
           onPressed: () => _activateMultiplier(apiKey),
@@ -637,7 +644,6 @@ class _BattleScreenState extends State<BattleScreen> {
             ],
           ),
         ),
-
         if (canUse)
           Positioned(
             top: -8,
@@ -670,4 +676,3 @@ class _BattleScreenState extends State<BattleScreen> {
     );
   }
 }
-

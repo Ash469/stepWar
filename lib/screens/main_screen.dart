@@ -298,54 +298,81 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               Padding(
                 padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                 child: Row(
-                  children: [
+                    children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () async {
-                          Navigator.of(ctx).pop(); 
-                          battleService.dismissBattleResults();
+                      onPressed: () async {
+                        Navigator.of(ctx).pop(); 
+                        battleService.dismissBattleResults();
 
-                          if (!mounted) return;
+                        if (!mounted) return;
 
-                          final user = await authService.refreshUserProfile(currentUserId!);
-                          if (user == null || !mounted) return;
-                          
-                          print("--- BATTLE ENDED --- Navigating based on Game Type: '$gameType'");
+                        final user = await authService.refreshUserProfile(currentUserId!);
+                        if (user == null || !mounted) return;
+                        
+                        print("--- BATTLE ENDED --- Navigating based on Game Type: '$gameType'");
 
-                          switch (gameType) {
-                            case 'PVP':
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
-                              );
-                              break;
-                            case 'BOT':
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
-                              );
-                              break;
-                            case 'FRIEND':
-                              // For FRIEND battles, just go back to the home screen.
-                              break;
-                            default:
-                              print("--- WARNING --- Unknown gameType '$gameType' received. Defaulting to home screen.");
-                              break;
-                          }
-                        },
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          side: const BorderSide(color: Colors.white24),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                        switch (gameType) {
+                        case 'PVP':
+                          Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
+                          );
+                          break;
+                        case 'BOT':
+                          Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => BotSelectionScreen(user: user))
+                          );
+                          break;
+                        case 'FRIEND':
+                          break;
+                        default:
+                          print("--- WARNING --- Unknown gameType '$gameType' received. Defaulting to home screen.");
+                          break;
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Text(
-                          'Battle Again',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      ),
+                      child: const Text(
+                        'Battle Again',
+                        style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                         ),
+                      ),
+                      ),
+                    ),
+                    Expanded(
+                      child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        battleService.dismissBattleResults();
+
+                        if (!mounted) return;
+                        setState(() {
+                        _currentIndex = 1; 
+                        });
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(
+                        color: Color.fromARGB(255, 255, 254, 254),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       ),
                     ),
                   ],

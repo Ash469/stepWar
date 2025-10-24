@@ -7,7 +7,7 @@ import '../models/user_model.dart';
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
+  final String _baseUrl = "http://10.137.31.52:5000/api";
 
   Future<String> createPvpBattle(String player1Id, String player2Id) async {
     try {

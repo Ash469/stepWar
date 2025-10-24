@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/user_model.dart';
 
 class MysteryBoxService {
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
+  final String _baseUrl = "http://10.137.31.52:5000/api";
 
   Future<Map<String, dynamic>> openMysteryBox(
       String userId, String boxType) async {
