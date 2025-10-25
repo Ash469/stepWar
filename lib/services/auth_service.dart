@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+// REMOVED: import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'package:http/http.dart' as http;
@@ -11,40 +11,53 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final NotificationService _notificationService = NotificationService();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // REMOVED: final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "http://10.137.31.52:5000";
+  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
 
+  /// --- MODIFIED ---
+  /// Checks if a user is "new" by fetching their profile from our backend
+  /// and seeing if they have a username.
   Future<bool> isNewUser(String userId) async {
     try {
-      final doc = await _firestore.collection('users').doc(userId).get();
-      return !doc.exists;
+      // Get the profile from our backend (the single source of truth)
+      final user = await getUserProfile(userId);
+      if (user == null) {
+        return true; // No profile exists, they are new
+      }
+      // A "new user" is one who hasn't completed their profile (no username)
+      return user.username == null || user.username!.isEmpty;
     } catch (e) {
       print("Error checking if new user: $e");
-      return false;
+      return false; // Fail safe
     }
   }
 
+  /// --- MODIFIED ---
+  /// Creates the user profile by calling updateUserProfile.
+  /// This now only talks to your backend API.
   Future<void> createUserProfile(UserModel user) async {
-    await _firestore.collection('users').doc(user.userId).set(user.toJson());
-    await saveUserSession(user);
-    await syncUserWithBackend(uid: user.userId, email: user.email);
+    // This function is now just an alias for updateUserProfile.
+    await updateUserProfile(user);
   }
 
+  /// --- MODIFIED ---
+  /// Updates the user profile ONLY via your backend API.
+  /// Firestore is no longer touched.
   Future<void> updateUserProfile(UserModel user) async {
     if (user.userId.isEmpty) {
       throw Exception("Attempted to update profile with an empty user ID.");
     }
 
     try {
-      await _firestore
-          .collection('users')
-          .doc(user.userId)
-          .update(user.toJson());
+      // REMOVED: Firestore update call
+
       final userJson = user.toJson();
       if (user.dob != null) {
         userJson['dob'] = user.dob!.toIso8601String();
       }
+
+      // THIS is now the single source of truth
       final response = await http.put(
         Uri.parse('$_baseUrl/api/user/profile/${user.userId}'),
         headers: {'Content-Type': 'application/json'},
@@ -54,24 +67,26 @@ class AuthService {
       if (response.statusCode != 200) {
         throw Exception('Failed to sync profile with server: ${response.body}');
       }
-      await saveUserSession(user);
+
+      // Save the updated user *from the server response* to the session
+      final updatedUser = UserModel.fromJson(jsonDecode(response.body));
+      await saveUserSession(updatedUser);
     } catch (e) {
       print("Error in updateUserProfile: $e");
       rethrow;
     }
   }
 
-  // --- MODIFIED FUNCTION ---
-  // This function now ensures data consistency by fetching from the backend API,
-  // which is the single source of truth for user data like coins.
+  /// This is the single source of truth for loading a user.
+  /// It is an alias for refreshUserProfile.
   Future<UserModel?> getUserProfile(String userId) async {
     print(
         "[AuthService] getUserProfile called. Re-routing to refreshUserProfile to ensure data consistency.");
-    // By calling refreshUserProfile, we guarantee we get the latest data from the
-    // backend API (MongoDB) instead of a potentially stale Firestore document.
     return await refreshUserProfile(userId);
   }
 
+  /// This function is safe. It just calls your backend API
+  /// to ensure a user record exists in MongoDB.
   Future<void> syncUserWithBackend({String? uid, String? email}) async {
     try {
       final response = await http.post(
@@ -89,6 +104,8 @@ class AuthService {
     }
   }
 
+  /// --- MODIFIED ---
+  /// Updated Google Sign-In flow.
   Future<User?> signInWithGoogle() async {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
@@ -103,12 +120,19 @@ class AuthService {
           await _auth.signInWithCredential(credential);
 
       final user = userCredential.user;
-      if (user != null && !(await isNewUser(user.uid))) {
-        await cacheUserProfile(user.uid);
+      if (user != null) {
+        // 1. Sync user first. This is CRITICAL.
+        // This ensures the user exists in MongoDB *before* we check if they are new.
+        // Your backend `syncUser` is now just an upsert, so this is safe.
+        await syncUserWithBackend(uid: user.uid, email: user.email);
+
+        // 2. Now, check if they are "new" (profile incomplete)
+        // This will call getUserProfile -> refreshUserProfile -> MongoDB
         if (!(await isNewUser(user.uid))) {
+          // If not new, cache their profile. This will fetch the user
+          // from MongoDB with the correct 0 steps (if reset).
           await cacheUserProfile(user.uid);
         }
-        await syncUserWithBackend(uid: user.uid, email: user.email);
       }
 
       return user;
@@ -118,6 +142,8 @@ class AuthService {
     }
   }
 
+  // --- ADDED BACK ---
+  /// Sends OTP request to the backend.
   Future<void> sendOtpToEmail(String email) async {
     try {
       final response = await http.post(
@@ -133,7 +159,10 @@ class AuthService {
       rethrow;
     }
   }
+  // --- END ADDED BACK ---
 
+  /// --- MODIFIED ---
+  /// Updated OTP Sign-In flow.
   Future<User?> verifyOtpAndSignIn(String email, String otp) async {
     try {
       final response = await http.post(
@@ -158,10 +187,13 @@ class AuthService {
 
       final user = userCredential.user;
       if (user != null) {
+        // 1. Sync user first.
+        await syncUserWithBackend(uid: user.uid, email: user.email);
+
+        // 2. Check if new and cache if not.
         if (!(await isNewUser(user.uid))) {
           await cacheUserProfile(user.uid);
         }
-        await syncUserWithBackend(uid: user.uid, email: user.email);
       }
       return user;
     } catch (e) {
@@ -170,6 +202,7 @@ class AuthService {
     }
   }
 
+  /// No changes needed.
   Future<void> signOut() async {
     try {
       final uid = _auth.currentUser?.uid;
@@ -186,32 +219,28 @@ class AuthService {
     await prefs.clear();
   }
 
+  /// No changes needed.
   Future<bool> isLoggedIn() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('isLoggedIn') ?? false;
   }
 
+  /// --- MODIFIED ---
+  /// Removed the Firestore fallback for 'dob'.
   Future<void> saveUserSession(UserModel user) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
     final userJson = user.toJson();
     if (user.dob != null) {
       userJson['dob'] = user.dob!.toIso8601String();
-    } else {
-      // Search for dob from firestore and if it exists convert it to iso8601 string
-      final firestoreDoc =
-          await _firestore.collection('users').doc(user.userId).get();
-      if (firestoreDoc.exists) {
-        final firestoreUser = UserModel.fromJson(firestoreDoc.data()!);
-        if (firestoreUser.dob != null) {
-          userJson['dob'] = firestoreUser.dob!.toIso8601String();
-        }
-      }
     }
+    // REMOVED: Firestore fallback logic
+
     final userProfileString = jsonEncode(userJson);
     await prefs.setString('userProfile', userProfileString);
   }
 
+  /// No changes needed. This is the core function to get data.
   Future<UserModel?> refreshUserProfile(String userId) async {
     try {
       final uri = Uri.parse('$_baseUrl/api/user/profile/$userId');
@@ -219,9 +248,9 @@ class AuthService {
           await http.get(uri, headers: {'Content-Type': 'application/json'});
       if (response.statusCode == 200) {
         final userData = jsonDecode(response.body);
-        // --- ADDED LOGGING ---
+
         print(
-            "[AuthService] Fetched profile from backend. Coins: ${userData['coins']}");
+            "[AuthService] Fetched profile from backend.User steps : ${userData['todaysStepCount']}");
         final user = UserModel.fromJson(userData);
         await saveUserSession(user);
         return user;
@@ -234,6 +263,7 @@ class AuthService {
     return null;
   }
 
+  /// No changes needed.
   Future<void> syncStepsToBackend(String userId, int steps) async {
     if (userId.isEmpty) return;
 
@@ -254,6 +284,7 @@ class AuthService {
     }
   }
 
+  /// No changes needed.
   Future<void> cacheUserProfile(String userId) async {
     try {
       final user = await getUserProfile(userId);
@@ -265,6 +296,7 @@ class AuthService {
     }
   }
 
+  /// No changes needed.
   Future<Map<String, List<dynamic>>> getUserRewards(String userId) async {
     if (userId.isEmpty) {
       throw Exception("User ID is required to fetch rewards.");
@@ -287,6 +319,7 @@ class AuthService {
     }
   }
 
+  /// No changes needed.
   Future<List<dynamic>> getActivityHistory(String userId) async {
     if (userId.isEmpty) {
       throw Exception("User ID is required to fetch activity history.");
