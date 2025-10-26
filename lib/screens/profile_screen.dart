@@ -741,9 +741,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return content;
   }
 
-  // --- MODIFIED FUNCTION for chart ---
+
   Widget _buildStepsChart() {
-    // --- Create a mutable copy and inject today's steps ---
     final Map<String, int> stepsData = Map.from(_stepHistory);
     if (_isCurrentWeek(_currentWeekStart) && _user != null) {
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
@@ -813,7 +812,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // --- MODIFIED FUNCTION for chart bars ---
   Widget _buildBar({required String day, required int steps, required int maxSteps, int? goalSteps}) {
      final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
      final double barHeight = (steps / relativeMax * 120.0).clamp(5.0, 120.0);

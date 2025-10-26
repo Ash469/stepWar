@@ -78,7 +78,7 @@ class AppThemes {
       titleTextStyle: AppTextStyles.titleLarge,
 
       // ADD THIS for global status bar styling
-      systemOverlayStyle: SystemUiOverlayStyle(
+      systemOverlayStyle: const SystemUiOverlayStyle(
         // Make the status bar color match the AppBar color
         statusBarColor: AppColors.background, 
         // For a dark background, you need light icons

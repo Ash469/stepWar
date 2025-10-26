@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 class NotificationService {
-  // --- Singleton Pattern ---
   NotificationService._internal();
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -20,7 +19,6 @@ class NotificationService {
 
   Completer<void>? _initCompleter;
 
-  // ---------------- Initialization ----------------
   Future<void> initialize() {
     if (_initCompleter != null) return _initCompleter!.future;
 
@@ -31,6 +29,7 @@ class NotificationService {
 
       // Attach foreground listener
       FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      FirebaseMessaging.onMessage.listen(_handleBackgroundMessage);
 
       _initCompleter!.complete();
     });
@@ -131,6 +130,11 @@ class NotificationService {
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
+    print("[FCM] Foreground message: ${message.notification?.title}");
+    showLocalNotification(message);
+  }
+  
+  void _handleBackgroundMessage(RemoteMessage message) {
     print("[FCM] Foreground message: ${message.notification?.title}");
     showLocalNotification(message);
   }

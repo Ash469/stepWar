@@ -1,8 +1,10 @@
+// ignore_for_file: unused_local_variable
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
-import '../models/battle_RB.dart';
+import '../models/battle_rb.dart';
 import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
 import '../services/bot_service.dart';
@@ -33,7 +35,9 @@ class _BattleScreenState extends State<BattleScreen> {
   Future<void> _fetchBattleDataIfNeeded() async {
     if (mounted &&
         (_isFetchingData ||
-            (_currentUserModel != null && _opponentProfile != null))) return;
+            (_currentUserModel != null && _opponentProfile != null))) {
+      return;
+    }
     if (mounted) {
       setState(() {
         _isFetchingData = true;
@@ -81,11 +85,9 @@ class _BattleScreenState extends State<BattleScreen> {
     }
   }
 
-  // --- NEW FUNCTION TO REFRESH USER DATA ---
   Future<void> _refreshCurrentUserProfile() async {
     if (_currentUserModel == null || !mounted) return;
 
-    // Use the auth service to get the latest profile from the backend
     final authService = context.read<AuthService>();
     final updatedUser =
         await authService.refreshUserProfile(_currentUserModel!.userId);
@@ -101,7 +103,6 @@ class _BattleScreenState extends State<BattleScreen> {
     }
   }
 
-  // --- MODIFIED FUNCTION ---
   Future<void> _activateMultiplier(String multiplierType) async {
     final battleService = context.read<ActiveBattleService>();
     final userId = _currentUserModel?.userId;
@@ -114,7 +115,6 @@ class _BattleScreenState extends State<BattleScreen> {
               content: Text('$multiplierType Multiplier Activated!'),
               backgroundColor: Colors.green),
         );
-        // --- THE FIX: Refresh the user profile to get the new coin count ---
         await _refreshCurrentUserProfile();
       }
     } catch (e) {

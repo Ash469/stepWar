@@ -1,4 +1,3 @@
-// lib/widget/home/scorecard_section.dart
 import 'package:flutter/material.dart';
 
 class ScorecardSection extends StatelessWidget {

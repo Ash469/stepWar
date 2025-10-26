@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/battle_RB.dart';
+import '../models/battle_rb.dart';
 import '../models/user_model.dart';
 import '../services/game_service.dart';
-import '../widget/game_rules.dart'; // Import the new rules widget
+import '../widget/game_rules.dart'; 
 import 'battle_screen.dart';
 
 class WaitingForFriendScreen extends StatefulWidget {
@@ -43,7 +43,7 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
         _gameSubscription?.cancel();
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => BattleScreen(),
+            builder: (_) => const BattleScreen(),
           ),
         );
       }

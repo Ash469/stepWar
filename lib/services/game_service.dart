@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:http/http.dart' as http;
-import '../models/battle_RB.dart';
+import '../models/battle_rb.dart';
 import '../models/user_model.dart';
 
 class GameService {

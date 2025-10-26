@@ -1,4 +1,3 @@
-// lib/widget/home/rewards_section.dart
 import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/kingdom_screen.dart' show KingdomItem;
 

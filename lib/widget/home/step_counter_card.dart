@@ -1,4 +1,3 @@
-// lib/widget/home/step_counter_card.dart
 import 'package:flutter/material.dart';
 
 class StepCounterCard extends StatelessWidget {

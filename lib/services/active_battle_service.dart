@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../models/battle_RB.dart';
+import '../models/battle_rb.dart';
 import '../models/user_model.dart';
 import 'game_service.dart';
 import 'bot_service.dart';
@@ -52,7 +52,7 @@ class ActiveBattleService with ChangeNotifier {
       if (isBotMatch && _botStepTimer == null) {
         _initializeBotStepGenerator();
       }
-      final koDifference = 200; 
+      const koDifference = 200; 
       if (!_isGameOver &&
           (game.player1Score - game.player2Score).abs() >= koDifference) {
         endBattle();

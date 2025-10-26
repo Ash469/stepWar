@@ -1,4 +1,5 @@
-// lib/widget/home/battle_section.dart
+// ignore_for_file: unused_import
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:stepwars_app/models/user_model.dart';
@@ -6,7 +7,7 @@ import 'package:stepwars_app/screens/battle_screen.dart';
 import 'package:stepwars_app/screens/matchmaking_screen.dart';
 import 'package:stepwars_app/screens/waiting_for_friend_screen.dart';
 import 'package:stepwars_app/services/active_battle_service.dart';
-import 'package:stepwars_app/models/battle_RB.dart';
+import 'package:stepwars_app/models/battle_rb.dart';
 import 'section_title.dart';
 
 class BattleSection extends StatelessWidget {
@@ -122,8 +123,9 @@ class BattleSection extends StatelessWidget {
       ),
     );
   }
-  
-  Widget _buildWaitingForFriendCard(BuildContext context, ActiveBattleService battleService) {
+
+  Widget _buildWaitingForFriendCard(
+      BuildContext context, ActiveBattleService battleService) {
     final gameId = battleService.currentGame?.gameId ?? '...';
     return Padding(
       padding: const EdgeInsets.only(top: 24.0),
@@ -191,7 +193,8 @@ class BattleSection extends StatelessWidget {
     );
   }
 
-  Widget _buildOngoingBattleCard(BuildContext context, ActiveBattleService battleService) {
+  Widget _buildOngoingBattleCard(
+      BuildContext context, ActiveBattleService battleService) {
     final game = battleService.currentGame!;
     final timeLeft = battleService.timeLeft;
     final isUserPlayer1 = game.player1Id == user.userId;

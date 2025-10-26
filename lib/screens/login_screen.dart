@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
 import 'profile_completion_screen.dart';
-// --- MODIFICATION: Removed unused import ---
-// import '../services/notification_service.dart'; 
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -65,10 +64,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final user = _authService.currentUser;
     if (user == null || !mounted) return;
     setState(() => _isLoading = true);
-
-    // --- MODIFICATION: Removed notification initialization from here ---
-    // This logic is now correctly handled in home_screen.dart, which runs
-    // after this navigation is complete.
 
     final isNew = await _authService.isNewUser(user.uid);
 
@@ -168,7 +163,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- UI Building ---
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;

@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import, unused_field
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -64,8 +66,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   KingdomItem? _latestReward;
 
   bool _isOffsetCalculated = false;
-  // --- *** THE FIX: Synchronization Flag *** ---
-  bool _isLoadingData = false; // Prevents step counting/saving during data load
+  bool _isLoadingData = false;
 
   @override
   void initState() {
@@ -103,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  // --- MODIFICATION: Calculate based on 24 hours from last open ---
+ 
   Duration _calculateTimeLeft(String boxType) {
     final lastOpenedString = _user?.mysteryBoxLastOpened?[boxType];
     if (lastOpenedString == null) return Duration.zero;
@@ -123,27 +124,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // If parsing failed or 24 hours have passed, return zero
     return Duration.zero;
   }
-  // --- END MODIFICATION ---
-
+  
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       print("App is pausing. Forcing final step save.");
-      _debounce?.cancel(); // Cancel pending saves
-      await _saveLatestSteps(_stepsToShow); // Save immediately
+      _debounce?.cancel(); 
+      await _saveLatestSteps(_stepsToShow); 
     }
     if (state == AppLifecycleState.resumed) {
       print("App resumed. Cancelling pending saves & triggering data load.");
-      _debounce?.cancel(); // *** CRITICAL: Cancel again on resume ***
-      _loadData(); // Reload data
+      _debounce?.cancel(); 
+      _loadData(); 
     }
   }
 
 
   Future<void> _openMysteryBox(String boxType, int price) async {
-    if (_user == null || _isLoadingData) return; // Added loading check
+    if (_user == null || _isLoadingData) return; 
     final canAfford = (_user!.coins ?? 0) >= price;
     if (!canAfford) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,21 +164,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final reward =
           await _mysteryBoxService.openMysteryBox(_user!.userId, boxType);
       final newCoinBalance = reward['newCoinBalance'] as int?;
-      // Directly update local state first for responsiveness
-      if (newCoinBalance != null && mounted) {
+            if (newCoinBalance != null && mounted) {
         setState(() {
-          // Update last opened time locally immediately for UI feedback
-           final updatedLastOpened = Map<String, String>.from(_user!.mysteryBoxLastOpened ?? {});
+                     final updatedLastOpened = Map<String, String>.from(_user!.mysteryBoxLastOpened ?? {});
            updatedLastOpened[boxType] = DateTime.now().toIso8601String(); 
           _user = _user!.copyWith(coins: newCoinBalance, mysteryBoxLastOpened: updatedLastOpened);
 
         });
-        // Save the updated user session in the background
-         _authService.saveUserSession(_user!);
+               _authService.saveUserSession(_user!);
       }
       _showRewardDialog(reward);
-      // Refresh data *after* showing the dialog to be absolutely sure,
-      // although the local update should handle the timer.
       _loadData(forceRefresh: true); 
     } catch (e) {
       if (mounted) {
@@ -207,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         title: const Text('Confirm Purchase',
             style: TextStyle(color: Colors.white)),
         content: Text('Open the ${boxType.capitalize()} box for $price coins?',
-            style: TextStyle(color: Colors.white70)),
+            style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -246,7 +241,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
          final item = reward['item'];
          titleText = "New Collectible!";
          subtitleText = item?['name'] ?? 'A new item';
-         // Ensure item is not null and imagePath exists before accessing
          final imagePath = (item is Map && item.containsKey('imagePath')) ? item['imagePath'] : null;
          rewardContent = imagePath != null
              ? Image.asset(imagePath, height: 80, errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 80, color: Colors.black))
@@ -296,10 +290,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _fetchOpponentProfile(ActiveBattleService battleService) async {
      if (_isFetchingOpponent ||
         _opponentProfile != null ||
-        battleService.currentGame == null) return;
+        battleService.currentGame == null) {
+       return;
+     }
     if(mounted) setState(() => _isFetchingOpponent = true);
     final game = battleService.currentGame!;
-    // Ensure _user is not null before proceeding
     if (_user == null) {
        if (mounted) setState(() => _isFetchingOpponent = false);
        print("Cannot fetch opponent, current user data is null.");
@@ -334,18 +329,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _setLatestRewardFromData(Map<String, dynamic> rawRewardsMap) {
     if (!mounted) return;
     KingdomItem? latest;
-    // Iterate safely, checking types
     rawRewardsMap.forEach((key, value) {
        if (value is List && value.isNotEmpty) {
            final lastItem = value.last;
            if (lastItem is Map<String, dynamic>) {
                try {
                   final item = KingdomItem.fromJson(lastItem);
-                  // Basic check: Assign first valid item found as 'latest' for now
-                  // A more robust approach might compare timestamps if available
-                  if (latest == null) { 
-                     latest = item;
-                  }
+                  latest ??= item;
                } catch (e) {
                  print("Error parsing reward item: $e, item data: $lastItem");
                }
@@ -361,7 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
 
-  // --- Helper to load user from cache ---
+
   Future<UserModel?> _loadUserFromCache(SharedPreferences prefs) async {
     final cachedProfile = prefs.getString('userProfile');
     if (cachedProfile != null) {
@@ -420,7 +410,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         shouldFetchFromServer = true;
       }
     } else {
-      // If no refresh timestamp, but we have a cache, we should still refresh.
       shouldFetchFromServer = true; 
     }
     
@@ -436,9 +425,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final serverUser = results[0] as UserModel?;
         if (serverUser != null) {
           loadedUser = serverUser;
-          print("[Data Sync] Fetched user from server. Steps: ${loadedUser!.todaysStepCount}");
+          print("[Data Sync] Fetched user from server. Steps: ${loadedUser.todaysStepCount}");
 
-          // --- Check if server reset steps ---
           if (loadedUser.todaysStepCount == 0 && prefs.getInt('dailyStepOffset') != null) {
             print("[Data Sync] Server reported 0 steps. Clearing local step offset.");
             await prefs.remove('dailyStepOffset');
@@ -493,7 +481,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _initStepCounter(loadedUser);
       }
     } else {
-      // No cache, no fetch, no user
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -520,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _stepSubscription = _healthService.stepStream.listen(
       (stepsStr) {
-        if (_isLoadingData) { // Check lock again inside listener
+        if (_isLoadingData) { 
            print("[Step Counter] Ignored step event, data is loading.");
            return;
         }
@@ -586,17 +573,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print("[Step Save] Skipping save, data load in progress.");
       return;
     }
-
-    // Use the current state _user, not a potentially stale userToSave
     final currentUserState = _user; 
     if (currentUserState == null || currentUserState.userId.isEmpty) {
       print("[Step Save] Skipping save: User data not available in state.");
       return;
     }
 
-    // Compare against the current state's step count
+    
     if (currentUserState.todaysStepCount == stepsToSave) {
-      // print("[Step Save] Skipping save: Step count hasn't changed ($stepsToSave).");
       return;
     }
 
@@ -619,7 +603,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     } catch (e) {
       print("❌ [Step Save] Error saving step count: $e");
-      // Optional: Consider adding a retry mechanism or notifying the user
     }
   }
 
@@ -722,7 +705,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _isHandlingFriendGame = true);
     try {
       final success = await _gameService.joinFriendGame(gameId, _user!);
-      if (success && mounted) { // Check mounted AFTER await
+      if (success && mounted) {
         context.read<ActiveBattleService>().startBattle(gameId, _user!);
         if (mounted) {
            Navigator.of(context)
@@ -734,7 +717,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e) {
       _showErrorSnackbar('Error joining game: ${e.toString()}');
     } finally {
-      // Ensure setState is only called if the widget is still in the tree
       if (mounted) {
          setState(() => _isHandlingFriendGame = false);
       }
@@ -746,7 +728,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
        ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(
                content: Text(message),
-               backgroundColor: Colors.redAccent, // Make errors more visible
+               backgroundColor: Colors.redAccent,
            )
        );
     }
@@ -754,24 +736,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Show loading indicator until user data is available
     if (_isLoading || _user == null) {
       return const Scaffold(
-          backgroundColor: Color(0xFF121212), // Match theme background
+          backgroundColor: Color(0xFF121212),
           body: Center(child: CircularProgressIndicator(color: Colors.yellow)));
     }
-    // _user is guaranteed non-null here
     final safeUser = _user!;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212), // Explicitly set background
+      backgroundColor: const Color(0xFF121212), 
       body: RefreshIndicator(
         onRefresh: () => _loadData(forceRefresh: true),
         color: Colors.yellow,
         backgroundColor: Colors.grey.shade900,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 40.0), // Added bottom padding
+          padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 40.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -779,14 +759,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 username: safeUser.username ?? 'User',
                 coins: safeUser.coins ?? 0,
               ),
-              const SizedBox(height: 16), // Spacing after header
+              const SizedBox(height: 16), 
               StepCounterCard(steps: _stepsToShow),
               const SizedBox(height: 24),
               const SectionTitle(title: "---------- Today's Scorecard ----------"),
               const SizedBox(height: 16),
               ScorecardSection(stats: safeUser.stats ?? {}),
               const SizedBox(height: 16),
-              BattleSection( // Pass necessary callbacks and data
+              BattleSection( 
                 user: safeUser,
                 opponentProfile: _opponentProfile,
                 isCreatingGame: _isCreatingGame,
@@ -796,10 +776,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               const GameRulesWidget(),
-              const SizedBox(height: 24),
-              const SectionTitle(title: "---------- Rewards ----------"),
-              const SizedBox(height: 16),
-              RewardsSection(latestReward: _latestReward),
+              // const SizedBox(height: 24),
+              // const SectionTitle(title: "---------- Rewards ----------"),
+              // const SizedBox(height: 16),
+              // RewardsSection(latestReward: _latestReward),
               const SizedBox(height: 24),
               const SectionTitle(title: "---------- Mystery Box ----------"),
               const SizedBox(height: 16),
@@ -814,7 +794,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               const StepWarsFooter(),
-              // --- End Refactored Widgets ---
             ],
           ),
         ),

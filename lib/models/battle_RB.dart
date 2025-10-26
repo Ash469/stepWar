@@ -1,5 +1,8 @@
 // Enums to represent the state of the game
+// ignore_for_file: file_names
+
 enum GameStatus { waiting, ongoing, completed, unknown }
+// ignore: constant_identifier_names
 enum GameResult { win, KO, draw }
 
 class Game {

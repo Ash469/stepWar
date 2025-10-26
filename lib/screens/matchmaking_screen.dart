@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field
+
 import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
@@ -71,11 +73,11 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
   void _onSelfStatusChanged(DatabaseEvent event) {
     if (!mounted || _isNavigating) return;
-    
+
     final selfData = event.snapshot.value as Map?;
-    
-    if (selfData != null && 
-        selfData['status'] == 'matched' && 
+
+    if (selfData != null &&
+        selfData['status'] == 'matched' &&
         selfData['gameId'] != null) {
       _navigateToBattle(selfData['gameId']);
     }
@@ -114,7 +116,10 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
       final pool = Map<String, dynamic>.from(data as Map);
       final meData = pool[widget.user.userId];
       final opponentData = pool[opponentId];
-      if (meData == null || opponentData == null || meData is! Map || opponentData is! Map) {
+      if (meData == null ||
+          opponentData == null ||
+          meData is! Map ||
+          opponentData is! Map) {
         return Transaction.abort();
       }
       final me = Map<String, dynamic>.from(meData);
@@ -131,19 +136,19 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
     if (transactionResult.committed) {
       if (!mounted) return;
-      
+
       setState(() => _statusText = "Opponent found! Creating battle...");
-      
+
       try {
-        final gameId = await _gameService.createPvpBattle(widget.user.userId, opponentId);
-        
+        final gameId =
+            await _gameService.createPvpBattle(widget.user.userId, opponentId);
+
         await Future.wait([
           _poolRef.child(widget.user.userId).update({'gameId': gameId}),
           _poolRef.child(opponentId).update({'gameId': gameId}),
         ]);
-        
+
         await _navigateToBattle(gameId);
-        
       } catch (e) {
         if (mounted) {
           setState(() {
@@ -160,39 +165,38 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
       }
     }
   }
-  
+
   Future<void> _navigateToBattle(String gameId) async {
     if (!mounted || _isNavigating) return;
-    
+
     _isNavigating = true;
     _isSearching = false;
     _countdownTimer?.cancel();
     _poolListener?.cancel();
     _selfListener?.cancel();
-    
+
     await Future.delayed(const Duration(milliseconds: 300));
-    
+
     if (mounted) {
       context.read<ActiveBattleService>().startBattle(gameId, widget.user);
-      
+
       await Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const BattleScreen()),
         (route) => route.isFirst,
       );
     }
-    
+
     await _leavePool();
   }
 
-  // --- MODIFIED: This function now handles the automatic navigation ---
   Future<void> _onTimeout() async {
     if (!mounted || !_isSearching || _isNavigating) return;
-    
+
     _isSearching = false;
     _poolListener?.cancel();
     _selfListener?.cancel();
     await _leavePool();
-    
+
     if (mounted) {
       setState(() {
         _statusText = "No opponent found.\nStarting a battle with a bot...";
@@ -205,14 +209,13 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
     }
   }
 
-  // --- MODIFIED: This function is now the single point of navigation ---
   Future<void> _navigateToBotSelection() async {
     if (!mounted || _isNavigating) return;
 
     _isNavigating = true;
     _isSearching = false;
     _countdownTimer?.cancel();
-    
+
     if (mounted) {
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -229,7 +232,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
       await userNode.remove();
     } catch (_) {}
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -296,11 +299,11 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                 maintainState: true,
                 child: TextButton(
                   style: TextButton.styleFrom(
-                    backgroundColor: const Color(0xFFFFC107), 
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                    backgroundColor: const Color(0xFFFFC107),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 20),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12), 
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   // Pressing it manually now also calls the final navigation function

@@ -1,4 +1,3 @@
-// lib/widget/home/home_header.dart
 import 'package:flutter/material.dart';
 
 class HomeHeader extends StatelessWidget {
