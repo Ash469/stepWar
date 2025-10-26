@@ -11,6 +11,13 @@ jobs:
     name: Build Flutter App
     runs-on: ubuntu-latest
 
+    # Add the environment variables here, at the job level
+    env:
+      KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -18,13 +25,25 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.35.1' # Consider using a newer version or matrix testing
 
       - name: Install Dependencies
         run: flutter pub get
 
       - name: Analyze Code
         run: flutter analyze
+
+      # You might need to configure signing properties before building
+      # This often involves creating a key.properties file
+      # Example (add this step *before* build steps if needed):
+      # - name: Create key.properties
+      #   run: |
+      #     echo "storeFile=${{ env.KEYSTORE_PATH }}" > android/key.properties
+      #     echo "storePassword=${{ env.KEYSTORE_PASSWORD }}" >> android/key.properties
+      #     echo "keyAlias=${{ env.KEY_ALIAS }}" >> android/key.properties
+      #     echo "keyPassword=${{ env.KEY_PASSWORD }}" >> android/key.properties
+      #   # Add error handling if secrets are not set, e.g.,
+      #   # if: env.KEYSTORE_PATH != '' && env.KEYSTORE_PASSWORD != '' && env.KEY_ALIAS != '' && env.KEY_PASSWORD != ''
 
       - name: Build APK
         run: flutter build apk --release
@@ -38,3 +57,9 @@ jobs:
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload App Bundle (AAB) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
