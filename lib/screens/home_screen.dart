@@ -1,7 +1,8 @@
 // ignore_for_file: unused_import, unused_field
-
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
@@ -23,14 +24,15 @@ import 'kingdom_screen.dart' show KingdomItem;
 import '../widget/mystery_box_section.dart';
 import '../widget/reward_dialog.dart';
 import '../widget/string_extension.dart';
-
-// --- REFACTORED WIDGETS ---
 import '../widget/home/home_header.dart';
 import '../widget/home/step_counter_card.dart';
 import '../widget/home/scorecard_section.dart';
 import '../widget/home/battle_section.dart';
 import '../widget/home/rewards_section.dart';
 import '../widget/home/section_title.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import '../services/step_task_handler.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   UserModel? _user;
   UserModel? _opponentProfile;
-  bool _isLoading = true; 
+  bool _isLoading = true;
   StreamSubscription? _stepSubscription;
   Timer? _debounce;
   final bool _isCreatingBotGame = false;
@@ -64,18 +66,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Duration _silverTimeLeft = Duration.zero;
   Duration _goldTimeLeft = Duration.zero;
   KingdomItem? _latestReward;
-
-  bool _isOffsetCalculated = false;
   bool _isLoadingData = false;
+  bool _offsetInitializationDone = false;
 
   @override
   void initState() {
     super.initState();
+    _offsetInitializationDone = false;
     _debounce?.cancel();
+    _stepSubscription?.cancel();
+    FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _requestPermissions();
+      _initService();
+      await _startService();
+    });
     _loadData(isInitialLoad: true);
     _handleNotifications();
     WidgetsBinding.instance.addObserver(this);
     _startBoxTimers();
+  }
+
+  void _onReceiveTaskData(Object data) {
+    if (data is Map<String, dynamic>) {
+      if (data.containsKey('steps')) {
+        final stepsFromService = data['steps'] as int;
+        if (mounted) {
+          setState(() {
+            _stepsToShow = stepsFromService;
+          });
+        }
+        _debounce?.cancel();
+        final remoteConfig = context.read<FirebaseRemoteConfig>();
+        final debounceMinutes =
+            remoteConfig.getInt('step_save_debounce_minutes');
+        _debounce = Timer(Duration(minutes: debounceMinutes),
+            () => _saveLatestSteps(stepsFromService));
+      }
+    }
   }
 
   @override
@@ -83,16 +111,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _stepSubscription?.cancel();
     _debounce?.cancel();
     _healthService.dispose();
+    FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
     WidgetsBinding.instance.removeObserver(this);
     _boxTimer?.cancel();
+    // _stopService();
     super.dispose();
   }
 
   void _startBoxTimers() {
     _boxTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted || _user?.mysteryBoxLastOpened == null) return;
-      
-      // --- MODIFICATION: Call the new calculation logic ---
+
       if (mounted) {
         setState(() {
           _bronzeTimeLeft = _calculateTimeLeft('bronze');
@@ -100,11 +129,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _goldTimeLeft = _calculateTimeLeft('gold');
         });
       }
-      // --- END MODIFICATION ---
     });
   }
 
- 
   Duration _calculateTimeLeft(String boxType) {
     final lastOpenedString = _user?.mysteryBoxLastOpened?[boxType];
     if (lastOpenedString == null) return Duration.zero;
@@ -113,37 +140,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final lastOpenedDate = DateTime.parse(lastOpenedString).toLocal();
       final now = DateTime.now();
       final nextAvailableTime = lastOpenedDate.add(const Duration(hours: 24));
-      
+
       if (now.isBefore(nextAvailableTime)) {
-        // If current time is before the 24-hour mark, calculate remaining duration
         return nextAvailableTime.difference(now);
       }
     } catch (e) {
       print("Error parsing mystery box date for $boxType: $e");
     }
-    // If parsing failed or 24 hours have passed, return zero
     return Duration.zero;
   }
-  
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       print("App is pausing. Forcing final step save.");
-      _debounce?.cancel(); 
-      await _saveLatestSteps(_stepsToShow); 
+      _debounce?.cancel();
+      _stepSubscription?.cancel(); // Add this
+      await _saveLatestSteps(_stepsToShow);
     }
     if (state == AppLifecycleState.resumed) {
       print("App resumed. Cancelling pending saves & triggering data load.");
-      _debounce?.cancel(); 
-      _loadData(); 
+      _debounce?.cancel();
+      _stepSubscription?.cancel();
+      _loadData();
     }
   }
 
+  Future<void> _requestPermissions() async {
+    final notificationPermission =
+        await FlutterForegroundTask.checkNotificationPermission();
+    if (notificationPermission != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
+
+    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+  }
+
+  void _initService() {
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'step_counter_channel',
+        channelName: 'Step Counter',
+        channelDescription: 'Shows your current step count.',
+        onlyAlertOnce: true,
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: false,
+        playSound: false,
+      ),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        eventAction: ForegroundTaskEventAction.repeat(10000),
+        autoRunOnBoot: true,
+        allowWakeLock: true,
+        allowWifiLock: true,
+      ),
+    );
+  }
+
+  Future<ServiceRequestResult> _startService() async {
+    if (await FlutterForegroundTask.isRunningService) {
+      return FlutterForegroundTask.restartService();
+    } else {
+      return FlutterForegroundTask.startService(
+        serviceId: 101,
+        notificationTitle: 'Step Counter Running',
+        notificationText: 'Steps: 0',
+        // notificationIcon:
+        //     const NotificationIcon(metaDataName: '@drawable/ic_notification'),
+        notificationInitialRoute: '/',
+        callback: startCallback,
+      );
+    }
+  }
 
   Future<void> _openMysteryBox(String boxType, int price) async {
-    if (_user == null || _isLoadingData) return; 
+    if (_user == null || _isLoadingData) return;
     final canAfford = (_user!.coins ?? 0) >= price;
     if (!canAfford) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,17 +239,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final reward =
           await _mysteryBoxService.openMysteryBox(_user!.userId, boxType);
       final newCoinBalance = reward['newCoinBalance'] as int?;
-            if (newCoinBalance != null && mounted) {
+      if (newCoinBalance != null && mounted) {
         setState(() {
-                     final updatedLastOpened = Map<String, String>.from(_user!.mysteryBoxLastOpened ?? {});
-           updatedLastOpened[boxType] = DateTime.now().toIso8601String(); 
-          _user = _user!.copyWith(coins: newCoinBalance, mysteryBoxLastOpened: updatedLastOpened);
-
+          final updatedLastOpened =
+              Map<String, String>.from(_user!.mysteryBoxLastOpened ?? {});
+          updatedLastOpened[boxType] = DateTime.now().toIso8601String();
+          _user = _user!.copyWith(
+              coins: newCoinBalance, mysteryBoxLastOpened: updatedLastOpened);
         });
-               _authService.saveUserSession(_user!);
+        _authService.saveUserSession(_user!);
       }
       _showRewardDialog(reward);
-      _loadData(forceRefresh: true); 
+      _loadData(forceRefresh: true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -220,52 +296,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showRewardDialog(Map<String, dynamic> reward) {
-     Widget rewardContent;
-     String titleText;
-     String subtitleText = "";
+    Widget rewardContent;
+    String titleText;
+    String subtitleText = "";
 
-     switch (reward['type']) {
-       case 'coins':
-         titleText = "${reward['amount']} Coins!";
-         rewardContent = Image.asset('assets/images/coin_icon.png', height: 80);
-         break;
-       case 'multiplier':
-         titleText = "Multiplier Token!";
-         subtitleText = "You got a ${reward['multiplierType']} token";
-         rewardContent = Text(
-           reward['multiplierType'].toString().replaceAll('_', '.'),
-           style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black),
-         );
-         break;
-       case 'collectible':
-         final item = reward['item'];
-         titleText = "New Collectible!";
-         subtitleText = item?['name'] ?? 'A new item';
-         final imagePath = (item is Map && item.containsKey('imagePath')) ? item['imagePath'] : null;
-         rewardContent = imagePath != null
-             ? Image.asset(imagePath, height: 80, errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 80, color: Colors.black))
-             : const Icon(Icons.shield, size: 80, color: Colors.black);
-         break;
-       default:
-         titleText = "Special Reward!";
-         rewardContent = const Icon(Icons.star, size: 80, color: Colors.black);
-     }
+    switch (reward['type']) {
+      case 'coins':
+        titleText = "${reward['amount']} Coins!";
+        rewardContent = Image.asset('assets/images/coin_icon.png', height: 80);
+        break;
+      case 'multiplier':
+        titleText = "Multiplier Token!";
+        subtitleText = "You got a ${reward['multiplierType']} token";
+        rewardContent = Text(
+          reward['multiplierType'].toString().replaceAll('_', '.'),
+          style: const TextStyle(
+              fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black),
+        );
+        break;
+      case 'collectible':
+        final item = reward['item'];
+        titleText = "New Collectible!";
+        subtitleText = item?['name'] ?? 'A new item';
+        final imagePath = (item is Map && item.containsKey('imagePath'))
+            ? item['imagePath']
+            : null;
+        rewardContent = imagePath != null
+            ? Image.asset(imagePath,
+                height: 80,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.shield, size: 80, color: Colors.black))
+            : const Icon(Icons.shield, size: 80, color: Colors.black);
+        break;
+      default:
+        titleText = "Special Reward!";
+        rewardContent = const Icon(Icons.star, size: 80, color: Colors.black);
+    }
 
-     if(mounted) {
-       showDialog(
-         context: context,
-         barrierDismissible: false,
-         builder: (ctx) => RewardDialog(
-           title: titleText,
-           subtitle: subtitleText,
-           rewardContent: rewardContent,
-         ),
-       );
-     }
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => RewardDialog(
+          title: titleText,
+          subtitle: subtitleText,
+          rewardContent: rewardContent,
+        ),
+      );
+    }
   }
 
   Future<void> _handleNotifications() async {
-     final prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     final hasRegisteredToken = prefs.getBool('hasRegisteredFcmToken') ?? false;
 
     if (hasRegisteredToken) {
@@ -286,19 +368,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
   Future<void> _fetchOpponentProfile(ActiveBattleService battleService) async {
-     if (_isFetchingOpponent ||
+    if (_isFetchingOpponent ||
         _opponentProfile != null ||
         battleService.currentGame == null) {
-       return;
-     }
-    if(mounted) setState(() => _isFetchingOpponent = true);
+      return;
+    }
+    if (mounted) setState(() => _isFetchingOpponent = true);
     final game = battleService.currentGame!;
     if (_user == null) {
-       if (mounted) setState(() => _isFetchingOpponent = false);
-       print("Cannot fetch opponent, current user data is null.");
-       return;
+      if (mounted) setState(() => _isFetchingOpponent = false);
+      print("Cannot fetch opponent, current user data is null.");
+      return;
     }
     final isUserPlayer1 = game.player1Id == _user!.userId;
     final opponentId = isUserPlayer1 ? game.player2Id : game.player1Id;
@@ -325,52 +406,76 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
   void _setLatestRewardFromData(Map<String, dynamic> rawRewardsMap) {
     if (!mounted) return;
     KingdomItem? latest;
     rawRewardsMap.forEach((key, value) {
-       if (value is List && value.isNotEmpty) {
-           final lastItem = value.last;
-           if (lastItem is Map<String, dynamic>) {
-               try {
-                  final item = KingdomItem.fromJson(lastItem);
-                  latest ??= item;
-               } catch (e) {
-                 print("Error parsing reward item: $e, item data: $lastItem");
-               }
-           }
-       }
+      if (value is List && value.isNotEmpty) {
+        final lastItem = value.last;
+        if (lastItem is Map<String, dynamic>) {
+          try {
+            final item = KingdomItem.fromJson(lastItem);
+            latest ??= item;
+          } catch (e) {
+            print("Error parsing reward item: $e, item data: $lastItem");
+          }
+        }
+      }
     });
 
     if (mounted) {
-        setState(() {
-            _latestReward = latest;
-        });
+      setState(() {
+        _latestReward = latest;
+      });
     }
   }
-
-
 
   Future<UserModel?> _loadUserFromCache(SharedPreferences prefs) async {
     final cachedProfile = prefs.getString('userProfile');
     if (cachedProfile != null) {
       try {
         final user = UserModel.fromJson(jsonDecode(cachedProfile));
+        print("[Cache Load] Loaded user from SharedPreferences cache.");
         return user;
       } catch (e) {
-        print("[Data Sync] Error parsing cache: $e");
+        print("[Cache Load] Error parsing user cache: $e");
+        await prefs.remove('userProfile'); // Clear corrupted cache
         return null;
       }
     }
+    print("[Cache Load] No user profile found in SharedPreferences cache.");
     return null;
+  }
+
+  Map<String, dynamic>? _loadRewardsFromCacheSync(SharedPreferences prefs) {
+    final cachedRewardsString = prefs.getString('userRewardsCache');
+    if (cachedRewardsString != null) {
+      try {
+        return jsonDecode(cachedRewardsString) as Map<String, dynamic>;
+      } catch (e) {
+        print("[Cache Load] Error parsing rewards cache: $e");
+        prefs.remove('userRewardsCache'); // Clear corrupted cache
+        return null;
+      }
+    }
+    print("[Cache Load] No rewards found in SharedPreferences cache.");
+    return null;
+  }
+
+  void _sendDbStepsToService(int? steps) {
+    if (steps != null) {
+      print("[HomeScreen] Sending DB steps ($steps) to service.");
+      FlutterForegroundTask.sendDataToTask({'dbSteps': steps});
+    } else {
+      print("[HomeScreen] Not sending DB steps to service (value is null).");
+    }
   }
 
   Future<void> _loadData(
       {bool forceRefresh = false, bool isInitialLoad = false}) async {
     if (!mounted || _isLoadingData) return;
-
     _debounce?.cancel();
+    _stepSubscription?.cancel();
     if (mounted) {
       setState(() {
         _isLoadingData = true;
@@ -379,235 +484,349 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       });
     }
-
     final prefs = await SharedPreferences.getInstance();
     final currentUser = FirebaseAuth.instance.currentUser;
     UserModel? loadedUser;
-
-    if (forceRefresh) {
-      print("[Data Sync] Manual refresh triggered. Saving local steps first (if possible).");
-      try {
-        await _saveLatestSteps(_stepsToShow);
-      } catch (e) {
-        print("[Data Sync] Error during pre-refresh save (ignoring): $e");
+    Map<String, dynamic>? loadedRewards;
+    if (isInitialLoad && !_isLoading) {
+      UserModel? cachedUser = await _loadUserFromCache(prefs);
+      Map<String, dynamic>? cachedRewards = _loadRewardsFromCacheSync(prefs);
+      if (cachedUser != null && mounted) {
+        print("[Data Sync] Initial load: Displaying cached data first.");
+        setState(() {
+          _user = cachedUser;
+          _stepsToShow = cachedUser.todaysStepCount ?? 0;
+          if (cachedRewards != null) {
+            _setLatestRewardFromData(cachedRewards);
+          }
+        });
+        _initStepCounter(cachedUser);
+        _sendDbStepsToService(cachedUser.todaysStepCount); // Send cached steps
+      } else if (mounted) {
+        print(
+            "[Data Sync] Initial load: No cache found, setting isLoading = true.");
+        setState(() {
+          _isLoading = true;
+        });
       }
     }
-
-    const refreshThreshold = Duration(minutes: 5);
+    const refreshThreshold = Duration(minutes: 15);
     final lastRefreshString = prefs.getString('lastProfileRefreshTimestamp');
-    final hasCachedProfile = prefs.getString('userProfile') != null;
-
     bool shouldFetchFromServer = false;
-    if (isInitialLoad && !hasCachedProfile) {
-      shouldFetchFromServer = true;
-      print("[Data Sync] Initial load with no cache - fetching from server");
+    if (currentUser == null) {
+      print("[Data Sync] No user logged in, cannot fetch from server.");
+      shouldFetchFromServer = false;
     } else if (forceRefresh) {
       shouldFetchFromServer = true;
-    } else if (lastRefreshString != null) {
+      print("[Data Sync] Force refresh requested.");
+    } else if (isInitialLoad && _user == null) {
+      shouldFetchFromServer = true;
+      print("[Data Sync] Initial load with no cache, fetching from server.");
+    } else if (lastRefreshString == null) {
+      shouldFetchFromServer = true;
+      print("[Data Sync] No last refresh timestamp, fetching from server.");
+    } else {
       final lastRefreshTime = DateTime.tryParse(lastRefreshString);
       if (lastRefreshTime != null &&
           DateTime.now().difference(lastRefreshTime) > refreshThreshold) {
         shouldFetchFromServer = true;
+        print("[Data Sync] Refresh threshold exceeded, fetching from server.");
+      } else {
+        print("[Data Sync] No server fetch needed (cache is recent enough).");
       }
-    } else {
-      shouldFetchFromServer = true; 
     }
-    
     if (shouldFetchFromServer && currentUser != null) {
-      print("[Data Sync] Fetching latest data from server...");
-     
+      print("[Data Sync] Attempting to fetch latest data from server...");
       try {
         final results = await Future.wait([
           _authService.refreshUserProfile(currentUser.uid),
           _authService.getUserRewards(currentUser.uid)
         ]);
-
         final serverUser = results[0] as UserModel?;
+        final serverRewards = results[1] as Map<String, dynamic>?;
         if (serverUser != null) {
           loadedUser = serverUser;
-          print("[Data Sync] Fetched user from server. Steps: ${loadedUser.todaysStepCount}");
-
-          if (loadedUser.todaysStepCount == 0 && prefs.getInt('dailyStepOffset') != null) {
-            print("[Data Sync] Server reported 0 steps. Clearing local step offset.");
-            await prefs.remove('dailyStepOffset');
-            _isOffsetCalculated = false; // Reset flag
+          print(
+              "[Data Sync] SUCCESS: Fetched user from server. Steps: ${loadedUser.todaysStepCount}");
+          _sendDbStepsToService(loadedUser.todaysStepCount);
+          if (loadedUser.todaysStepCount == 0 &&
+              prefs.getInt('dailyStepOffset') != null) {
+            // Only clear a stored offset if it is from a previous day.
+            // If the stored offset was calculated today, keep it so we don't
+            // recalculate every time the user navigates back to Home.
+            final storedTimestamp = prefs.getInt('dailyOffsetTimestamp');
+            if (storedTimestamp != null) {
+              final offsetDate =
+                  DateTime.fromMillisecondsSinceEpoch(storedTimestamp);
+              final now = DateTime.now();
+              if (offsetDate.year == now.year &&
+                  offsetDate.month == now.month &&
+                  offsetDate.day == now.day) {
+                print(
+                    "[Data Sync] Server reported 0 steps but offset is from today; keeping stored offset.");
+                // keep today's offset — no action required
+              } else {
+                print(
+                    "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.");
+                await prefs.remove('dailyStepOffset');
+                await prefs.remove('dailyOffsetTimestamp');
+              }
+            } else {
+              // No timestamp found; conservative approach: keep the offset to
+              // avoid unnecessary recalculation, but log this situation.
+              print(
+                  "[Data Sync] Server reported 0 steps and no offset timestamp found; keeping stored offset to avoid recalculation.");
+            }
           }
-
-          if (mounted) {
-            setState(() {
-              _user = loadedUser;
-              _stepsToShow = loadedUser?.todaysStepCount ?? 0;
-            });
+          if (serverRewards != null) {
+            loadedRewards = serverRewards;
+            await prefs.setString('userRewardsCache',
+                jsonEncode(serverRewards)); // Update rewards cache
+            print("[Data Sync] SUCCESS: Fetched rewards from server.");
+          } else {
+            print(
+                "[Data Sync] WARNING: Fetched user but rewards fetch returned null.");
+            loadedRewards = _loadRewardsFromCacheSync(prefs);
           }
-          final rawRewards = results[1] as Map<String, dynamic>?;
-          if (rawRewards != null && mounted) {
-            await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
-            _setLatestRewardFromData(rawRewards);
-          }
+          await prefs.setString(
+              'lastProfileRefreshTimestamp', DateTime.now().toIso8601String());
+        } else {
+          print(
+              "[Data Sync] WARNING: Server user fetch returned null. Falling back to cache.");
+          loadedUser = await _loadUserFromCache(prefs);
+          loadedRewards =
+              _loadRewardsFromCacheSync(prefs); // Also load rewards from cache
+        }
+      } catch (e) {
+        print(
+            "[Data Sync] ERROR fetching from server: $e. Falling back to cache.");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Network error. Showing cached data.'),
+              backgroundColor: Colors.orange[800],
+            ),
+          );
+        }
+        loadedUser = await _loadUserFromCache(prefs);
+        loadedRewards = _loadRewardsFromCacheSync(prefs);
+        _sendDbStepsToService(loadedUser?.todaysStepCount);
+      }
+    } else if (!shouldFetchFromServer && _user == null) {
+      print("[Data Sync] Not fetching from server, attempting cache load.");
+      loadedUser = await _loadUserFromCache(prefs);
+      loadedRewards = _loadRewardsFromCacheSync(prefs);
+      _sendDbStepsToService(loadedUser?.todaysStepCount);
+    } else {
+      loadedUser = _user;
+      loadedRewards = _loadRewardsFromCacheSync(prefs);
+      print("[Data Sync] Using already loaded user data.");
+      _sendDbStepsToService(loadedUser?.todaysStepCount);
+    }
+    if (mounted) {
+      bool hadUserBefore = _user != null;
+      setState(() {
+        if (loadedUser != null) {
+          _user = loadedUser;
 
-          if (mounted) {
-            await prefs.setString(
-                'lastProfileRefreshTimestamp', DateTime.now().toIso8601String());
-            print("[Data Sync] Saved new refresh timestamp.");
+          if (loadedRewards != null) {
+            _setLatestRewardFromData(loadedRewards);
           }
         } else {
-          print("[Data Sync] Fetch returned null user. Falling back to cache.");
-          loadedUser = await _loadUserFromCache(prefs); // Use cache as fallback
-        }
+          print(
+              "[Data Sync] Final setState: Failed to load user from server and cache.");
 
-      } catch (e) {
-        print("[Data Sync] Error during data fetch, falling back to cache: $e");
-        loadedUser = await _loadUserFromCache(prefs);
+          if (isInitialLoad) _isLoading = true;
 
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _isLoadingData = false;
-          });
-          _initStepCounter(loadedUser);
+          if (!isInitialLoad && hadUserBefore) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to load user data. Check connection.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
-      }
-    } else if (hasCachedProfile) {
-      print("[Data Sync] Loading data from cache (no fetch needed).");
-      loadedUser = await _loadUserFromCache(prefs);
-       if (mounted) {
-        setState(() {
-          _user = loadedUser;
-          _stepsToShow = loadedUser?.todaysStepCount ?? 0;
+        _isLoadingData = false; // Data loading process finished
+
+        if (loadedUser != null || !(isInitialLoad || forceRefresh)) {
           _isLoading = false;
-          _isLoadingData = false;
-        });
+        }
+        print(
+            "[Data Sync] Final isLoading=$_isLoading, isLoadingData=$_isLoadingData");
+      });
+      if (loadedUser != null) {
         _initStepCounter(loadedUser);
-      }
-    } else {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isLoadingData = false;
-        });
-        _initStepCounter(null);
       }
     }
   }
 
-
-  void _initStepCounter(UserModel? userFromLoad) async { 
-    if (_isLoadingData) {
-      print("[Step Counter] Delaying initialization, data is loading.");
+  void _initStepCounter(UserModel? userFromLoad) async {
+    if (_offsetInitializationDone) {
+      print(
+          "[Step Counter] Offset initialization already completed this session. Skipping.");
+      _sendDbStepsToService(_user?.todaysStepCount);
       return;
     }
-
-    _stepSubscription?.cancel();
+    _stepSubscription?.cancel(); // Cancel previous listener if any
     final prefs = await SharedPreferences.getInstance();
     await _healthService.initialize();
 
-    _isOffsetCalculated = prefs.getInt('dailyStepOffset') != null;
-    print("[Step Counter] Initializing. Offset already calculated: $_isOffsetCalculated.");
+    int? storedOffset;
+    int? offsetTimestampMillis;
+    bool needsNewOffset = true; // Assume we need a new one by default
 
-    _stepSubscription = _healthService.stepStream.listen(
-      (stepsStr) {
-        if (_isLoadingData) { 
-           print("[Step Counter] Ignored step event, data is loading.");
-           return;
-        }
+    try {
+      storedOffset = prefs.getInt('dailyStepOffset');
+      offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
+      print(
+          "[Step Counter] Initializing. Offset from cache: $storedOffset, TimestampMillis: $offsetTimestampMillis");
 
-        final currentPedometerReading = int.tryParse(stepsStr);
-        if (currentPedometerReading == null) return;
-
-        int? dailyStepOffset = prefs.getInt('dailyStepOffset');
-
-        if (!_isOffsetCalculated && currentPedometerReading >= 0) { // Changed > 0 to >= 0
-          // If offset is not calculated, it means server returned 0 steps
-          // or this is the very first reading.
-          final dbSteps = userFromLoad?.todaysStepCount ?? 0; 
-          dailyStepOffset = currentPedometerReading - dbSteps;
-
-          prefs.setInt('dailyStepOffset', dailyStepOffset);
-          _isOffsetCalculated = true;
-
+      if (storedOffset != null && offsetTimestampMillis != null) {
+        // Check if the stored offset is from today
+        final offsetDate =
+            DateTime.fromMillisecondsSinceEpoch(offsetTimestampMillis);
+        final nowDate = DateTime.now();
+        // Compare Year, Month, Day in local time
+        if (offsetDate.year == nowDate.year &&
+            offsetDate.month == nowDate.month &&
+            offsetDate.day == nowDate.day) {
+          needsNewOffset = false; // Offset is from today, use it!
           print(
-              "[Step Counter] New Daily Step Offset PERSISTED: $dailyStepOffset (Pedometer: $currentPedometerReading, Server Steps at Load: $dbSteps)");
+              "[Step Counter] Offset timestamp is from today. Using existing offset: $storedOffset");
+        } else {
+          print(
+              "[Step Counter] Offset timestamp is from a previous day (${DateFormat('yyyy-MM-dd').format(offsetDate)}). Will calculate a new one.");
         }
-        
-        if (dailyStepOffset == null) {
-           // If offset is still null here (e.g., pedometer read 0 initially),
-           // show the steps reported by the server/cache until offset is calculated.
-           if(mounted) {
-             setState(() {
-               _stepsToShow = _user?.todaysStepCount ?? 0;
-             });
-           }
-           print("[Step Counter] Offset not yet calculated. Showing DB steps: ${_user?.todaysStepCount ?? 0}");
-           return;
-        }
-
-        final calculatedDailySteps = currentPedometerReading - dailyStepOffset;
-        // Ensure steps don't go negative if pedometer resets mid-day
-        final stepsToSave = calculatedDailySteps > 0 ? calculatedDailySteps : 0; 
-
-        if (mounted) {
-          setState(() {
-            _stepsToShow = stepsToSave; // Update UI optimistically
-          });
-        }
-
-        _debounce?.cancel();
-        _debounce = Timer(
-            const Duration(seconds: 15), () => _saveLatestSteps(stepsToSave));
-      },
-      onError: (error) {
-        print("[Step Counter] Error from step stream: $error");
-        if(mounted && !_isLoadingData) {
-          setState(() {
-            // Fallback to server/cache steps on error
-            _stepsToShow = _user?.todaysStepCount ?? 0; 
-          });
-        }
+      } else {
+        print(
+            "[Step Counter] No valid offset or timestamp found in cache. Will calculate a new one.");
       }
-    );
+    } catch (e) {
+      print(
+          "[Step Counter] ERROR reading offset/timestamp during init: $e. Assuming new offset needed.");
+      needsNewOffset = true;
+      storedOffset = null; // Ensure offset is null if read failed
+    }
+
+    if (!needsNewOffset && storedOffset != null) {
+      print(
+          "[Step Counter] Sending existing offset ($storedOffset) to service.");
+      FlutterForegroundTask.sendDataToTask({'offset': storedOffset});
+      // --- Mark initialization as done ---
+      _offsetInitializationDone = true;
+      print(
+          "[Step Counter] Marked offset initialization as DONE (using existing).");
+      // --- End Mark ---
+      return; // Exit the function, no listener needed
+    }
+
+    // --- If we DO need a new offset (needsNewOffset is true) ---
+    print(
+        "[Step Counter] Listening for pedometer reading to calculate NEW offset...");
+    _stepSubscription = _healthService.stepStream.listen((stepsStr) async {
+      // This listener now ONLY runs if needsNewOffset was true
+
+      if (_isLoadingData) {
+        print(
+            "[Step Counter] Ignored step event (calculating offset), data is loading.");
+        return;
+      }
+
+      final currentPedomometerReading = int.tryParse(stepsStr);
+      if (currentPedomometerReading == null || currentPedomometerReading < 0) {
+        print(
+            "[Step Counter] Invalid pedometer reading ($stepsStr) received while calculating offset.");
+        return; // Ignore invalid readings
+      }
+
+      // DB steps should be 0 for a new day, fetched by _loadData
+      final dbSteps = userFromLoad?.todaysStepCount ?? 0;
+      int calculatedOffset = currentPedomometerReading - dbSteps;
+      final nowMillis = DateTime.now().millisecondsSinceEpoch;
+
+      try {
+        await prefs.setInt('dailyStepOffset', calculatedOffset);
+        await prefs.setInt(
+            'dailyOffsetTimestamp', nowMillis); // Save current timestamp
+        needsNewOffset = false; // Mark as calculated for this session
+
+        print(
+            "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedomometerReading, Server Steps: $dbSteps)");
+        print("[Step Counter] Offset Timestamp PERSISTED: $nowMillis");
+
+        FlutterForegroundTask.sendDataToTask({'offset': calculatedOffset});
+
+        // --- Stop listening after successfully calculating and sending ---
+        _stepSubscription?.cancel();
+        _stepSubscription = null;
+        print(
+            "[Step Counter] New offset calculated and sent. HomeScreen stopping its pedometer listener.");
+        _offsetInitializationDone = true;
+        print("[Step Counter] Marked offset initialization as DONE.");
+        // --- End Stop ---
+      } catch (e) {
+        print(
+            "[Step Counter] ERROR saving newly calculated offset/timestamp: $e.");
+        // Keep needsNewOffset as true if save fails, might retry on next event
+      }
+    }, onError: (error) {
+      print(
+          "[Step Counter] Error from step stream while calculating offset: $error");
+      _stepSubscription?.cancel();
+      _stepSubscription = null;
+    });
   }
 
   Future<void> _saveLatestSteps(int stepsToSave) async {
-    if (_isLoadingData) {
-      print("[Step Save] Skipping save, data load in progress.");
-      return;
-    }
-    final currentUserState = _user; 
-    if (currentUserState == null || currentUserState.userId.isEmpty) {
-      print("[Step Save] Skipping save: User data not available in state.");
-      return;
+    if (_isLoadingData) return;
+    final currentUserState = _user;
+    if (currentUserState == null || currentUserState.userId.isEmpty) return;
+
+    final int lastKnownSteps = currentUserState.todaysStepCount ?? 0;
+    const int resetThreshold = 100; // Allow small decreases
+    if (lastKnownSteps > resetThreshold &&
+        stepsToSave < lastKnownSteps - resetThreshold) {
+      print(
+          "[Step Save] ⚠️ Potential Pedometer Reset Detected! Skipping sync.");
+      print(
+          "   -> Last Known DB/State Steps: $lastKnownSteps, Steps Calculated Now: $stepsToSave");
+      if (mounted && _stepsToShow != stepsToSave) {
+        setState(() {
+          _stepsToShow = stepsToSave;
+        });
+      }
+      return; // Exit without syncing
     }
 
-    
-    if (currentUserState.todaysStepCount == stepsToSave) {
-      return;
-    }
+    if (lastKnownSteps == stepsToSave) return; // No change
 
     print(
         "[Step Save] Saving calculated step count: $stepsToSave for user ${currentUserState.userId}");
     try {
-      // 1. Send to backend
-      await _authService.syncStepsToBackend(currentUserState.userId, stepsToSave);
-
-      // 2. Update local state and cache AFTER successful backend sync
-      final updatedUserForCache = currentUserState.copyWith(todaysStepCount: stepsToSave);
+      await _authService.syncStepsToBackend(
+          currentUserState.userId, stepsToSave);
+      final updatedUserForCache =
+          currentUserState.copyWith(todaysStepCount: stepsToSave);
       await _authService.saveUserSession(updatedUserForCache);
       if (mounted) {
-         setState(() {
-             _user = updatedUserForCache; // Update the main state variable
-         });
+        setState(() {
+          _user = updatedUserForCache;
+          if (_stepsToShow < stepsToSave) {
+            _stepsToShow = stepsToSave;
+          }
+        });
+        _sendDbStepsToService(stepsToSave);
       }
-
-      print("✅ [Step Save] Successfully saved steps to backend and updated local cache/state.");
-
+      print(
+          "✅ [Step Save] Successfully saved steps to backend and updated local cache/state.");
     } catch (e) {
       print("❌ [Step Save] Error saving step count: $e");
     }
   }
 
   void _showFriendBattleDialog() {
-     showDialog(
+    showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
@@ -659,7 +878,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _handleJoinFriendBattle() {
-     final gameIdController = TextEditingController();
+    final gameIdController = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -689,7 +908,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Navigator.of(ctx).pop();
                 _joinGameById(gameId);
               } else {
-                 _showErrorSnackbar('Please enter a Game ID.');
+                _showErrorSnackbar('Please enter a Game ID.');
               }
             },
             child:
@@ -708,29 +927,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (success && mounted) {
         context.read<ActiveBattleService>().startBattle(gameId, _user!);
         if (mounted) {
-           Navigator.of(context)
-               .push(MaterialPageRoute(builder: (_) => const BattleScreen()));
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const BattleScreen()));
         }
       } else if (!success) {
-        _showErrorSnackbar('Could not join game. It might be full, invalid, or already started.');
+        _showErrorSnackbar(
+            'Could not join game. It might be full, invalid, or already started.');
       }
     } catch (e) {
       _showErrorSnackbar('Error joining game: ${e.toString()}');
     } finally {
       if (mounted) {
-         setState(() => _isHandlingFriendGame = false);
+        setState(() => _isHandlingFriendGame = false);
       }
     }
   }
 
   void _showErrorSnackbar(String message) {
     if (mounted) {
-       ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(
-               content: Text(message),
-               backgroundColor: Colors.redAccent,
-           )
-       );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.redAccent,
+      ));
     }
   }
 
@@ -744,7 +962,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final safeUser = _user!;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212), 
+      backgroundColor: const Color(0xFF121212),
       body: RefreshIndicator(
         onRefresh: () => _loadData(forceRefresh: true),
         color: Colors.yellow,
@@ -759,14 +977,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 username: safeUser.username ?? 'User',
                 coins: safeUser.coins ?? 0,
               ),
-              const SizedBox(height: 16), 
+              const SizedBox(height: 16),
               StepCounterCard(steps: _stepsToShow),
               const SizedBox(height: 24),
-              const SectionTitle(title: "---------- Today's Scorecard ----------"),
+              const SectionTitle(
+                  title: "---------- Today's Scorecard ----------"),
               const SizedBox(height: 16),
               ScorecardSection(stats: safeUser.stats ?? {}),
               const SizedBox(height: 16),
-              BattleSection( 
+              BattleSection(
                 user: safeUser,
                 opponentProfile: _opponentProfile,
                 isCreatingGame: _isCreatingGame,
@@ -776,10 +995,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               const GameRulesWidget(),
-              // const SizedBox(height: 24),
-              // const SectionTitle(title: "---------- Rewards ----------"),
-              // const SizedBox(height: 16),
-              // RewardsSection(latestReward: _latestReward),
               const SizedBox(height: 24),
               const SectionTitle(title: "---------- Mystery Box ----------"),
               const SizedBox(height: 16),
@@ -800,5 +1015,4 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
 }

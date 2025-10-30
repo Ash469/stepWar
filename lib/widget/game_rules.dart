@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // Import Provider
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 class GameRulesWidget extends StatelessWidget {
   const GameRulesWidget({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final remoteConfig = context.read<FirebaseRemoteConfig>();
+    final koDifference = 200;
+    final drawDifference = 50;
+    // final koDifference = remoteConfig.getInt('ko_diff');
+    // final drawDifference = remoteConfig.getInt('draw_diff');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -32,19 +39,19 @@ class GameRulesWidget extends StatelessWidget {
         _buildRuleItem(
           'assets/images/medel.png',
           "Win",
-          "Most steps after 10 min",
+          "Most steps after timer ends", 
         ),
         const SizedBox(height: 16),
         _buildRuleItem(
           'assets/images/ko_image.png',
           "KO Victory",
-          "Lead by 200 steps",
+         "Lead by $koDifference steps",
         ),
         const SizedBox(height: 16),
         _buildRuleItem(
           'assets/images/flag.png',
           "Draw",
-          "Less than 50 steps difference",
+         "Less than $drawDifference steps difference",
         ),
       ],
     );

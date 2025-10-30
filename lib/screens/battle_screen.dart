@@ -1,5 +1,4 @@
 // ignore_for_file: unused_local_variable
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import '../models/battle_rb.dart';
 import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
 import '../services/bot_service.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 class BattleScreen extends StatefulWidget {
   const BattleScreen({super.key});
@@ -265,6 +265,7 @@ class _BattleScreenState extends State<BattleScreen> {
           body: Center(
               child: CircularProgressIndicator(color: Color(0xFFFFC107))));
     }
+    final remoteConfig = context.read<FirebaseRemoteConfig>();
     final game = battleService.currentGame!;
     final isUserPlayer1 = game.player1Id == _currentUserModel!.userId;
     final player1 = isUserPlayer1 ? _currentUserModel! : _opponentProfile!;
@@ -310,8 +311,7 @@ class _BattleScreenState extends State<BattleScreen> {
                 _buildPlayerStats(
                     player1, p1Score, p1Steps, player2, p2Score, p2Steps, game),
                 _buildBattleBar(p1Score, p2Score),
-                _buildMultiplierSection(
-                    isUserPlayer1, game, _currentUserModel!),
+                _buildMultiplierSection(isUserPlayer1, game, _currentUserModel!, remoteConfig),
                 _buildYourRewardsSection(game),
                 const Spacer(),
               ],
@@ -546,54 +546,91 @@ class _BattleScreenState extends State<BattleScreen> {
           );
         }),
         const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4.0),
-          child: Row(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Your KO',
+              Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                'assets/images/ko_win.png',
+                height: 28,
+                width: 28,
+                errorBuilder: (context, error, stackTrace) =>
+                  const Icon(Icons.shield, color: Color(0xFF42A5F5), size: 28),
+                ),
+                const SizedBox(height: 6),
+                const Text('Win',
                   style: TextStyle(
-                      color: Color(0xFF42A5F5), fontWeight: FontWeight.bold)),
-              Text("Opponent's KO",
+                    color: Color(0xFF42A5F5), fontWeight: FontWeight.bold)),
+              ],
+              ),
+              Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                'assets/images/ko_loss.png',
+                height: 28,
+                width: 28,
+                errorBuilder: (context, error, stackTrace) =>
+                  const Icon(Icons.shield, color: Color(0xFFEF5350), size: 28),
+                ),
+                const SizedBox(height: 6),
+                const Text("KO",
                   style: TextStyle(
-                      color: Color(0xFFEF5350), fontWeight: FontWeight.bold)),
+                    color: Color(0xFFEF5350), fontWeight: FontWeight.bold)),
+              ],
+              ),
             ],
+            ),
           ),
-        )
+         
       ],
     );
   }
 
-  Widget _buildMultiplierSection(
-      bool isUserPlayer1, Game game, UserModel currentUser) {
-    final battleService = context.watch<ActiveBattleService>();
+ Widget _buildMultiplierSection(
+      bool isUserPlayer1, Game game, UserModel currentUser, FirebaseRemoteConfig remoteConfig) {
+    final battleService = context.watch<ActiveBattleService>(); // Need context here
     final bool hasUsedMultiplier =
         isUserPlayer1 ? game.player1MultiplierUsed : game.player2MultiplierUsed;
 
     if (battleService.isActivatingMultiplier) {
-      return const CircularProgressIndicator(color: Color(0xFFFFC107));
+      return const Padding( // Add padding for spacing
+         padding: EdgeInsets.symmetric(vertical: 20.0),
+         child: CircularProgressIndicator(color: Color(0xFFFFC107)),
+      );
     }
     if (hasUsedMultiplier) {
-      return const Text("Multiplier used!",
-          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold));
+      return const Padding( // Add padding for spacing
+         padding: EdgeInsets.symmetric(vertical: 20.0),
+         child: Text("Multiplier used!", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+      );
     }
-
     final multipliers = currentUser.multipliers ?? {};
     final available1_5x = multipliers['1_5x'] ?? 0;
     final available2x = multipliers['2x'] ?? 0;
     final available3x = multipliers['3x'] ?? 0;
+    final cost1_5x = 150;
+    final cost2x = 200;
+    final cost3x = 300;
+    // final cost1_5x = remoteConfig.getInt('multiplier_1_5x_price');
+    // final cost2x = remoteConfig.getInt('multiplier_2x_price');
+    // final cost3x = remoteConfig.getInt('multiplier_3x_price');
 
     return Column(
       children: [
-        const Text("Activate a Score Multiplier",
-            style: TextStyle(color: Colors.white70)),
+        const SizedBox(height: 16), // Add spacing
+        const Text("Activate a Score Multiplier", style: TextStyle(color: Colors.white70)),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildMultiplierButton('1.5X', '1_5x', 100, available1_5x),
-            _buildMultiplierButton('2X', '2x', 200, available2x),
-            _buildMultiplierButton('3X', '3x', 300, available3x),
+            _buildMultiplierButton('1.5X', '1_5x', cost1_5x, available1_5x),
+            _buildMultiplierButton('2X', '2x', cost2x, available2x),
+            _buildMultiplierButton('3X', '3x', cost3x, available3x),
           ],
         ),
       ],

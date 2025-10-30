@@ -99,14 +99,14 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       );
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainScreen()), // Changed to MainScreen
+            MaterialPageRoute(builder: (_) => const MainScreen()),
             (route) => false,
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to save profile: ${e.toString()}')),
+            SnackBar(content: Text('Failed to save profile')),
           );
         }
       } finally {

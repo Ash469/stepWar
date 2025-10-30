@@ -11,11 +11,9 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.2.1
   google_fonts: ^6.2.1
-  flutter_svg: ^2.2.1
-  flutter_riverpod: ^2.5.1 
-  rxdart: ^0.28.0
   http: ^1.1.0 
   path_provider: ^2.0.11
+
   
   
   # State Management
@@ -23,7 +21,8 @@ dependencies:
   permission_handler: ^11.0.1
   pedometer: ^4.1.1
   health: ^13.2.0
-  games_services: ^4.1.1
+  flutter_foreground_task: ^9.1.0
+  onesignal_flutter: ^5.3.4
   
   # Firebase
   firebase_core: ^3.15.2
@@ -35,20 +34,18 @@ dependencies:
   intl: ^0.20.2
   flutter_local_notifications: ^19.4.2
   clarity_flutter: ^1.4.3
+  firebase_remote_config: ^5.5.0
   
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  mocktail: ^1.0.4
-  firebase_auth_mocks: ^0.14.2
   flutter_lints: ^2.0.0
   flutter_launcher_icons: ^0.14.4
 
 flutter_icons:
   image_path: "assets/icons/icon.png"
   android: true
-  ios: true
 
 flutter:
   uses-material-design: true

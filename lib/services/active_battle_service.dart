@@ -5,6 +5,9 @@ import '../models/user_model.dart';
 import 'game_service.dart';
 import 'bot_service.dart';
 import 'step_counting.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:provider/provider.dart'; 
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 class ActiveBattleService with ChangeNotifier {
   final _controller = StreamController<void>.broadcast();
@@ -31,7 +34,35 @@ class ActiveBattleService with ChangeNotifier {
   bool get isWaitingForFriend => currentGame?.gameStatus == GameStatus.waiting;
   bool _isEndingBattle = false;
   bool get isEndingBattle => _isEndingBattle;
+  UserModel? _currentUser;
+  final FirebaseRemoteConfig _remoteConfig = FirebaseRemoteConfig.instance;
 
+
+String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String minutes = twoDigits(d.inMinutes.remainder(60));
+    String seconds = twoDigits(d.inSeconds.remainder(60));
+    return "$minutes:$seconds";
+  }
+
+
+  void _sendBattleStateToTask() {
+    if (_currentGame == null || _currentUser == null) {
+      FlutterForegroundTask.sendDataToTask({'battleActive': false});
+      return;
+    }
+
+    bool isUserPlayer1 = _currentGame!.player1Id == _currentUser!.userId;
+    int myScore = isUserPlayer1 ? _currentGame!.player1Score : _currentGame!.player2Score;
+    int opponentScore = isUserPlayer1 ? _currentGame!.player2Score : _currentGame!.player1Score;
+
+    FlutterForegroundTask.sendDataToTask({
+      'battleActive': !_isGameOver && _gameId != null, 
+      'myScore': myScore,
+      'opponentScore': opponentScore,
+      'timeLeft': _formatDuration(_timeLeft),
+    });
+  }
 
   Future<void> startBattle(String gameId, UserModel user) async {
     if (isBattleActive) {
@@ -41,6 +72,7 @@ class ActiveBattleService with ChangeNotifier {
     _cleanup();
     _gameId = gameId;
     _isGameOver = false;
+    _currentUser = user;
     _initialPlayerSteps = -1;
     _gameSubscription = _gameService.getGameStream(gameId).listen((game) {
       if (game == null) return;
@@ -52,17 +84,20 @@ class ActiveBattleService with ChangeNotifier {
       if (isBotMatch && _botStepTimer == null) {
         _initializeBotStepGenerator();
       }
-      const koDifference = 200; 
+      final koDifference = _remoteConfig.getInt('ko_diff');
       if (!_isGameOver &&
           (game.player1Score - game.player2Score).abs() >= koDifference) {
         endBattle();
       }
+      _sendBattleStateToTask();
       notifyListeners();
     });
     _healthService.initialize();
     _stepSubscription = _healthService.stepStream.listen((stepsStr) {
       _onPlayerStep(stepsStr, user.userId);
     });
+    await Future.delayed(const Duration(milliseconds: 100));
+    _sendBattleStateToTask();
     notifyListeners();
   }
 
@@ -97,7 +132,8 @@ class ActiveBattleService with ChangeNotifier {
 
   void _startGameTimer(int startTimeMillis) {
     final startTime = DateTime.fromMillisecondsSinceEpoch(startTimeMillis);
-    const gameDuration = Duration(minutes: 10);
+   final battleMinutes = _remoteConfig.getInt('battle_time_minutes');
+    final gameDuration = Duration(minutes: battleMinutes);
     _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final elapsed = DateTime.now().difference(startTime);
@@ -106,7 +142,9 @@ class ActiveBattleService with ChangeNotifier {
         endBattle();
       } else {
         _timeLeft = gameDuration - elapsed;
+        _sendBattleStateToTask();
       }
+      
       notifyListeners();
     });
   }
@@ -141,7 +179,6 @@ class ActiveBattleService with ChangeNotifier {
       print("Battle ended with state: $_finalBattleState");
     } catch (e) {
       print("Error ending battle from service: $e");
-      _isGameOver = false; 
     } finally {_isEndingBattle = false;}
      if (_finalBattleState != null) {
         notifyListeners();
@@ -165,9 +202,9 @@ class ActiveBattleService with ChangeNotifier {
     _gameTimer = null;
     _gameId = null;
     _currentGame = null;
-    _isGameOver = false;
     _timeLeft = Duration.zero;
     _initialPlayerSteps = -1;
+    _sendBattleStateToTask();
     notifyListeners();
   }
 

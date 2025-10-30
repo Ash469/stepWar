@@ -1,7 +1,8 @@
 // ignore_for_file: unused_import
-
 import 'package:flutter/material.dart';
 import 'string_extension.dart';
+import 'package:provider/provider.dart'; // Import Provider
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 class MysteryBoxSection extends StatelessWidget {
   final Function(String, int) onOpenBox;
@@ -33,6 +34,12 @@ class MysteryBoxSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final remoteConfig = context.read<FirebaseRemoteConfig>();
+    final bronzePrice = remoteConfig.getInt('bronze_box_price');
+    final silverPrice = remoteConfig.getInt('silver_box_price');
+    final goldPrice = remoteConfig.getInt('gold_box_price');
+    // print("Mystery Box Prices - Bronze: $bronzePrice, Silver: $silverPrice, Gold: $goldPrice");
+  
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
