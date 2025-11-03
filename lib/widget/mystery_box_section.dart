@@ -38,7 +38,6 @@ class MysteryBoxSection extends StatelessWidget {
     final bronzePrice = remoteConfig.getInt('bronze_box_price');
     final silverPrice = remoteConfig.getInt('silver_box_price');
     final goldPrice = remoteConfig.getInt('gold_box_price');
-    // print("Mystery Box Prices - Bronze: $bronzePrice, Silver: $silverPrice, Gold: $goldPrice");
   
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -46,21 +45,21 @@ class MysteryBoxSection extends StatelessWidget {
         _buildMysteryBox(
           imagePath: 'assets/images/bronze_box.png',
           boxType: 'bronze',
-          price: 5000,
+         price: bronzePrice,
           isLoading: isOpeningBronze,
           timeLeft: bronzeTimeLeft,
         ),
         _buildMysteryBox(
           imagePath: 'assets/images/silver_box.png',
           boxType: 'silver',
-          price: 10000,
+         price: silverPrice,
           isLoading: isOpeningSilver,
           timeLeft: silverTimeLeft,
         ),
         _buildMysteryBox(
           imagePath: 'assets/images/gold_box.png',
           boxType: 'gold',
-          price: 20000,
+          price: goldPrice,
           isLoading: isOpeningGold,
           timeLeft: goldTimeLeft,
         ),

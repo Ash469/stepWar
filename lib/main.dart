@@ -30,9 +30,15 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 final Map<String, dynamic> remoteConfigDefaults = {
   'battle_time_minutes': 10, 
+  'multiplier_3x_price': 300,
+  'multiplier_2x_price': 200,
+  'multiplier_1_5x_price': 100,
   'ko_diff': 200,
   'draw_diff': 50,
   'step_save_debounce_minutes': 15, 
+  'bronze_box_price': 5000,
+  'silver_box_price': 10000,
+  'gold_box_price': 20000,
 };
 
 void main() async {
@@ -44,37 +50,22 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
- print('Remote Config: Initializing...');
   final remoteConfig = FirebaseRemoteConfig.instance;
 
   try {
-    print('Remote Config: Setting config settings...');
     await remoteConfig.setConfigSettings(RemoteConfigSettings(
-      fetchTimeout: const Duration(minutes: 1), // How long to wait for fetch
-      
-      minimumFetchInterval: const Duration(seconds: 10), // Check server frequently
-    
+      fetchTimeout: const Duration(minutes: 1),
+      minimumFetchInterval: const Duration(seconds: 10), 
     ));
-    print('Remote Config: Config settings applied.');
-
-    print('Remote Config: Setting defaults...');
     await remoteConfig.setDefaults(remoteConfigDefaults);
-    print('Remote Config: Defaults set.');
-
-    print('Remote Config: Attempting fetchAndActivate...');
-   
     final bool activated = await remoteConfig.fetchAndActivate();
-
     if (activated) {
       print('✅ Remote Config: Successfully fetched AND activated new values.');
     } else {
       print('ℹ️ Remote Config: Fetch successful, but no new values were activated (fetched values match current).');
-     
-      print('Remote Config: Current Active Bronze Box Price = ${remoteConfig.getInt('bronze_box_price')}');
     }
   } catch (e) {
     print('❌ Remote Config: Error during initialization or fetch/activate: $e');
-    print('Remote Config: Using default Bronze Box Price = ${remoteConfigDefaults['bronze_box_price']}');
   }
 
   final config = ClarityConfig(

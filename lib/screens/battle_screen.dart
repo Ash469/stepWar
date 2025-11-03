@@ -613,12 +613,9 @@ class _BattleScreenState extends State<BattleScreen> {
     final available1_5x = multipliers['1_5x'] ?? 0;
     final available2x = multipliers['2x'] ?? 0;
     final available3x = multipliers['3x'] ?? 0;
-    final cost1_5x = 150;
-    final cost2x = 200;
-    final cost3x = 300;
-    // final cost1_5x = remoteConfig.getInt('multiplier_1_5x_price');
-    // final cost2x = remoteConfig.getInt('multiplier_2x_price');
-    // final cost3x = remoteConfig.getInt('multiplier_3x_price');
+    final cost1_5x = remoteConfig.getInt('multiplier_1_5x_price');
+    final cost2x = remoteConfig.getInt('multiplier_2x_price');
+    final cost3x = remoteConfig.getInt('multiplier_3x_price');
 
     return Column(
       children: [
