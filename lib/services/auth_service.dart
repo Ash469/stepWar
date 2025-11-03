@@ -290,4 +290,24 @@ class AuthService {
       rethrow;
     }
   }
+  Future<Map<String, dynamic>> getLifetimeStats(String userId) async {
+    if (userId.isEmpty) {
+      throw Exception("User ID is required to fetch lifetime stats.");
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/user/activity/stats/$userId'),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        final errorBody = jsonDecode(response.body);
+        throw Exception('Failed to fetch lifetime stats: ${errorBody['error']}');
+      }
+    } catch (e) {
+      print("Error in getLifetimeStats (Flutter): $e");
+      rethrow;
+    }
+  }
 }

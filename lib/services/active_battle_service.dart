@@ -101,6 +101,34 @@ String _formatDuration(Duration d) {
     notifyListeners();
   }
 
+Future<void> forfeitBattle() async {
+    if (_isGameOver || _currentGame == null || _isEndingBattle || _currentUser == null) return;
+    _isEndingBattle = true;
+    _isGameOver = true;
+    notifyListeners();
+
+    int p1Score = _currentGame!.player1Score;
+    int p2Score = _currentGame!.player2Score;
+
+    try {
+      _finalBattleState = await _gameService.endBattle(
+        _currentGame!.gameId,
+        player1FinalScore: p1Score,
+        player2FinalScore: p2Score,
+      );
+      print("Battle forfeited with final scores ($p1Score, $p2Score). State: $_finalBattleState");
+    } catch (e) {
+      print("Error forfeiting battle from service: $e");
+    } finally {
+      _isEndingBattle = false;
+    }
+    
+    if (_finalBattleState != null) {
+      notifyListeners();
+      _controller.add(null);
+    }
+  }
+
   void _onPlayerStep(String stepsStr, String userId) {
     if (_currentGame == null || _isGameOver) return;
 

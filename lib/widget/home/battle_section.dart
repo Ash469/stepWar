@@ -285,10 +285,10 @@ class BattleSection extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildPlayerAvatar(player1, isUserPlayer1 ? p1Steps : p2Steps, game.multiplier1),
+                 _buildPlayerAvatar(player1, p1Steps, game.multiplier1, p1Score),
                   const Text("VS",
                       style: TextStyle(color: Colors.white54, fontSize: 20)),
-                  _buildPlayerAvatar(player2, isUserPlayer1 ? p2Steps : p1Steps, game.multiplier2),
+                _buildPlayerAvatar(player2, p2Steps, game.multiplier2, p2Score),
                 ],
               ),
               const SizedBox(height: 20),
@@ -315,7 +315,7 @@ class BattleSection extends StatelessWidget {
   }
 
 
-  Widget _buildPlayerAvatar(UserModel player, int steps, double multiplier) {
+  Widget _buildPlayerAvatar(UserModel player, int steps, double multiplier, int score) {
     final playerName = player.username ?? 'Player';
     return Column(
       children: [
@@ -370,13 +370,23 @@ class BattleSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        Text(steps.toString(),
+        // --- ADDED SCORE ---
+        Text(score.toString(),
             style: const TextStyle(
                 color: Colors.white,
-                fontSize: 20,
+                fontSize: 24, // Score is prominent
                 fontWeight: FontWeight.bold)),
-        const Text("Total steps",
+        const Text("Score",
             style: TextStyle(color: Colors.white70, fontSize: 12)),
+        // --- MODIFIED STEPS ---
+        const SizedBox(height: 4),
+        Text(steps.toString(),
+            style: TextStyle( // Steps are secondary
+                color: Colors.grey.shade400,
+                fontSize: 16,
+                fontWeight: FontWeight.normal)),
+        Text("Steps", // Label updated
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 10)),
         const SizedBox(height: 4),
         Text(playerName, style: const TextStyle(color: Colors.white)),
       ],

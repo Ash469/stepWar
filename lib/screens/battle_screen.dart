@@ -159,7 +159,7 @@ class _BattleScreenState extends State<BattleScreen> {
     if (didConfirm == true && mounted) {
       setState(() => _isEndingBattle = true);
       try {
-        await battleService.endBattle();
+       await battleService.forfeitBattle();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -332,7 +332,7 @@ class _BattleScreenState extends State<BattleScreen> {
     final bool isAhead = scoreDiff > 0;
     final bool isDraw = scoreDiff.abs() <= 50;
 
-    final bool canEndBattle = timeLeft.inSeconds <= 480;
+    const bool canEndBattle = true; //now you can end anytime
 
     String statusText;
     Color statusColor;

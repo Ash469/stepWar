@@ -1,5 +1,4 @@
 // ignore_for_file: unused_import
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'home_screen.dart' as app_screens;
@@ -55,13 +54,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  @override
+@override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    final battleService = context.read<ActiveBattleService>();
+
     if (state == AppLifecycleState.resumed) {
-      final battleService = context.read<ActiveBattleService>();
       if (battleService.isBattleActive && (battleService.timeLeft.isNegative || battleService.timeLeft.inSeconds == 0)) {
         battleService.endBattle();
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+
+      if (battleService.isBattleActive && !battleService.isEndingBattle) { 
+        print("App pausing with active battle. Triggering forfeit.");
+        battleService.forfeitBattle(); // This is async, but we don't await it here
       }
     }
   }
@@ -73,33 +79,41 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final gameState = finalState['finalState'];
     if (gameState == null) return;
+    final String? p1Id = battleService.currentGame?.player1Id;
+    final String? p2Id = battleService.currentGame?.player2Id;
 
     final winnerId = gameState['winnerId'];
-    final result = gameState['result'];
-    final rewards = gameState['rewards'];
+    final result = gameState['result']; // "WIN", "KO", "DRAW"
     final gameType = gameState['gameType']; // 'PVP', 'BOT', 'FRIEND'
-    final bool isWinner = winnerId == currentUserId;
-    final int coinsToShow;
-    if (result == 'DRAW') {
-      coinsToShow = rewards?['winnerCoins'] ?? 0;
-    } else {
-      coinsToShow = isWinner
-          ? (rewards?['winnerCoins'] ?? 0)
-          : (rewards?['loserCoins'] ?? 0);
-    }
-    final rewardItemToShow =
-        rewards?['item'] != null && isWinner ? rewards!['item'] : null;
-    final isKnockout = result == 'KO';
+    final isKnockout = gameState['isKnockout'] ?? false;
+    final rewards = gameState['rewards']; // This has winnerCoins, loserCoins, item
 
+    final bool isWinner = winnerId == currentUserId;
+    
     String title;
     String subtitle;
     Color titleBorderColor;
+    int baseScore = 0;
+    String coinBonusText = ""; // This will hold " - 1000 Win Bonus"
+    int? coinsToShow; // This is the TOTAL
 
     if (result == 'DRAW') {
       title = "It's a Draw!";
       subtitle = "You both fought well!";
       titleBorderColor = Colors.grey;
-    } else if (winnerId == currentUserId) {
+
+      if (currentUserId == p1Id) { 
+        coinsToShow = rewards?['winnerCoins'] ?? 0;
+      } else if (currentUserId == p2Id) { 
+        coinsToShow = rewards?['loserCoins'] ?? 0;
+      } else {
+        coinsToShow = 0; 
+      }
+      
+      baseScore = coinsToShow ?? 0;
+      coinBonusText = " (Draw)";
+
+    } else if (isWinner) {
       if (isKnockout) {
         title = "Winner";
         subtitle = "You won this battle with a\nKnockout.";
@@ -109,11 +123,33 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         subtitle = "You won this battle!";
         titleBorderColor = const Color(0xFFFFC107);
       }
-    } else {
+      
+      coinsToShow = rewards?['winnerCoins'] ?? 0;
+      
+      int bonus = 0;
+      if (gameType != 'FRIEND') {
+        bonus = isKnockout ? 3000 : 1000;
+      }
+      
+      int baseScore = coinsToShow! + bonus;
+      if (baseScore < 0) baseScore = 0;
+      if (bonus > 0) {
+        coinBonusText = " - ${bonus} ${isKnockout ? 'KO Bonus' : 'Win Bonus'}";
+      } else if (gameType == 'FRIEND') {
+         coinBonusText = " (Friend Pot)";
+      }
+
+    } else { // Loser
       title = "Defeat";
       subtitle = "Better luck next time!";
       titleBorderColor = Colors.red;
+      coinsToShow = rewards?['loserCoins'] ?? 0;
+      baseScore = coinsToShow ?? 0;
+      coinBonusText = " (Participation)";
     }
+    
+    final rewardItemToShow =
+        rewards?['item'] != null && isWinner ? rewards!['item'] : null;
 
     showDialog(
       context: context,
@@ -280,13 +316,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  '$coinsToShow coins',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      "${baseScore} coins", // e.g., "1117 coins"
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (coinBonusText.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 4.0), // A small space
+                                        child: Text(
+                                          coinBonusText, // e.g., " - 1000 Win Bonus"
+                                          style: const TextStyle(
+                                            color: Colors.white60,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -349,6 +401,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       ),
                       ),
                     ),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: OutlinedButton(
                       onPressed: () {

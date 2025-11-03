@@ -245,8 +245,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 // The bottom image (box)
                 SizedBox(
-                  width: 240,
-                  height: 240,
+                  width: 200,
+                  height: 200,
                   child: Image.asset(
                     'assets/images/box.png',
                     errorBuilder: (context, error, stackTrace) =>

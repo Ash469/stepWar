@@ -70,6 +70,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _offsetInitializationDone = false;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
     _offsetInitializationDone = false;
@@ -91,16 +94,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (data is Map<String, dynamic>) {
       if (data.containsKey('steps')) {
         final stepsFromService = data['steps'] as int;
-        if (mounted) {
+        if (mounted && _stepsToShow != stepsFromService) {
+          // Only setState if value changed
           setState(() {
             _stepsToShow = stepsFromService;
           });
         }
         _debounce?.cancel();
-        final remoteConfig = context.read<FirebaseRemoteConfig>();
-        final debounceMinutes =
-            remoteConfig.getInt('step_save_debounce_minutes');
-        _debounce = Timer(Duration(minutes: debounceMinutes),
+        _debounce = Timer(const Duration(minutes: 15),
             () => _saveLatestSteps(stepsFromService));
       }
     }
@@ -551,9 +552,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _sendDbStepsToService(loadedUser.todaysStepCount);
           if (loadedUser.todaysStepCount == 0 &&
               prefs.getInt('dailyStepOffset') != null) {
-            // Only clear a stored offset if it is from a previous day.
-            // If the stored offset was calculated today, keep it so we don't
-            // recalculate every time the user navigates back to Home.
             final storedTimestamp = prefs.getInt('dailyOffsetTimestamp');
             if (storedTimestamp != null) {
               final offsetDate =
@@ -570,12 +568,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.");
                 await prefs.remove('dailyStepOffset');
                 await prefs.remove('dailyOffsetTimestamp');
+                _offsetInitializationDone = false;
               }
             } else {
-              // No timestamp found; conservative approach: keep the offset to
-              // avoid unnecessary recalculation, but log this situation.
               print(
                   "[Data Sync] Server reported 0 steps and no offset timestamp found; keeping stored offset to avoid recalculation.");
+              await prefs.remove('dailyStepOffset');
+              _offsetInitializationDone = false;
             }
           }
           if (serverRewards != null) {
@@ -628,7 +627,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         if (loadedUser != null) {
           _user = loadedUser;
-
+          int? dbSteps = loadedUser.todaysStepCount;
+          if (dbSteps != null &&
+              (dbSteps > _stepsToShow || _stepsToShow == 0)) {
+            print(
+                "[Data Sync] setState: DB steps ($dbSteps) are higher or current is 0. Updating _stepsToShow.");
+            _stepsToShow = dbSteps;
+          } else {
+            print(
+                "[Data Sync] setState: DB steps (${dbSteps ?? 'null'}) NOT higher than current display ($_stepsToShow). _stepsToShow remains unchanged by DB load.");
+          }
           if (loadedRewards != null) {
             _setLatestRewardFromData(loadedRewards);
           }
@@ -706,69 +714,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print(
           "[Step Counter] ERROR reading offset/timestamp during init: $e. Assuming new offset needed.");
       needsNewOffset = true;
-      storedOffset = null; // Ensure offset is null if read failed
+      storedOffset = null;
     }
 
     if (!needsNewOffset && storedOffset != null) {
       print(
           "[Step Counter] Sending existing offset ($storedOffset) to service.");
       FlutterForegroundTask.sendDataToTask({'offset': storedOffset});
-      // --- Mark initialization as done ---
       _offsetInitializationDone = true;
       print(
           "[Step Counter] Marked offset initialization as DONE (using existing).");
-      // --- End Mark ---
-      return; // Exit the function, no listener needed
+      return;
     }
-
-    // --- If we DO need a new offset (needsNewOffset is true) ---
     print(
         "[Step Counter] Listening for pedometer reading to calculate NEW offset...");
     _stepSubscription = _healthService.stepStream.listen((stepsStr) async {
-      // This listener now ONLY runs if needsNewOffset was true
-
       if (_isLoadingData) {
         print(
             "[Step Counter] Ignored step event (calculating offset), data is loading.");
         return;
       }
-
       final currentPedomometerReading = int.tryParse(stepsStr);
       if (currentPedomometerReading == null || currentPedomometerReading < 0) {
         print(
             "[Step Counter] Invalid pedometer reading ($stepsStr) received while calculating offset.");
-        return; // Ignore invalid readings
+        return;
       }
-
       // DB steps should be 0 for a new day, fetched by _loadData
       final dbSteps = userFromLoad?.todaysStepCount ?? 0;
       int calculatedOffset = currentPedomometerReading - dbSteps;
       final nowMillis = DateTime.now().millisecondsSinceEpoch;
-
       try {
         await prefs.setInt('dailyStepOffset', calculatedOffset);
-        await prefs.setInt(
-            'dailyOffsetTimestamp', nowMillis); // Save current timestamp
-        needsNewOffset = false; // Mark as calculated for this session
-
+        await prefs.setInt('dailyOffsetTimestamp', nowMillis);
+        needsNewOffset = false;
         print(
             "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedomometerReading, Server Steps: $dbSteps)");
         print("[Step Counter] Offset Timestamp PERSISTED: $nowMillis");
 
         FlutterForegroundTask.sendDataToTask({'offset': calculatedOffset});
-
-        // --- Stop listening after successfully calculating and sending ---
         _stepSubscription?.cancel();
         _stepSubscription = null;
         print(
             "[Step Counter] New offset calculated and sent. HomeScreen stopping its pedometer listener.");
         _offsetInitializationDone = true;
         print("[Step Counter] Marked offset initialization as DONE.");
-        // --- End Stop ---
       } catch (e) {
         print(
             "[Step Counter] ERROR saving newly calculated offset/timestamp: $e.");
-        // Keep needsNewOffset as true if save fails, might retry on next event
       }
     }, onError: (error) {
       print(
@@ -779,50 +772,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _saveLatestSteps(int stepsToSave) async {
-    if (_isLoadingData) return;
-    final currentUserState = _user;
-    if (currentUserState == null || currentUserState.userId.isEmpty) return;
+      if (_isLoadingData) return;
+      final UserModel? currentUserState = _user;
+      if (currentUserState == null || currentUserState.userId.isEmpty) return;
 
-    final int lastKnownSteps = currentUserState.todaysStepCount ?? 0;
-    const int resetThreshold = 100; // Allow small decreases
-    if (lastKnownSteps > resetThreshold &&
-        stepsToSave < lastKnownSteps - resetThreshold) {
-      print(
-          "[Step Save] ⚠️ Potential Pedometer Reset Detected! Skipping sync.");
-      print(
-          "   -> Last Known DB/State Steps: $lastKnownSteps, Steps Calculated Now: $stepsToSave");
-      if (mounted && _stepsToShow != stepsToSave) {
-        setState(() {
-          _stepsToShow = stepsToSave;
-        });
-      }
-      return; // Exit without syncing
-    }
-
-    if (lastKnownSteps == stepsToSave) return; // No change
-
-    print(
-        "[Step Save] Saving calculated step count: $stepsToSave for user ${currentUserState.userId}");
-    try {
-      await _authService.syncStepsToBackend(
-          currentUserState.userId, stepsToSave);
-      final updatedUserForCache =
-          currentUserState.copyWith(todaysStepCount: stepsToSave);
-      await _authService.saveUserSession(updatedUserForCache);
-      if (mounted) {
-        setState(() {
-          _user = updatedUserForCache;
-          if (_stepsToShow < stepsToSave) {
-            _stepsToShow = stepsToSave;
+      final int lastKnownStepsInState = currentUserState.todaysStepCount ?? 0;
+      const int resetThreshold = 100;
+      if (lastKnownStepsInState > resetThreshold && stepsToSave < lastKnownStepsInState - resetThreshold) {
+          print("[Step Save] ⚠️ Potential Pedometer Reset Detected! Skipping sync.");
+          print("   -> Last Known DB/State Steps: $lastKnownStepsInState, Steps Calculated Now: $stepsToSave");
+          if (mounted && _stepsToShow != stepsToSave) {
+             setState(() { _stepsToShow = stepsToSave; });
           }
-        });
-        _sendDbStepsToService(stepsToSave);
+          return;
       }
-      print(
-          "✅ [Step Save] Successfully saved steps to backend and updated local cache/state.");
-    } catch (e) {
-      print("❌ [Step Save] Error saving step count: $e");
-    }
+
+      if (lastKnownStepsInState == stepsToSave) return;
+
+      print("[Step Save] Saving calculated step count: $stepsToSave for user ${currentUserState.userId}");
+      try {
+        await _authService.syncStepsToBackend(currentUserState.userId, stepsToSave);
+        final updatedUserForCache = currentUserState.copyWith(todaysStepCount: stepsToSave);
+        await _authService.saveUserSession(updatedUserForCache);
+
+        if (mounted) {
+          setState(() {
+            _user = updatedUserForCache;
+            print("[Step Save] setState: Updated _user.todaysStepCount to $stepsToSave");
+          });
+          _sendDbStepsToService(stepsToSave);
+        }
+        print("✅ [Step Save] Successfully saved steps to backend and updated local cache/state.");
+      } catch (e) {
+        print("❌ [Step Save] Error saving step count: $e");
+      }
   }
 
   void _showFriendBattleDialog() {

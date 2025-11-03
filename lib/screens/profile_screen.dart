@@ -23,6 +23,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isChartLoading = true;
 
   late DateTime _currentWeekStart;
+  Map<String, dynamic>? _lifetimeStats;
+  bool _isStatsLoading = true;
 
   @override
   void initState() {
@@ -30,6 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _currentWeekStart = _getStartOfWeek(DateTime.now());
     _loadUserProfile();
     _loadStepHistory();
+    _loadLifetimeStats();
   }
 
   DateTime _getStartOfWeek(DateTime date) {
@@ -46,10 +49,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final now = DateTime.now();
     final startOfCurrentWeek = _getStartOfWeek(now);
     return startOfWeek.year == startOfCurrentWeek.year &&
-           startOfWeek.month == startOfCurrentWeek.month &&
-           startOfWeek.day == startOfCurrentWeek.day;
+        startOfWeek.month == startOfCurrentWeek.month &&
+        startOfWeek.day == startOfCurrentWeek.day;
   }
-
 
   Future<void> _loadUserProfile({bool forceReload = false}) async {
     if (forceReload) {
@@ -81,15 +83,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoading = false;
       });
     } else {
-       if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _updateAndReloadProfile(UserModel updatedUser) async {
-    if(Navigator.of(context).canPop()) {
-       Navigator.of(context).pop();
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
     }
-
 
     setState(() => _isLoading = true);
     try {
@@ -153,29 +154,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-
-  Future<void> _loadStepHistory({DateTime? weekStartDate}) async {
-     if (!mounted) return;
-    setState(() => _isChartLoading = true);
+  Future<void> _loadLifetimeStats() async {
+    if (!mounted) return;
+    setState(() => _isStatsLoading = true);
     try {
       final userId = _authService.currentUser?.uid;
       if (userId == null) throw Exception("User not logged in");
 
-      final history = await _authService.getActivityHistory(userId);
+      final stats = await _authService.getLifetimeStats(userId);
 
+      if (mounted) {
+        setState(() {
+          _lifetimeStats = stats;
+          _isStatsLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Error loading lifetime stats: $e");
+      if (mounted) setState(() => _isStatsLoading = false);
+    }
+  }
+
+  Future<void> _loadStepHistory({DateTime? weekStartDate}) async {
+    if (!mounted) return;
+    setState(() => _isChartLoading = true);
+    try {
+      final userId = _authService.currentUser?.uid;
+      if (userId == null) throw Exception("User not logged in");
+ final List<dynamic> history =
+          await _authService.getActivityHistory(userId);
+
+  
       Map<String, int> processedHistory = {
-        'MO': 0, 'TU': 0, 'WE': 0, 'TH': 0, 'FR': 0, 'SA': 0, 'SU': 0
+        'MO': 0,
+        'TU': 0,
+        'WE': 0,
+        'TH': 0,
+        'FR': 0,
+        'SA': 0,
+        'SU': 0
       };
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
       for (var dayData in history) {
-        final date = DateTime.tryParse(dayData['date']);
+        final date = DateTime.tryParse(dayData['date'])?.toLocal();
         if (date != null) {
           final startOfSelectedWeek = weekStartDate ?? _currentWeekStart;
-          final endOfSelectedWeek = startOfSelectedWeek.add(const Duration(days: 7));
-           if (!date.isBefore(startOfSelectedWeek) && date.isBefore(endOfSelectedWeek)) {
-             String dayAbbreviation = dayAbbreviations[date.weekday - 1];
-             processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
+          final endOfSelectedWeek =
+              startOfSelectedWeek.add(const Duration(days: 7));
+          if (!date.isBefore(startOfSelectedWeek) &&
+              date.isBefore(endOfSelectedWeek)) {
+            String dayAbbreviation = dayAbbreviations[date.weekday - 1];
+            processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
           }
         }
       }
@@ -192,12 +222,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-
   void _goToPreviousWeek() {
     setState(() {
       _currentWeekStart = _currentWeekStart.subtract(const Duration(days: 7));
     });
-     _loadStepHistory(weekStartDate: _currentWeekStart);
+    _loadStepHistory(weekStartDate: _currentWeekStart);
   }
 
   void _goToNextWeek() {
@@ -205,10 +234,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _currentWeekStart = _currentWeekStart.add(const Duration(days: 7));
       });
-       _loadStepHistory(weekStartDate: _currentWeekStart);
+      _loadStepHistory(weekStartDate: _currentWeekStart);
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +260,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     }
-
+    final lifetimeBattlesWon =
+        (_lifetimeStats?['totalBattlesWon'] ?? 0).toString();
+    final lifetimeKnockouts =
+        (_lifetimeStats?['totalKnockouts'] ?? 0).toString();
+    final lifetimeTotalBattles =
+        (_lifetimeStats?['totalBattles'] ?? 0).toString();
+    final lifetimeTotalSteps = _lifetimeStats?['totalSteps'] ?? 0;
     return Stack(
       children: [
         SingleChildScrollView(
@@ -247,13 +281,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _buildInfoCard(
                     title: 'About you',
                     child: _buildAboutYouSection(),
-                    onEditTap: _showEditAboutYouSheet
-                 ),
+                    onEditTap: _showEditAboutYouSheet),
                 const SizedBox(height: 16),
-                 _buildInfoCard(
-                   title: 'Your Profile',
-                   child: _buildYourProfileSection(),
-                 ),
+                _buildInfoCard(
+                  title: 'Your Profile',
+                  child: _buildYourProfileSection(),
+                ),
+                const SizedBox(height: 24),
+               _buildLifetimeScorecard(
+                  battlesWon: lifetimeBattlesWon,
+                  knockouts: lifetimeKnockouts,
+                  totalBattles: lifetimeTotalBattles,
+                  totalSteps: lifetimeTotalSteps,
+                ),
                 const SizedBox(height: 24),
                 _buildStepsChart(),
                 const SizedBox(height: 40),
@@ -274,7 +314,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
- void _showEditSheet(
+  void _showEditSheet(
       {required String title,
       required Widget content,
       required VoidCallback onSave}) {
@@ -365,8 +405,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
-                 overflow: TextOverflow.ellipsis,
-                 maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
             Padding(
@@ -389,7 +429,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
- Widget _buildInfoCard({
+  Widget _buildInfoCard({
     required String title,
     required Widget child,
     VoidCallback? onEditTap,
@@ -434,8 +474,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _user!.dob != null
                 ? DateFormat('dd/MM/yyyy').format(_user!.dob!)
                 : 'NA'),
-        _buildDetailItem('Weight', '${_user!.weight?.toStringAsFixed(1) ?? 'NA'} kg'),
-        _buildDetailItem('Height', '${_user!.height?.toStringAsFixed(0) ?? 'NA'} cm'),
+        _buildDetailItem(
+            'Weight', '${_user!.weight?.toStringAsFixed(1) ?? 'NA'} kg'),
+        _buildDetailItem(
+            'Height', '${_user!.height?.toStringAsFixed(0) ?? 'NA'} cm'),
       ],
     );
   }
@@ -456,7 +498,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 16),
         _buildDetailItem(
           'Daily Step Goal',
-           _user?.stepGoal != null && _user!.stepGoal! > 0
+          _user?.stepGoal != null && _user!.stepGoal! > 0
               ? NumberFormat.decimalPattern().format(_user!.stepGoal)
               : 'Not Set',
           isColumn: true,
@@ -477,7 +519,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       content: TextField(
         controller: usernameController,
         style: textStyle,
-         autofocus: true,
+        autofocus: true,
         decoration: const InputDecoration(
           labelText: 'Username',
           labelStyle: labelStyle,
@@ -485,9 +527,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         keyboardType: TextInputType.text,
       ),
       onSave: () {
-         if (usernameController.text.trim().isEmpty) {
+        if (usernameController.text.trim().isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Username cannot be empty.'), backgroundColor: Colors.red),
+            const SnackBar(
+                content: Text('Username cannot be empty.'),
+                backgroundColor: Colors.red),
           );
           return;
         }
@@ -636,7 +680,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-
   void _showEditContactSheet() {
     final contactController = TextEditingController(text: _user?.contactNo);
 
@@ -651,7 +694,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           TextField(
             controller: contactController,
             style: textStyle,
-             autofocus: true,
+            autofocus: true,
             decoration: const InputDecoration(
               labelText: 'Contact No.',
               labelStyle: labelStyle,
@@ -668,7 +711,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-
   void _showSetGoalSheet() {
     final goalController =
         TextEditingController(text: _user?.stepGoal?.toString());
@@ -681,7 +723,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       content: TextField(
         controller: goalController,
         style: textStyle,
-         autofocus: true,
+        autofocus: true,
         decoration: const InputDecoration(
           labelText: 'Daily Steps',
           labelStyle: labelStyle,
@@ -689,12 +731,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         keyboardType: TextInputType.number,
       ),
       onSave: () {
-         final goalValue = int.tryParse(goalController.text.trim());
+        final goalValue = int.tryParse(goalController.text.trim());
         if (goalValue == null || goalValue <= 0) {
-           ScaffoldMessenger.of(context).showSnackBar(
-             const SnackBar(content: Text('Please enter a valid step goal.'), backgroundColor: Colors.red),
-           );
-           return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Please enter a valid step goal.'),
+                backgroundColor: Colors.red),
+          );
+          return;
         }
         final updatedUser = _user!.copyWith(stepGoal: goalValue);
         _updateAndReloadProfile(updatedUser);
@@ -702,12 +746,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildDetailItem(String label, String value, {bool isColumn = false, VoidCallback? onEditTap}) {
+  Widget _buildDetailItem(String label, String value,
+      {bool isColumn = false, VoidCallback? onEditTap}) {
     final content = Column(
-      crossAxisAlignment: isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      crossAxisAlignment:
+          isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
-        Text(value,
-            style: const TextStyle(color: Colors.white, fontSize: 16)),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16)),
         const SizedBox(height: 4),
         Text(label,
             style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
@@ -723,7 +768,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Expanded(child: content),
             const SizedBox(width: 8),
             Padding(
-               padding: const EdgeInsets.only(top: 4.0),
+              padding: const EdgeInsets.only(top: 4.0),
               child: IconButton(
                 icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
                 onPressed: onEditTap,
@@ -737,10 +782,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       return Align(alignment: Alignment.centerLeft, child: content);
     }
-    
+
     return content;
   }
-
 
   Widget _buildStepsChart() {
     final Map<String, int> stepsData = Map.from(_stepHistory);
@@ -751,8 +795,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     final bool hasData = stepsData.values.any((steps) => steps > 0);
-    const int maxStepsDefault = 10000;
-    final int maxSteps = (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
+    const int maxStepsDefault = 50000;
+    final int maxSteps =
+        (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
 
     return Column(
       children: [
@@ -777,8 +822,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(width: 8),
             IconButton(
               icon: const Icon(Icons.chevron_right, color: Colors.white),
-              onPressed: _isCurrentWeek(_currentWeekStart) ? null : _goToNextWeek,
-               color: _isCurrentWeek(_currentWeekStart) ? Colors.grey.shade700 : Colors.white,
+              onPressed:
+                  _isCurrentWeek(_currentWeekStart) ? null : _goToNextWeek,
+              color: _isCurrentWeek(_currentWeekStart)
+                  ? Colors.grey.shade700
+                  : Colors.white,
               splashRadius: 20,
             ),
           ],
@@ -787,58 +835,173 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SizedBox(
           height: 150,
           child: _isChartLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.yellow))
-            : !hasData
-                ? Center(
-                    child: Text(
-                      "No step data available for this week.",
-                      style: TextStyle(color: Colors.grey.shade500),
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.yellow))
+              : !hasData
+                  ? Center(
+                      child: Text(
+                        "No step data available for this week.",
+                        style: TextStyle(color: Colors.grey.shade500),
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: stepsData.entries.map((entry) {
+                        return _buildBar(
+                          day: entry.key,
+                          steps: entry.value,
+                          maxSteps: maxSteps,
+                          goalSteps: _user?.stepGoal,
+                        );
+                      }).toList(),
                     ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: stepsData.entries.map((entry) {
-                      return _buildBar(
-                        day: entry.key,
-                        steps: entry.value,
-                        maxSteps: maxSteps,
-                        goalSteps: _user?.stepGoal,
-                      );
-                    }).toList(),
-                  ),
         ),
       ],
     );
   }
 
-  Widget _buildBar({required String day, required int steps, required int maxSteps, int? goalSteps}) {
-     final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
-     final double barHeight = (steps / relativeMax * 120.0).clamp(5.0, 120.0);
-     final Color barColor = (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
-         ? Colors.green.shade400
-         : Colors.yellow.shade700;
-     
+  Widget _buildBar({
+    required String day,
+    required int steps,
+    required int maxSteps,
+    int? goalSteps,
+    double maxBarHeight = 100.0,
+  }) {
+    final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
+    final double barHeight =
+        (steps / relativeMax * maxBarHeight).clamp(5.0, maxBarHeight);
+    final Color barColor =
+        (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
+            ? Colors.green.shade400
+            : Colors.yellow.shade700;
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // --- Always show the label ---
-        Text(
-          NumberFormat.compact().format(steps),
-          style: const TextStyle(color: Colors.white, fontSize: 10),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          height: barHeight,
-          width: 20,
-          decoration: BoxDecoration(
-            color: barColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+        Flexible(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                NumberFormat.compact().format(steps),
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Container(
+                height: barHeight,
+                width: 20,
+                decoration: BoxDecoration(
+                  color: barColor,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(4)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(day,
+                  style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                  overflow: TextOverflow.ellipsis),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        Text(day, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
       ],
     );
+  }
+
+ Widget _buildLifetimeScorecard({
+    required String battlesWon,
+    required String knockouts,
+    required String totalBattles,
+    required int totalSteps,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Lifetime Stats',
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+        ),
+        const SizedBox(height: 12),
+        // --- Show a loader while stats are loading ---
+        _isStatsLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.yellow))
+          : Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildScorecardItem(
+                        'assets/images/battle_won.png', battlesWon, 'Battle won'),
+                    _buildScorecardItem(
+                        'assets/images/ko_won.png', knockouts, 'Knockouts'),
+                    _buildScorecardItem(
+                        'assets/images/coin_won.png', totalBattles, 'Total Battles'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _buildScorecardItem(
+                  'assets/images/step_icon.png', // NOTE: You'll need an 'assets/images/step_icon.png' or change this
+                  NumberFormat.decimalPattern().format(totalSteps), 
+                  'Total Lifetime Steps', // Updated label
+                  isFullWidth: true
+                ),
+              ],
+            ),
+      ],
+    );
+  }
+
+  Widget _buildScorecardItem(String imagePath, String value, String label,
+      {bool isFullWidth = false}) {
+    Widget content = Container(
+      margin: isFullWidth
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 4.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (imagePath.isNotEmpty)
+            Image.asset(
+              imagePath,
+              height: 40,
+              // Add fallback error builder
+              errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.directions_walk,
+                  size: 40,
+                  color: Colors.white70),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            label,
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+
+    // Return as Expanded or just the Container based on the flag
+    return isFullWidth ? content : Expanded(child: content);
   }
 }
