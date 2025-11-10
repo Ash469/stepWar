@@ -1,4 +1,17 @@
+import 'package:firebase_remote_config/firebase_remote_config.dart';
+
 const String baseUrl = 'http://stepwars.ap-south-1.elasticbeanstalk.com';
+
+// Get backend URL from Remote Config with fallback
+String getBackendUrl() {
+  try {
+    final remoteConfig = FirebaseRemoteConfig.instance;
+    final url = remoteConfig.getString('backend_url');
+    return url.isNotEmpty ? url : baseUrl;
+  } catch (e) {
+    return baseUrl; // Fallback to hardcoded URL if Remote Config fails
+  }
+}
 const String KO_diff = "200";
 const String Draw = "50";
 const String Battle_Time = "10";

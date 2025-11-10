@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -24,9 +25,11 @@ class StepTaskHandler extends TaskHandler {
   int _myScore = 0;
   int _opponentScore = 0;
   String _timeLeftString = '';
+  int _lastSavedPedometerReading = 0;
+  bool _deviceWasRebooted = false;
 
   final NotificationIcon notificationIcon = const NotificationIcon(
-      metaDataName: '@drawable/ic_notification'); // Corrected Icon usage
+      metaDataName: '@drawable/ic_notification');
 
   String _getCurrentDateString() {
     return DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -42,6 +45,51 @@ class StepTaskHandler extends TaskHandler {
       try {
         _stepStream = Pedometer.stepCountStream.listen((event) {
           _steps = event.steps;
+          
+          // ROBUST REBOOT DETECTION: Check if pedometer reading dropped significantly
+          if (_lastSavedPedometerReading > 10 && _steps < _lastSavedPedometerReading && 
+              (_lastSavedPedometerReading - _steps) > 10) {
+            _deviceWasRebooted = true;
+            print('🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=' + _lastSavedPedometerReading.toString() + ', Current=' + _steps.toString());
+            
+            // Immediately recompute offset using DB baseline
+            final int baseline = _lastKnownDbSteps ?? 0;
+            final int newOffset = _steps - baseline;
+            _dailyStepOffset = newOffset;
+            _offsetDateString = _getCurrentDateString();
+            
+            SharedPreferences.getInstance().then((prefs) async {
+              await prefs.setInt('dailyStepOffset', newOffset);
+              await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+              await prefs.setInt('lastPedometerReading', _steps);
+              print('✅ StepTaskHandler: REBOOT FIX APPLIED! NewOffset=' + newOffset.toString() + ' (baseline=' + baseline.toString() + ')');
+            }).catchError((e) {
+              print('StepTaskHandler ERROR saving reboot offset: ' + e.toString());
+            });
+            
+            _deviceWasRebooted = false;
+          }
+          
+          // Auto-compute offset on first event if missing
+          if (_dailyStepOffset == null) {
+            final int baseline = _lastKnownDbSteps ?? 0;
+            final String todayString = _getCurrentDateString();
+            final int newOffset = _steps - baseline;
+            _dailyStepOffset = newOffset;
+            _offsetDateString = todayString;
+            SharedPreferences.getInstance().then((prefs) async {
+              await prefs.setInt('dailyStepOffset', newOffset);
+              await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+              await prefs.setInt('lastPedometerReading', _steps);
+              print('StepTaskHandler: First pedometer event. Computed offset=' + newOffset.toString() + ' using baseline=' + baseline.toString());
+            }).catchError((e) {
+              print('StepTaskHandler ERROR saving first offset: ' + e.toString());
+            });
+          }
+          
+          // Continuously save pedometer reading for reboot detection
+          _lastSavedPedometerReading = _steps;
+          
           _updateAndSendData();
         }, onError: (e) {
           print("StepTaskHandler: Pedometer stream error: $e");
@@ -71,18 +119,24 @@ class StepTaskHandler extends TaskHandler {
     print('StepTaskHandler started');
 
     int? loadedOffset;
+    int? lastSavedReading;
     try {
       final prefs = await SharedPreferences.getInstance();
       loadedOffset = prefs.getInt('dailyStepOffset');
       offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
+      lastSavedReading = prefs.getInt('lastPedometerReading');
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
+      print('StepTaskHandler loaded lastPedometerReading: $lastSavedReading');
     } catch (e) {
       print(
           'StepTaskHandler ERROR reading offset onStart: $e. Treating as null.');
       loadedOffset = null;
       offsetTimestampMillis = null;
+      lastSavedReading = null;
     }
     _dailyStepOffset = loadedOffset;
+    _lastSavedPedometerReading = lastSavedReading ?? 0;
+    
     if (offsetTimestampMillis != null) {
       _offsetDateString = DateFormat('yyyy-MM-dd')
           .format(DateTime.fromMillisecondsSinceEpoch(offsetTimestampMillis!));
@@ -112,6 +166,14 @@ class StepTaskHandler extends TaskHandler {
       print("StepTaskHandler [onRepeatEvent]: Stream is null, attempting to re-initialize.");
       _initializePedometerStream();
     }
+    
+    // Save pedometer reading periodically for reboot detection
+    if (_steps > 0) {
+      SharedPreferences.getInstance().then((prefs) async {
+        await prefs.setInt('lastPedometerReading', _steps);
+      }).catchError((_) {});
+    }
+    
     final String todayString = _getCurrentDateString();
     if (_offsetDateString != null && _offsetDateString != todayString) {
       print(
@@ -122,6 +184,27 @@ class StepTaskHandler extends TaskHandler {
       _lastKnownDbSteps = 0;
       _offsetDateString = todayString;
       _updateNotificationAndData();
+    }
+
+    // Legacy fallback: Detect mid-day pedometer reset if reboot wasn't caught
+    if (_dailyStepOffset != null && _steps >= 0 && _steps < _dailyStepOffset!) {
+      final int baseline = _lastKnownDbSteps ?? 0;
+      final int diff = _dailyStepOffset! - _steps;
+      if (diff > 10) {
+        print('StepTaskHandler [onRepeatEvent]: Pedometer reset detected (steps=' + _steps.toString() + ' < offset=' + _dailyStepOffset.toString() + '). Recomputing offset using baseline=' + baseline.toString());
+        final int newOffset = _steps - baseline;
+        _dailyStepOffset = newOffset;
+        _offsetDateString = todayString;
+        SharedPreferences.getInstance().then((prefs) async {
+          await prefs.setInt('dailyStepOffset', newOffset);
+          await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+          await prefs.setInt('lastPedometerReading', _steps);
+          print('StepTaskHandler: Persisted new offset=' + newOffset.toString() + ' after reboot.');
+        }).catchError((e) {
+          print('StepTaskHandler ERROR persisting new offset after reboot: ' + e.toString());
+        });
+        _updateAndSendData();
+      }
     }
   }
 
@@ -166,6 +249,11 @@ class StepTaskHandler extends TaskHandler {
             print(
                 'StepTaskHandler ERROR saving lastKnownDbSteps to service storage: $e.');
           }
+
+          // REMOVED: Offset realignment logic to prevent drastic step drops
+          // Offset should only be recalculated on new day or explicit reboot detection
+          // NOT on every dbSteps update to avoid race conditions and incorrect calculations
+
           needsUpdate = true; // Need to recalculate steps with new baseline
         }
       } else if (data.containsKey('battleActive')) {

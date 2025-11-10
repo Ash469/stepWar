@@ -29,6 +29,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 final Map<String, dynamic> remoteConfigDefaults = {
+  'backend_url': 'http://stepwars.ap-south-1.elasticbeanstalk.com',
   'battle_time_minutes': 10, 
   'multiplier_3x_price': 300,
   'multiplier_2x_price': 200,

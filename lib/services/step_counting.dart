@@ -40,7 +40,7 @@ class HealthService {
         onError: (error) {
           _stepController.addError('Step count not available');
         },
-        cancelOnError: true,
+        cancelOnError: false,
       );
       _isInitialized = true;
     } catch (error) {

@@ -94,14 +94,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (data is Map<String, dynamic>) {
       if (data.containsKey('steps')) {
         final stepsFromService = data['steps'] as int;
+        final int dbSteps = _user?.todaysStepCount ?? 0;
+
         if (mounted && _stepsToShow != stepsFromService) {
           // Only setState if value changed
           setState(() {
             _stepsToShow = stepsFromService;
           });
         }
+
+        // If UI is still stuck at DB baseline after reboot, force offset recompute once
+        if (_offsetInitializationDone && stepsFromService == dbSteps) {
+          StreamSubscription<String>? tempSub;
+          final completer = Completer<int>();
+          try {
+            tempSub = _healthService.stepStream.listen((stepsStr) {
+              final v = int.tryParse(stepsStr);
+              if (v != null) {
+                if (!completer.isCompleted) completer.complete(v);
+                tempSub?.cancel();
+              }
+            }, onError: (_) {
+              if (!completer.isCompleted) completer.complete(dbSteps);
+              tempSub?.cancel();
+            });
+
+            completer.future.timeout(const Duration(seconds: 5)).then((current) async {
+              const int threshold = 10;
+              if (current > dbSteps + threshold) {
+                final int newOffset = current - dbSteps;
+                try {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setInt('dailyStepOffset', newOffset);
+                  await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+                  FlutterForegroundTask.sendDataToTask({'offset': newOffset});
+                  print('[HomeScreen] Forced offset recompute after stuck detection. newOffset=' + newOffset.toString());
+                } catch (e) {
+                  print('[HomeScreen] ERROR persisting forced offset: ' + e.toString());
+                }
+              }
+            }).catchError((_) {});
+          } catch (_) {
+            tempSub?.cancel();
+          }
+        }
+
         _debounce?.cancel();
-        _debounce = Timer(const Duration(minutes: 15),
+        _debounce = Timer(const Duration(minutes: 30),
             () => _saveLatestSteps(stepsFromService));
       }
     }
@@ -719,12 +758,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (!needsNewOffset && storedOffset != null) {
       print(
-          "[Step Counter] Sending existing offset ($storedOffset) to service.");
-      FlutterForegroundTask.sendDataToTask({'offset': storedOffset});
-      _offsetInitializationDone = true;
-      print(
-          "[Step Counter] Marked offset initialization as DONE (using existing).");
-      return;
+          "[Step Counter] Offset timestamp is from today. Verifying against current pedometer reading.");
+      // Peek current pedometer reading to detect reboot/reset
+      int currentReading = storedOffset ?? 0;
+      StreamSubscription<String>? tempSub;
+      final completer = Completer<int>();
+      try {
+        tempSub = _healthService.stepStream.listen((stepsStr) {
+          final v = int.tryParse(stepsStr);
+          if (v != null) {
+            if (!completer.isCompleted) completer.complete(v);
+            tempSub?.cancel();
+          }
+        }, onError: (_) {
+          needsNewOffset = true;
+          tempSub?.cancel();
+        });
+        try {
+          currentReading = await completer.future.timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          print("[Step Counter] Peek timeout; will recompute offset from next pedometer event.");
+          needsNewOffset = true;
+          await tempSub?.cancel();
+        }
+      } catch (_) {
+        currentReading = storedOffset ?? currentReading;
+        await tempSub?.cancel();
+      }
+
+      const int resetThreshold = 100;
+      if (currentReading < storedOffset - resetThreshold) {
+        // Recompute offset using DB baseline due to reboot/reset
+        final int dbSteps = userFromLoad?.todaysStepCount ?? 0;
+        final int newOffset = currentReading - dbSteps;
+        try {
+          await prefs.setInt('dailyStepOffset', newOffset);
+          await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+          print("[Step Counter] Detected reset. NEW offset set to " + newOffset.toString() + " (current=" + currentReading.toString() + ", db=" + dbSteps.toString() + ").");
+        } catch (e) {
+          print("[Step Counter] ERROR persisting recomputed offset: " + e.toString());
+        }
+        FlutterForegroundTask.sendDataToTask({'offset': newOffset});
+        _offsetInitializationDone = true;
+        print(
+            "[Step Counter] Marked offset initialization as DONE (recomputed after reset).");
+        return;
+      } else {
+        print("[Step Counter] Using existing offset (" + storedOffset.toString() + "). No reset detected.");
+        FlutterForegroundTask.sendDataToTask({'offset': storedOffset});
+        _offsetInitializationDone = true;
+        print(
+            "[Step Counter] Marked offset initialization as DONE (using existing).");
+        return;
+      }
     }
     print(
         "[Step Counter] Listening for pedometer reading to calculate NEW offset...");
