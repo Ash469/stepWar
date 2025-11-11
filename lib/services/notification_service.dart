@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import '../const/string.dart';
 
 class NotificationService {
   NotificationService._internal();
@@ -15,7 +16,7 @@ class NotificationService {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
+  String get _baseUrl => getBackendUrl();
 
   Completer<void>? _initCompleter;
 

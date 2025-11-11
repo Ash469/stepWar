@@ -1,6 +1,6 @@
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 
-const String baseUrl = 'http://stepwars.ap-south-1.elasticbeanstalk.com';
+const String baseUrl = 'http://3.109.141.189:5000';
 
 // Get backend URL from Remote Config with fallback
 String getBackendUrl() {

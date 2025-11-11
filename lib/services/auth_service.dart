@@ -5,13 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'package:http/http.dart' as http;
 import 'notification_service.dart';
+import '../const/string.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final NotificationService _notificationService = NotificationService();
   User? get currentUser => _auth.currentUser;
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com";
+  String get _baseUrl => getBackendUrl();
 
   Future<bool> isNewUser(String userId) async {
     try {

@@ -7,6 +7,7 @@ import 'profile_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
+import '../models/battle_rb.dart';
 import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
 import 'bot_selection_screen.dart';
@@ -58,15 +59,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final battleService = context.read<ActiveBattleService>();
+    // *** ADD THIS LINE to get the actual game status ***
+    final bool isBattleOngoing = battleService.currentGame?.gameStatus == GameStatus.ongoing;
 
     if (state == AppLifecycleState.resumed) {
-      if (battleService.isBattleActive && (battleService.timeLeft.isNegative || battleService.timeLeft.inSeconds == 0)) {
+      // *** MODIFIED THIS IF-CONDITION ***
+      if (battleService.isBattleActive && 
+          isBattleOngoing && // Check if battle is actually ONGOING
+          (battleService.timeLeft.isNegative || battleService.timeLeft.inSeconds == 0)) 
+      {
+        print("App resumed with an ONGOING battle that has 0 time. Ending battle.");
         battleService.endBattle();
       }
     } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
 
-      if (battleService.isBattleActive && !battleService.isEndingBattle) { 
-        print("App pausing with active battle. Triggering forfeit.");
+      // *** MODIFIED THIS IF-CONDITION ***
+      if (battleService.isBattleActive && 
+          isBattleOngoing && // Check if battle is actually ONGOING
+          !battleService.isEndingBattle) 
+      { 
+        print("App pausing with active, ONGOING battle. Triggering forfeit.");
         battleService.forfeitBattle(); // This is async, but we don't await it here
       }
     }
@@ -131,7 +143,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         bonus = isKnockout ? 3000 : 1000;
       }
       
-      int baseScore = coinsToShow! + bonus;
+      baseScore = coinsToShow! + bonus;
       if (baseScore < 0) baseScore = 0;
       if (bonus > 0) {
         coinBonusText = " - ${bonus} ${isKnockout ? 'KO Bonus' : 'Win Bonus'}";

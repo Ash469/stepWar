@@ -68,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   KingdomItem? _latestReward;
   bool _isLoadingData = false;
   bool _offsetInitializationDone = false;
+  DateTime? _lastPausedTime;
 
   @override
   bool get wantKeepAlive => true;
@@ -83,11 +84,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _requestPermissions();
       _initService();
       await _startService();
+      _checkForOngoingBattle();
     });
     _loadData(isInitialLoad: true);
     _handleNotifications();
     WidgetsBinding.instance.addObserver(this);
     _startBoxTimers();
+  }
+
+ Future<void> _checkForOngoingBattle() async {
+    if (!mounted) return;
+    try {
+      await Future.delayed(const Duration(milliseconds: 100));
+      final battleService = context.read<ActiveBattleService>();
+      if (battleService.isBattleActive && battleService.isWaitingForFriend && _user != null) {
+        final gameId = battleService.currentGame?.gameId;
+        if (gameId != null) {
+          // Navigate to the WaitingForFriendScreen
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (_) => WaitingForFriendScreen(
+                    gameId: gameId, 
+                    user: _user!,
+                  ),
+                ),
+                (route) => route.isFirst,
+              );
+            }
+          });
+        }
+      }
+      print("Battle service state - isBattleActive: ${battleService.isBattleActive}, isWaitingForFriend: ${battleService.isWaitingForFriend}");
+    } catch (e) {
+      print("Error checking for ongoing battle: $e");
+    }
   }
 
   void _onReceiveTaskData(Object data) {
@@ -154,7 +186,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
     WidgetsBinding.instance.removeObserver(this);
     _boxTimer?.cancel();
-    // _stopService();
     super.dispose();
   }
 
@@ -190,11 +221,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Duration.zero;
   }
 
-  @override
+ @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+          _lastPausedTime = DateTime.now();
       print("App is pausing. Forcing final step save.");
       _debounce?.cancel();
       _stepSubscription?.cancel(); // Add this
@@ -204,7 +236,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print("App resumed. Cancelling pending saves & triggering data load.");
       _debounce?.cancel();
       _stepSubscription?.cancel();
-      _loadData();
+      final bool wasPausedLong = _lastPausedTime != null && 
+                                 DateTime.now().difference(_lastPausedTime!).inMinutes >= 1;
+    if (wasPausedLong || _user == null) {
+        print("App was paused for > 1 min OR user is null. Triggering data load.");
+        if (mounted) {
+          _loadData();
+        }
+      } else {
+        print("App resumed from brief pause. Skipping full data load.");
+      }
+      _lastPausedTime = null; // Clear the paused time
     }
   }
 
@@ -820,22 +862,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             "[Step Counter] Ignored step event (calculating offset), data is loading.");
         return;
       }
-      final currentPedomometerReading = int.tryParse(stepsStr);
-      if (currentPedomometerReading == null || currentPedomometerReading < 0) {
+      final currentPedometerReading = int.tryParse(stepsStr);
+      if (currentPedometerReading == null || currentPedometerReading < 0) {
         print(
             "[Step Counter] Invalid pedometer reading ($stepsStr) received while calculating offset.");
         return;
       }
       // DB steps should be 0 for a new day, fetched by _loadData
       final dbSteps = userFromLoad?.todaysStepCount ?? 0;
-      int calculatedOffset = currentPedomometerReading - dbSteps;
+      int calculatedOffset = currentPedometerReading - dbSteps;
       final nowMillis = DateTime.now().millisecondsSinceEpoch;
       try {
         await prefs.setInt('dailyStepOffset', calculatedOffset);
         await prefs.setInt('dailyOffsetTimestamp', nowMillis);
         needsNewOffset = false;
         print(
-            "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedomometerReading, Server Steps: $dbSteps)");
+            "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedometerReading, Server Steps: $dbSteps)");
         print("[Step Counter] Offset Timestamp PERSISTED: $nowMillis");
 
         FlutterForegroundTask.sendDataToTask({'offset': calculatedOffset});
@@ -1084,4 +1126,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
+
+  // No additional method needed here
 }

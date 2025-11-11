@@ -3,11 +3,12 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:http/http.dart' as http;
 import '../models/battle_rb.dart';
 import '../models/user_model.dart';
+import '../const/string.dart';
 
 class GameService {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
+  String get _baseUrl => '${getBackendUrl()}/api';
 
   Future<String> createPvpBattle(String player1Id, String player2Id) async {
     try {

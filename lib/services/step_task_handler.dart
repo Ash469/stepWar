@@ -310,6 +310,7 @@ class StepTaskHandler extends TaskHandler {
     int stepsToShow = _calculateStepsToShow();
     String title;
     String body;
+    
     if (_isBattleActive) {
       title = "⚔️ Ongoing Battle!";
       body = "You: $_myScore - Opponent: $_opponentScore | 🕒 $_timeLeftString";
@@ -326,9 +327,20 @@ class StepTaskHandler extends TaskHandler {
       }
     }
 
+    // Create notification with action buttons
+    final notificationButtons = <NotificationButton>[];
+    
+    // Add cancel button only when not in battle
+    if (!_isBattleActive) {
+      notificationButtons.add(
+        NotificationButton(id: 'cancel', text: 'Cancel'),
+      );
+    }
+
     FlutterForegroundTask.updateService(
       notificationTitle: title,
       notificationText: body,
+      notificationButtons: notificationButtons,
       // notificationIcon: notificationIcon,
     );
 

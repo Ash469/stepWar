@@ -3,9 +3,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user_model.dart';
+import '../const/string.dart';
 
 class MysteryBoxService {
-  final String _baseUrl = "http://stepwars.ap-south-1.elasticbeanstalk.com/api";
+  String get _baseUrl => '${getBackendUrl()}/api';
 
   Future<Map<String, dynamic>> openMysteryBox(
       String userId, String boxType) async {

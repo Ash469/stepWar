@@ -102,7 +102,23 @@ String _formatDuration(Duration d) {
   }
 
 Future<void> forfeitBattle() async {
-    if (_isGameOver || _currentGame == null || _isEndingBattle || _currentUser == null) return;
+    // Validate all required data before proceeding
+    if (_currentGame == null) {
+      print("Cannot forfeit battle: No current game data");
+      return;
+    }
+    
+    if (_currentUser == null) {
+      print("Cannot forfeit battle: No current user data");
+      return;
+    }
+    
+    // Prevent multiple simultaneous forfeit attempts
+    if (_isEndingBattle) {
+      print("Battle forfeit already in progress, skipping duplicate call");
+      return;
+    }
+    
     _isEndingBattle = true;
     _isGameOver = true;
     notifyListeners();
@@ -111,6 +127,11 @@ Future<void> forfeitBattle() async {
     int p2Score = _currentGame!.player2Score;
 
     try {
+      // Ensure we have a valid game ID
+      if (_currentGame!.gameId.isEmpty) {
+        throw Exception('Invalid game ID');
+      }
+      
       _finalBattleState = await _gameService.endBattle(
         _currentGame!.gameId,
         player1FinalScore: p1Score,
@@ -119,6 +140,8 @@ Future<void> forfeitBattle() async {
       print("Battle forfeited with final scores ($p1Score, $p2Score). State: $_finalBattleState");
     } catch (e) {
       print("Error forfeiting battle from service: $e");
+      // Even if there's an error, we still want to clean up
+      _finalBattleState = null;
     } finally {
       _isEndingBattle = false;
     }
@@ -197,17 +220,38 @@ Future<void> forfeitBattle() async {
   }
 
   Future<void> endBattle() async {
-    if (_isGameOver || _currentGame == null || _isEndingBattle) return;
+    // Validate battle state before attempting to end
+    if (_currentGame == null) {
+      print("Cannot end battle: No current game data");
+      return;
+    }
+    
+    // Prevent multiple simultaneous end attempts
+    if (_isEndingBattle) {
+      print("Battle ending already in progress, skipping duplicate call");
+      return;
+    }
+    
     _isEndingBattle = true;
     _isGameOver = true;
     notifyListeners();
 
     try {
+      // Ensure we have a valid game ID
+      if (_currentGame!.gameId.isEmpty) {
+        throw Exception('Invalid game ID');
+      }
+      
       _finalBattleState = await _gameService.endBattle(_currentGame!.gameId);
       print("Battle ended with state: $_finalBattleState");
     } catch (e) {
       print("Error ending battle from service: $e");
-    } finally {_isEndingBattle = false;}
+      // Even if there's an error, we still want to clean up
+      _finalBattleState = null;
+    } finally {
+      _isEndingBattle = false;
+    }
+     
      if (_finalBattleState != null) {
         notifyListeners();
         _controller.add(null);
