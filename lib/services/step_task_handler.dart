@@ -210,6 +210,7 @@ class StepTaskHandler extends TaskHandler {
 
   @override
   Future<void> onReceiveData(Object data) async {
+    print("StepTaskHandler: onReceiveData called with data: $data");
     bool needsUpdate = false;
     if (data is Map<String, dynamic>) {
       if (data.containsKey('offset')) {
@@ -257,7 +258,9 @@ class StepTaskHandler extends TaskHandler {
           needsUpdate = true; // Need to recalculate steps with new baseline
         }
       } else if (data.containsKey('battleActive')) {
-        _isBattleActive = data['battleActive'] ?? false;
+        bool newBattleActive = data['battleActive'] ?? false;
+        // Always update the battle state, even if it's the same value, to ensure scores are updated
+        _isBattleActive = newBattleActive;
         if (_isBattleActive) {
           _myScore = data['myScore'] ?? 0;
           _opponentScore = data['opponentScore'] ?? 0;

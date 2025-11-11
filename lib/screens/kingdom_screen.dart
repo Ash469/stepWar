@@ -201,25 +201,34 @@ class _KingdomScreenState extends State<KingdomScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(),
-            const SizedBox(height: 24),
-            _buildFilterChips(availableFilters),
-            const SizedBox(height: 24),
-            Text(
-              '${_currentItems.length} items',
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: EdgeInsets.all(16.0),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 24),
+                  _buildFilterChips(availableFilters),
+                  const SizedBox(height: 24),
+                  Text(
+                    '${_currentItems.length} items',
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildKingdomGrid(),
+                  const SizedBox(height: 40 + 20), // Add extra spacing
+                  const StepWarsFooter(),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            _buildKingdomGrid(),
-            const SizedBox(height: 40),
-            const StepWarsFooter(),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -344,7 +353,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
                   _buildRarityTag(item.rarity, item.rarityColor),
                   const Spacer(),
                   item.imagePath.isNotEmpty
-                      ? Image.asset(item.imagePath, height: 80, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 60))
+                      ? Image.network(item.imagePath, fit: BoxFit.contain, width: 60, height: 60)
                       : const Icon(Icons.question_mark, color: Colors.white, size: 60),
                   const Spacer(),
                   Text(

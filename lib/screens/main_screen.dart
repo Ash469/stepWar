@@ -41,8 +41,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     final battleService = context.read<ActiveBattleService>();
     _battleStateSubscription = battleService.stream.listen((_) {
+      // Show the game over dialog when finalBattleState is not null
       if (battleService.finalBattleState != null) {
         _showGameOverDialog(battleService.finalBattleState!);
+      }
+      // Also show a simple dialog when the battle ends but finalBattleState is null
+      // This can happen when there's an error or the server doesn't return a proper response
+      else if (!battleService.isBattleActive && battleService.currentGame != null) {
+        _showSimpleBattleEndDialog();
       }
     });
     WidgetsBinding.instance.addObserver(this);
@@ -71,17 +77,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         print("App resumed with an ONGOING battle that has 0 time. Ending battle.");
         battleService.endBattle();
       }
-    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-
-      // *** MODIFIED THIS IF-CONDITION ***
-      if (battleService.isBattleActive && 
-          isBattleOngoing && // Check if battle is actually ONGOING
-          !battleService.isEndingBattle) 
-      { 
-        print("App pausing with active, ONGOING battle. Triggering forfeit.");
-        battleService.forfeitBattle(); // This is async, but we don't await it here
-      }
     }
+    // Removed the automatic forfeit when app goes to background to allow battles to continue
+    // else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    //   // *** MODIFIED THIS IF-CONDITION ***
+    //   if (battleService.isBattleActive && 
+    //       isBattleOngoing && // Check if battle is actually ONGOING
+    //       !battleService.isEndingBattle) 
+    //   { 
+    //     print("App pausing with active, ONGOING battle. Triggering forfeit.");
+    //     battleService.forfeitBattle(); // This is async, but we don't await it here
+    //   }
+    // }
   }
 
   void _showGameOverDialog(Map<String, dynamic> finalState) {
@@ -90,9 +97,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final currentUserId = authService.currentUser?.uid;
 
     final gameState = finalState['finalState'];
+    // Handle error case
     if (gameState == null) return;
+    
     final String? p1Id = battleService.currentGame?.player1Id;
     final String? p2Id = battleService.currentGame?.player2Id;
+
+    // Handle error case
+    if (gameState['result'] == 'ERROR') {
+      _showSimpleBattleEndDialog();
+      return;
+    }
 
     final winnerId = gameState['winnerId'];
     final result = gameState['result']; // "WIN", "KO", "DRAW"
@@ -452,9 +467,133 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showSimpleBattleEndDialog() {
+    final battleService = context.read<ActiveBattleService>();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: 300,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1a1a1a),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2a2a2a),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                  border: Border(
+                    top: BorderSide(color: Colors.red, width: 3),
+                    left: BorderSide(color: Colors.red, width: 3),
+                    right: BorderSide(color: Colors.red, width: 3),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      '⚠️',
+                      style: TextStyle(fontSize: 20),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Battle Ended',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      '⚠️',
+                      style: TextStyle(fontSize: 20),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    const Text(
+                      "The battle has ended.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "Note: We couldn't retrieve your battle results. This might be due to a network issue.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          battleService.dismissBattleResults();
+                          setState(() {
+                            _currentIndex = 1;
+                          });
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: const BorderSide(color: Colors.white24),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
+    final double bottomNavBarHeight = kBottomNavigationBarHeight + 30; // More adaptive height
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -471,7 +610,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             Expanded(
               child: Stack(
                 children: [
-                  _pages[_currentIndex],
+                  // Use a more adaptive approach for bottom padding
+                  Container(
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).padding.bottom + bottomNavBarHeight,
+                    ),
+                    child: _pages[_currentIndex],
+                  ),
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: _buildBottomNavBar(),
@@ -487,7 +632,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _buildBottomNavBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 30),
+      padding: EdgeInsets.fromLTRB(
+        24, 
+        0, 
+        24, 
+        30 + MediaQuery.of(context).padding.bottom, // Account for device-specific bottom padding
+      ),
       child: Container(
         height: 70,
         decoration: BoxDecoration(

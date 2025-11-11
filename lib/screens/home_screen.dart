@@ -1078,50 +1078,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onRefresh: () => _loadData(forceRefresh: true),
         color: Colors.yellow,
         backgroundColor: Colors.grey.shade900,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 40.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HomeHeader(
-                username: safeUser.username ?? 'User',
-                coins: safeUser.coins ?? 0,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                16.0, 
+                16.0, 
+                16.0, 
+                40.0 + MediaQuery.of(context).padding.bottom, // Add bottom padding for all devices
               ),
-              const SizedBox(height: 16),
-              StepCounterCard(steps: _stepsToShow),
-              const SizedBox(height: 24),
-              const SectionTitle(
-                  title: "---------- Today's Scorecard ----------"),
-              const SizedBox(height: 16),
-              ScorecardSection(stats: safeUser.stats ?? {}),
-              const SizedBox(height: 16),
-              BattleSection(
-                user: safeUser,
-                opponentProfile: _opponentProfile,
-                isCreatingGame: _isCreatingGame,
-                isCreatingBotGame: _isCreatingBotGame,
-                onShowFriendBattleDialog: _showFriendBattleDialog,
-                onFetchOpponentProfile: _fetchOpponentProfile,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    HomeHeader(
+                      username: safeUser.username ?? 'User',
+                      coins: safeUser.coins ?? 0,
+                    ),
+                    const SizedBox(height: 16),
+                    StepCounterCard(steps: _stepsToShow),
+                    const SizedBox(height: 24),
+                    const SectionTitle(
+                        title: "---------- Today's Scorecard ----------"),
+                    const SizedBox(height: 16),
+                    ScorecardSection(stats: safeUser.stats ?? {}),
+                    const SizedBox(height: 16),
+                    BattleSection(
+                      user: safeUser,
+                      opponentProfile: _opponentProfile,
+                      isCreatingGame: _isCreatingGame,
+                      isCreatingBotGame: _isCreatingBotGame,
+                      onShowFriendBattleDialog: _showFriendBattleDialog,
+                      onFetchOpponentProfile: _fetchOpponentProfile,
+                    ),
+                    const SizedBox(height: 16),
+                    const GameRulesWidget(),
+                    const SizedBox(height: 24),
+                    const SectionTitle(title: "---------- Mystery Box ----------"),
+                    const SizedBox(height: 16),
+                    MysteryBoxSection(
+                      onOpenBox: _openMysteryBox,
+                      isOpeningBronze: _isOpeningBronzeBox,
+                      isOpeningSilver: _isOpeningSilverBox,
+                      isOpeningGold: _isOpeningGoldBox,
+                      bronzeTimeLeft: _bronzeTimeLeft,
+                      silverTimeLeft: _silverTimeLeft,
+                      goldTimeLeft: _goldTimeLeft,
+                    ),
+                    const SizedBox(height: 16),
+                    const StepWarsFooter(),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              const GameRulesWidget(),
-              const SizedBox(height: 24),
-              const SectionTitle(title: "---------- Mystery Box ----------"),
-              const SizedBox(height: 16),
-              MysteryBoxSection(
-                onOpenBox: _openMysteryBox,
-                isOpeningBronze: _isOpeningBronzeBox,
-                isOpeningSilver: _isOpeningSilverBox,
-                isOpeningGold: _isOpeningGoldBox,
-                bronzeTimeLeft: _bronzeTimeLeft,
-                silverTimeLeft: _silverTimeLeft,
-                goldTimeLeft: _goldTimeLeft,
-              ),
-              const SizedBox(height: 16),
-              const StepWarsFooter(),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

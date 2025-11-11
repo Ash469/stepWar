@@ -269,38 +269,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final lifetimeTotalSteps = _lifetimeStats?['totalSteps'] ?? 0;
     return Stack(
       children: [
-        SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 100.0),
-            child: Column(
-              children: [
-                const SizedBox(height: 56),
-                _buildProfileHeader(),
-                const SizedBox(height: 24),
-                _buildInfoCard(
-                    title: 'About you',
-                    child: _buildAboutYouSection(),
-                    onEditTap: _showEditAboutYouSheet),
-                const SizedBox(height: 16),
-                _buildInfoCard(
-                  title: 'Your Profile',
-                  child: _buildYourProfileSection(),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: 16.0),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
                 ),
-                const SizedBox(height: 24),
-               _buildLifetimeScorecard(
-                  battlesWon: lifetimeBattlesWon,
-                  knockouts: lifetimeKnockouts,
-                  totalBattles: lifetimeTotalBattles,
-                  totalSteps: lifetimeTotalSteps,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: 100.0 + MediaQuery.of(context).padding.bottom, // Add bottom padding
+                  ),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 56),
+                      _buildProfileHeader(),
+                      const SizedBox(height: 24),
+                      _buildInfoCard(
+                          title: 'About you',
+                          child: _buildAboutYouSection(),
+                          onEditTap: _showEditAboutYouSheet),
+                      const SizedBox(height: 16),
+                      _buildInfoCard(
+                        title: 'Your Profile',
+                        child: _buildYourProfileSection(),
+                      ),
+                      const SizedBox(height: 24),
+                      _buildLifetimeScorecard(
+                        battlesWon: lifetimeBattlesWon,
+                        knockouts: lifetimeKnockouts,
+                        totalBattles: lifetimeTotalBattles,
+                        totalSteps: lifetimeTotalSteps,
+                      ),
+                      const SizedBox(height: 24),
+                      _buildStepsChart(),
+                      const SizedBox(height: 40),
+                      const StepWarsFooter(),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 24),
-                _buildStepsChart(),
-                const SizedBox(height: 40),
-                const StepWarsFooter(),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
         Positioned(
           top: 16.0,

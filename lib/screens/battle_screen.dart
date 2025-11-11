@@ -32,6 +32,11 @@ class _BattleScreenState extends State<BattleScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
   Future<void> _fetchBattleDataIfNeeded() async {
     if (mounted &&
         (_isFetchingData ||
@@ -128,7 +133,7 @@ class _BattleScreenState extends State<BattleScreen> {
     }
   }
 
-  Future<void> _showEndBattleConfirmation() async {
+    Future<void> _showEndBattleConfirmation() async {
     final battleService = context.read<ActiveBattleService>();
     if (_isEndingBattle || battleService.isEndingBattle) return;
 
@@ -187,7 +192,7 @@ class _BattleScreenState extends State<BattleScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         const Text("Your Potential Reward",
             style: TextStyle(
                 color: Colors.white,
@@ -195,7 +200,7 @@ class _BattleScreenState extends State<BattleScreen> {
                 fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: const Color(0xFF2a2a2a),
             borderRadius: BorderRadius.circular(8),
@@ -203,16 +208,9 @@ class _BattleScreenState extends State<BattleScreen> {
           child: Row(
             children: [
               imagePath != null && imagePath.isNotEmpty
-                  ? Image.asset(
-                      imagePath,
-                      height: 40,
-                      errorBuilder: (context, error, stackTrace) => const Icon(
-                          Icons.shield,
-                          color: Colors.white70,
-                          size: 40),
-                    )
+                  ? Image.network(imagePath, fit: BoxFit.contain, width: 40, height: 40)
                   : const Icon(Icons.shield, color: Colors.white70, size: 40),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,12 +248,24 @@ class _BattleScreenState extends State<BattleScreen> {
         (_currentUserModel == null || _opponentProfile == null)) {
       _fetchBattleDataIfNeeded();
     }
-    if (!battleService.isBattleActive &&
-        ModalRoute.of(context)?.isCurrent == true) {
+    // Check if we're in the process of ending the battle
+    if (battleService.isEndingBattle) {
+      return const Scaffold(
+          backgroundColor: Color(0xFF1E1E1E),
+          body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFFFC107))));
+    }
+    // Check if the battle has ended and we should show results
+    if (!battleService.isBattleActive && battleService.finalBattleState != null) {
+      // Battle has ended, but we're still showing the battle screen
+      // Let's navigate to the main screen which will show the dialog
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+        if (mounted) {
+          Navigator.of(context).popUntil((r) => r.isFirst);
+        }
       });
     }
+    // If we don't have the required data, show loading
     if (!battleService.isBattleActive ||
         battleService.currentGame == null ||
         _currentUserModel == null ||
@@ -547,7 +557,7 @@ class _BattleScreenState extends State<BattleScreen> {
         }),
         const SizedBox(height: 8),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          padding: const EdgeInsets.symmetric(horizontal: 2.0),
             child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -619,11 +629,10 @@ class _BattleScreenState extends State<BattleScreen> {
 
     return Column(
       children: [
-        const SizedBox(height: 16), // Add spacing
         const Text("Activate a Score Multiplier", style: TextStyle(color: Colors.white70)),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _buildMultiplierButton('1.5X', '1_5x', cost1_5x, available1_5x),
             _buildMultiplierButton('2X', '2x', cost2x, available2x),

@@ -107,6 +107,13 @@ class MyApp extends StatelessWidget {
       theme: AppThemes.darkTheme,
       debugShowCheckedModeBanner: false,
       home: const LoadingScreen(),
+      // Add proper handling for different screen sizes and orientations
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
+          child: child!,
+        );
+      },
     );
   }
 }

@@ -71,7 +71,7 @@ class AppThemes {
   static final ThemeData lightTheme = ThemeData(
     brightness: Brightness.light,
     scaffoldBackgroundColor: Colors.white,
-  appBarTheme: AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.background, // This is your app bar color
       foregroundColor: Colors.white,
       elevation: 0,
@@ -135,6 +135,13 @@ class AppThemes {
       foregroundColor: Colors.white,
       elevation: 0,
       titleTextStyle: AppTextStyles.titleLarge,
+      // Ensure proper status bar handling for dark theme
+      systemOverlayStyle: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: AppColors.surface, // Navigation bar color
+        systemNavigationBarIconBrightness: Brightness.light, // Navigation bar icons
+      ),
     ),
     textTheme: TextTheme(
       displayLarge: AppTextStyles.headline1.copyWith(color: Colors.white),

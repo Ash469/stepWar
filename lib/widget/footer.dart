@@ -6,7 +6,7 @@ class StepWarsFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 160,
+      height: 50,
       alignment: Alignment.topCenter,
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -55,9 +55,12 @@ String _formatDuration(Duration d) {
     bool isUserPlayer1 = _currentGame!.player1Id == _currentUser!.userId;
     int myScore = isUserPlayer1 ? _currentGame!.player1Score : _currentGame!.player2Score;
     int opponentScore = isUserPlayer1 ? _currentGame!.player2Score : _currentGame!.player1Score;
+    
+    bool battleActive = !_isGameOver && _gameId != null;
+    print("ActiveBattleService: Sending battle state to task - battleActive: $battleActive, myScore: $myScore, opponentScore: $opponentScore");
 
     FlutterForegroundTask.sendDataToTask({
-      'battleActive': !_isGameOver && _gameId != null, 
+      'battleActive': battleActive, 
       'myScore': myScore,
       'opponentScore': opponentScore,
       'timeLeft': _formatDuration(_timeLeft),
@@ -75,6 +78,13 @@ String _formatDuration(Duration d) {
     _currentUser = user;
     _initialPlayerSteps = -1;
     _gameSubscription = _gameService.getGameStream(gameId).listen((game) {
+      // Check if the battle is over before doing anything
+      if (_isGameOver) {
+        _gameSubscription?.cancel();
+        _gameSubscription = null;
+        return;
+      }
+      
       if (game == null) return;
       _currentGame = game;
       if (game.startTime != null && _gameTimer == null) {
@@ -94,6 +104,13 @@ String _formatDuration(Duration d) {
     });
     _healthService.initialize();
     _stepSubscription = _healthService.stepStream.listen((stepsStr) {
+      // Check if the battle is over before doing anything
+      if (_isGameOver) {
+        _stepSubscription?.cancel();
+        _stepSubscription = null;
+        return;
+      }
+      
       _onPlayerStep(stepsStr, user.userId);
     });
     await Future.delayed(const Duration(milliseconds: 100));
@@ -102,6 +119,7 @@ String _formatDuration(Duration d) {
   }
 
 Future<void> forfeitBattle() async {
+    print("ActiveBattleService: forfeitBattle called");
     // Validate all required data before proceeding
     if (_currentGame == null) {
       print("Cannot forfeit battle: No current game data");
@@ -140,13 +158,50 @@ Future<void> forfeitBattle() async {
       print("Battle forfeited with final scores ($p1Score, $p2Score). State: $_finalBattleState");
     } catch (e) {
       print("Error forfeiting battle from service: $e");
-      // Even if there's an error, we still want to clean up
-      _finalBattleState = null;
+      // Determine game type based on player IDs
+      String gameType = 'UNKNOWN';
+      if (_currentGame != null) {
+        if (_currentGame!.player2Id != null && _currentGame!.player2Id!.startsWith('bot_')) {
+          gameType = 'BOT';
+        } else if (_currentGame!.player2Id != null) {
+          gameType = 'PVP';
+        }
+      }
+      
+      // Even if there's an error, we still want to create a minimal final state
+      _finalBattleState = {
+        'finalState': {
+          'winnerId': null,
+          'result': 'ERROR',
+          'gameType': gameType,
+          'isKnockout': false,
+          'rewards': {
+            'winnerCoins': 0,
+            'loserCoins': 0,
+          }
+        }
+      };
     } finally {
       _isEndingBattle = false;
+      notifyListeners(); // Always notify listeners when ending state changes
     }
     
+    // Always send battle state to task handler to ensure it knows the battle has ended
+    print("ActiveBattleService: Calling _sendBattleStateToTask after forfeit");
+    _sendBattleStateToTask();
+    
     if (_finalBattleState != null) {
+      print("ActiveBattleService: Notifying listeners and adding to controller after forfeit");
+      notifyListeners();
+      _controller.add(null);
+    } else {
+      // This should never happen now, but just in case
+      print("ActiveBattleService: Calling _cleanup after forfeit");
+      _cleanup();
+      // Explicitly set _gameId to null to ensure battle is marked as inactive
+      _gameId = null;
+      print("ActiveBattleService: Calling _sendBattleStateToTask after cleanup in forfeit");
+      _sendBattleStateToTask();
       notifyListeners();
       _controller.add(null);
     }
@@ -187,6 +242,12 @@ Future<void> forfeitBattle() async {
     final gameDuration = Duration(minutes: battleMinutes);
     _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      // Check if the battle is over before doing anything
+      if (_isGameOver) {
+        timer.cancel();
+        return;
+      }
+      
       final elapsed = DateTime.now().difference(startTime);
       if (elapsed >= gameDuration) {
         _timeLeft = Duration.zero;
@@ -202,24 +263,29 @@ Future<void> forfeitBattle() async {
 
   void _initializeBotStepGenerator() {
     _botStepTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (!_isGameOver && _currentGame != null) {
-        final botId = _currentGame!.player2Id!;
-        final botType = _botService.getBotTypeFromId(botId);
-        if (botType != null) {
-          final generatedSteps =
-              _botService.generateStepsForOneSecond(botType) * 2;
-          final newBotSteps = (_currentGame!.step2Count) + generatedSteps;
-          final newBotScore = (newBotSteps * _currentGame!.multiplier2).round();
-          _gameService.updateGame(_currentGame!.gameId, {
-            'step2Count': newBotSteps,
-            'player2Score': newBotScore,
-          });
-        }
+      // Check if the battle is over before doing anything
+      if (_isGameOver || _currentGame == null) {
+        timer.cancel();
+        return;
+      }
+      
+      final botId = _currentGame!.player2Id!;
+      final botType = _botService.getBotTypeFromId(botId);
+      if (botType != null) {
+        final generatedSteps =
+            _botService.generateStepsForOneSecond(botType) * 2;
+        final newBotSteps = (_currentGame!.step2Count) + generatedSteps;
+        final newBotScore = (newBotSteps * _currentGame!.multiplier2).round();
+        _gameService.updateGame(_currentGame!.gameId, {
+          'step2Count': newBotSteps,
+          'player2Score': newBotScore,
+        });
       }
     });
   }
 
   Future<void> endBattle() async {
+    print("ActiveBattleService: endBattle called");
     // Validate battle state before attempting to end
     if (_currentGame == null) {
       print("Cannot end battle: No current game data");
@@ -236,34 +302,82 @@ Future<void> forfeitBattle() async {
     _isGameOver = true;
     notifyListeners();
 
+    // Get current scores before ending the battle
+    int p1Score = _currentGame!.player1Score;
+    int p2Score = _currentGame!.player2Score;
+
     try {
       // Ensure we have a valid game ID
       if (_currentGame!.gameId.isEmpty) {
         throw Exception('Invalid game ID');
       }
       
-      _finalBattleState = await _gameService.endBattle(_currentGame!.gameId);
+      // Pass current scores to endBattle to ensure the battle ends with the correct scores
+      _finalBattleState = await _gameService.endBattle(
+        _currentGame!.gameId,
+        player1FinalScore: p1Score,
+        player2FinalScore: p2Score,
+      );
       print("Battle ended with state: $_finalBattleState");
     } catch (e) {
       print("Error ending battle from service: $e");
-      // Even if there's an error, we still want to clean up
-      _finalBattleState = null;
+      // Determine game type based on player IDs
+      String gameType = 'UNKNOWN';
+      if (_currentGame != null) {
+        if (_currentGame!.player2Id != null && _currentGame!.player2Id!.startsWith('bot_')) {
+          gameType = 'BOT';
+        } else if (_currentGame!.player2Id != null) {
+          gameType = 'PVP';
+        }
+      }
+      
+      // Even if there's an error, we still want to create a minimal final state
+      _finalBattleState = {
+        'finalState': {
+          'winnerId': null,
+          'result': 'ERROR',
+          'gameType': gameType,
+          'isKnockout': false,
+          'rewards': {
+            'winnerCoins': 0,
+            'loserCoins': 0,
+          }
+        }
+      };
     } finally {
       _isEndingBattle = false;
+      notifyListeners(); // Always notify listeners when ending state changes
     }
      
-     if (_finalBattleState != null) {
-        notifyListeners();
-        _controller.add(null);
+    // Always send battle state to task handler to ensure it knows the battle has ended
+    print("ActiveBattleService: Calling _sendBattleStateToTask after endBattle");
+    _sendBattleStateToTask();
+     
+    if (_finalBattleState != null) {
+       print("ActiveBattleService: Notifying listeners and adding to controller after endBattle");
+       notifyListeners();
+       _controller.add(null);
+    } else {
+      // This should never happen now, but just in case
+      print("ActiveBattleService: Calling _cleanup after endBattle");
+      _cleanup();
+      // Explicitly set _gameId to null to ensure battle is marked as inactive
+      _gameId = null;
+      print("ActiveBattleService: Calling _sendBattleStateToTask after cleanup in endBattle");
+      _sendBattleStateToTask();
+      notifyListeners();
+      _controller.add(null);
     }
   }
 
   void dismissBattleResults() {
     _finalBattleState = null;
+    _isGameOver = false;  // Reset this flag as well
     _cleanup();
   }
 
   void _cleanup() {
+    print("ActiveBattleService: Cleaning up battle state");
     _gameSubscription?.cancel();
     _stepSubscription?.cancel();
     _botStepTimer?.cancel();
@@ -276,6 +390,8 @@ Future<void> forfeitBattle() async {
     _currentGame = null;
     _timeLeft = Duration.zero;
     _initialPlayerSteps = -1;
+    _isGameOver = false;  // Reset this flag as well
+    print("ActiveBattleService: Sending battle state to task after cleanup");
     _sendBattleStateToTask();
     notifyListeners();
   }
