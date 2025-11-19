@@ -41,13 +41,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     final battleService = context.read<ActiveBattleService>();
     _battleStateSubscription = battleService.stream.listen((_) {
-      // Show the game over dialog when finalBattleState is not null
       if (battleService.finalBattleState != null) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
         _showGameOverDialog(battleService.finalBattleState!);
       }
-      // Also show a simple dialog when the battle ends but finalBattleState is null
-      // This can happen when there's an error or the server doesn't return a proper response
-      else if (!battleService.isBattleActive && battleService.currentGame != null) {
+      else if (!battleService.isBattleActive &&
+          battleService.currentGame != null) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
         _showSimpleBattleEndDialog();
       }
     });
@@ -61,30 +61,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-@override
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final battleService = context.read<ActiveBattleService>();
     // *** ADD THIS LINE to get the actual game status ***
-    final bool isBattleOngoing = battleService.currentGame?.gameStatus == GameStatus.ongoing;
+    final bool isBattleOngoing =
+        battleService.currentGame?.gameStatus == GameStatus.ongoing;
 
     if (state == AppLifecycleState.resumed) {
       // *** MODIFIED THIS IF-CONDITION ***
-      if (battleService.isBattleActive && 
+      if (battleService.isBattleActive &&
           isBattleOngoing && // Check if battle is actually ONGOING
-          (battleService.timeLeft.isNegative || battleService.timeLeft.inSeconds == 0)) 
-      {
-        print("App resumed with an ONGOING battle that has 0 time. Ending battle.");
+          (battleService.timeLeft.isNegative ||
+              battleService.timeLeft.inSeconds == 0)) {
+        print(
+            "App resumed with an ONGOING battle that has 0 time. Ending battle.");
         battleService.endBattle();
       }
     }
     // Removed the automatic forfeit when app goes to background to allow battles to continue
     // else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
     //   // *** MODIFIED THIS IF-CONDITION ***
-    //   if (battleService.isBattleActive && 
+    //   if (battleService.isBattleActive &&
     //       isBattleOngoing && // Check if battle is actually ONGOING
-    //       !battleService.isEndingBattle) 
-    //   { 
+    //       !battleService.isEndingBattle)
+    //   {
     //     print("App pausing with active, ONGOING battle. Triggering forfeit.");
     //     battleService.forfeitBattle(); // This is async, but we don't await it here
     //   }
@@ -99,7 +101,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final gameState = finalState['finalState'];
     // Handle error case
     if (gameState == null) return;
-    
+
     final String? p1Id = battleService.currentGame?.player1Id;
     final String? p2Id = battleService.currentGame?.player2Id;
 
@@ -113,10 +115,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final result = gameState['result']; // "WIN", "KO", "DRAW"
     final gameType = gameState['gameType']; // 'PVP', 'BOT', 'FRIEND'
     final isKnockout = gameState['isKnockout'] ?? false;
-    final rewards = gameState['rewards']; // This has winnerCoins, loserCoins, item
+    final rewards =
+        gameState['rewards']; // This has winnerCoins, loserCoins, item
 
     final bool isWinner = winnerId == currentUserId;
-    
+
     String title;
     String subtitle;
     Color titleBorderColor;
@@ -129,17 +132,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       subtitle = "You both fought well!";
       titleBorderColor = Colors.grey;
 
-      if (currentUserId == p1Id) { 
+      if (currentUserId == p1Id) {
         coinsToShow = rewards?['winnerCoins'] ?? 0;
-      } else if (currentUserId == p2Id) { 
+      } else if (currentUserId == p2Id) {
         coinsToShow = rewards?['loserCoins'] ?? 0;
       } else {
-        coinsToShow = 0; 
+        coinsToShow = 0;
       }
-      
+
       baseScore = coinsToShow ?? 0;
       coinBonusText = " (Draw)";
-
     } else if (isWinner) {
       if (isKnockout) {
         title = "Winner";
@@ -150,23 +152,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         subtitle = "You won this battle!";
         titleBorderColor = const Color(0xFFFFC107);
       }
-      
+
       coinsToShow = rewards?['winnerCoins'] ?? 0;
-      
+
       int bonus = 0;
       if (gameType != 'FRIEND') {
         bonus = isKnockout ? 3000 : 1000;
       }
-      
+
       baseScore = coinsToShow! + bonus;
       if (baseScore < 0) baseScore = 0;
       if (bonus > 0) {
         coinBonusText = " - ${bonus} ${isKnockout ? 'KO Bonus' : 'Win Bonus'}";
       } else if (gameType == 'FRIEND') {
-         coinBonusText = " (Friend Pot)";
+        coinBonusText = " (Friend Pot)";
       }
-
-    } else { // Loser
+    } else {
+      // Loser
       title = "Defeat";
       subtitle = "Better luck next time!";
       titleBorderColor = Colors.red;
@@ -174,7 +176,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       baseScore = coinsToShow ?? 0;
       coinBonusText = " (Participation)";
     }
-    
+
     final rewardItemToShow =
         rewards?['item'] != null && isWinner ? rewards!['item'] : null;
 
@@ -356,7 +358,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                     ),
                                     if (coinBonusText.isNotEmpty)
                                       Padding(
-                                        padding: const EdgeInsets.only(left: 4.0), // A small space
+                                        padding: const EdgeInsets.only(
+                                            left: 4.0), // A small space
                                         child: Text(
                                           coinBonusText, // e.g., " - 1000 Win Bonus"
                                           style: const TextStyle(
@@ -379,82 +382,85 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               Padding(
                 padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                 child: Row(
-                    children: [
+                  children: [
                     Expanded(
                       child: OutlinedButton(
-                      onPressed: () async {
-                        Navigator.of(ctx).pop(); 
-                        battleService.dismissBattleResults();
+                        onPressed: () async {
+                          Navigator.of(ctx).pop();
+                          battleService.dismissBattleResults();
 
-                        if (!mounted) return;
+                          if (!mounted) return;
 
-                        final user = await authService.refreshUserProfile(currentUserId!);
-                        if (user == null || !mounted) return;
-                        
-                        print("--- BATTLE ENDED --- Navigating based on Game Type: '$gameType'");
+                          final user = await authService
+                              .refreshUserProfile(currentUserId!);
+                          if (user == null || !mounted) return;
 
-                        switch (gameType) {
-                        case 'PVP':
-                          Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => MatchmakingScreen(user: user))
-                          );
-                          break;
-                        case 'BOT':
-                          Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => BotSelectionScreen(user: user))
-                          );
-                          break;
-                        case 'FRIEND':
-                          break;
-                        default:
-                          print("--- WARNING --- Unknown gameType '$gameType' received. Defaulting to home screen.");
-                          break;
-                        }
-                      },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: Colors.white24),
-                        shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                          print(
+                              "--- BATTLE ENDED --- Navigating based on Game Type: '$gameType'");
+
+                          switch (gameType) {
+                            case 'PVP':
+                              Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) =>
+                                      MatchmakingScreen(user: user)));
+                              break;
+                            case 'BOT':
+                              Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) =>
+                                      BotSelectionScreen(user: user)));
+                              break;
+                            case 'FRIEND':
+                              break;
+                            default:
+                              print(
+                                  "--- WARNING --- Unknown gameType '$gameType' received. Defaulting to home screen.");
+                              break;
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: const BorderSide(color: Colors.white24),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'Battle Again',
-                        style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        child: const Text(
+                          'Battle Again',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        battleService.dismissBattleResults();
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          battleService.dismissBattleResults();
 
-                        if (!mounted) return;
-                        setState(() {
-                        _currentIndex = 1; 
-                        });
-                      },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: Colors.white24),
-                        shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                          if (!mounted) return;
+                          setState(() {
+                            _currentIndex = 1;
+                          });
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: const BorderSide(color: Colors.white24),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'Close',
-                        style: TextStyle(
-                        color: Color.fromARGB(255, 255, 254, 254),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            color: Color.fromARGB(255, 255, 254, 254),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
                       ),
                     ),
                   ],
@@ -469,7 +475,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _showSimpleBattleEndDialog() {
     final battleService = context.read<ActiveBattleService>();
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -593,7 +599,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
-    final double bottomNavBarHeight = kBottomNavigationBarHeight + 30; // More adaptive height
+    final double bottomNavBarHeight =
+        kBottomNavigationBarHeight + 30; // More adaptive height
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -613,7 +620,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   // Use a more adaptive approach for bottom padding
                   Container(
                     padding: EdgeInsets.only(
-                      bottom: MediaQuery.of(context).padding.bottom + bottomNavBarHeight,
+                      bottom: MediaQuery.of(context).padding.bottom +
+                          bottomNavBarHeight,
                     ),
                     child: _pages[_currentIndex],
                   ),
@@ -633,10 +641,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Widget _buildBottomNavBar() {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        24, 
-        0, 
-        24, 
-        30 + MediaQuery.of(context).padding.bottom, // Account for device-specific bottom padding
+        24,
+        0,
+        24,
+        30 +
+            MediaQuery.of(context)
+                .padding
+                .bottom, // Account for device-specific bottom padding
       ),
       child: Container(
         height: 70,
@@ -722,4 +733,3 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 }
-

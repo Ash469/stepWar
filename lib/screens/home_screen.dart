@@ -69,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoadingData = false;
   bool _offsetInitializationDone = false;
   DateTime? _lastPausedTime;
+  DateTime _lastOpponentFetchTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   bool get wantKeepAlive => true;
@@ -451,9 +452,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _fetchOpponentProfile(ActiveBattleService battleService) async {
-    if (_isFetchingOpponent ||
+  if (_isFetchingOpponent ||
         _opponentProfile != null ||
-        battleService.currentGame == null) {
+        battleService.currentGame == null ||
+        DateTime.now().difference(_lastOpponentFetchTime).inSeconds < 10) { 
       return;
     }
     if (mounted) setState(() => _isFetchingOpponent = true);
@@ -482,7 +484,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (mounted) {
       setState(() {
-        _opponentProfile = opponent;
+        if (opponent != null) { 
+             _opponentProfile = opponent;
+        }
         _isFetchingOpponent = false;
       });
     }

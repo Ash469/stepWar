@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'dart:math';
 import '../widget/footer.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -25,6 +27,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late DateTime _currentWeekStart;
   Map<String, dynamic>? _lifetimeStats;
   bool _isStatsLoading = true;
+  int _liveSteps = 0;
 
   @override
   void initState() {
@@ -33,6 +36,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserProfile();
     _loadStepHistory();
     _loadLifetimeStats();
+    FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
+  }
+
+  @override
+  void dispose() {
+    FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
+    super.dispose();
+  }
+
+void _onReceiveTaskData(Object data) {
+    if (data is Map<String, dynamic>) {
+      if (data.containsKey('steps')) {
+        final steps = data['steps'] as int;
+        if (mounted && steps > _liveSteps) {
+          setState(() {
+            _liveSteps = steps;
+          });
+        }
+      }
+    }
   }
 
   DateTime _getStartOfWeek(DateTime date) {
@@ -80,6 +103,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           stepGoal: (userJson['stepGoal'] as num?)?.toInt(),
           todaysStepCount: (userJson['todaysStepCount'] as num?)?.toInt(),
         );
+        if (_user?.todaysStepCount != null && _user!.todaysStepCount! > _liveSteps) {
+            _liveSteps = _user!.todaysStepCount!;
+        }
         _isLoading = false;
       });
     } else {
@@ -802,7 +828,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_isCurrentWeek(_currentWeekStart) && _user != null) {
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
       final todayAbbreviation = dayAbbreviations[DateTime.now().weekday - 1];
-      stepsData[todayAbbreviation] = _user!.todaysStepCount ?? 0;
+      final dbSteps = _user!.todaysStepCount ?? 0;
+      stepsData[todayAbbreviation] = max(dbSteps, _liveSteps);
     }
 
     final bool hasData = stepsData.values.any((steps) => steps > 0);

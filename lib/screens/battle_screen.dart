@@ -248,24 +248,12 @@ class _BattleScreenState extends State<BattleScreen> {
         (_currentUserModel == null || _opponentProfile == null)) {
       _fetchBattleDataIfNeeded();
     }
-    // Check if we're in the process of ending the battle
     if (battleService.isEndingBattle) {
       return const Scaffold(
           backgroundColor: Color(0xFF1E1E1E),
           body: Center(
               child: CircularProgressIndicator(color: Color(0xFFFFC107))));
     }
-    // Check if the battle has ended and we should show results
-    if (!battleService.isBattleActive && battleService.finalBattleState != null) {
-      // Battle has ended, but we're still showing the battle screen
-      // Let's navigate to the main screen which will show the dialog
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.of(context).popUntil((r) => r.isFirst);
-        }
-      });
-    }
-    // If we don't have the required data, show loading
     if (!battleService.isBattleActive ||
         battleService.currentGame == null ||
         _currentUserModel == null ||

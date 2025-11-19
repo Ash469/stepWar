@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:async';
-import 'dart:isolate';
 import 'dart:math';
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 @pragma('vm:entry-point')
 void startCallback() {
@@ -26,17 +25,19 @@ class StepTaskHandler extends TaskHandler {
   int _opponentScore = 0;
   String _timeLeftString = '';
   int _lastSavedPedometerReading = 0;
-  bool _deviceWasRebooted = false;
 
-  final NotificationIcon notificationIcon = const NotificationIcon(
-      metaDataName: '@drawable/ic_notification');
-
+  // --- Sync Variables ---
+  String? _userId;
+  String? _backendUrl;
+  DateTime _lastSyncTime = DateTime.now().subtract(const Duration(minutes: 20));
   String _getCurrentDateString() {
     return DateFormat('yyyy-MM-dd').format(DateTime.now());
   }
 
+  final NotificationIcon notificationIcon = const NotificationIcon(
+      metaDataName: '@drawable/ic_notification');
+
   Future<void> _initializePedometerStream() async {
-    // If stream is already running, do nothing.
     if (_stepStream != null) return;
 
     var status = await Permission.activityRecognition.status;
@@ -45,14 +46,9 @@ class StepTaskHandler extends TaskHandler {
       try {
         _stepStream = Pedometer.stepCountStream.listen((event) {
           _steps = event.steps;
-          
-          // ROBUST REBOOT DETECTION: Check if pedometer reading dropped significantly
           if (_lastSavedPedometerReading > 10 && _steps < _lastSavedPedometerReading && 
               (_lastSavedPedometerReading - _steps) > 10) {
-            _deviceWasRebooted = true;
             print('🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=' + _lastSavedPedometerReading.toString() + ', Current=' + _steps.toString());
-            
-            // Immediately recompute offset using DB baseline
             final int baseline = _lastKnownDbSteps ?? 0;
             final int newOffset = _steps - baseline;
             _dailyStepOffset = newOffset;
@@ -67,7 +63,6 @@ class StepTaskHandler extends TaskHandler {
               print('StepTaskHandler ERROR saving reboot offset: ' + e.toString());
             });
             
-            _deviceWasRebooted = false;
           }
           
           // Auto-compute offset on first event if missing
@@ -104,7 +99,6 @@ class StepTaskHandler extends TaskHandler {
         print("StepTaskHandler: Error creating pedometer stream: $e");
       }
     } else {
-      // Permission is not granted, update notification to inform user.
       print(
           "StepTaskHandler: Activity permission not granted. Stream not started.");
       FlutterForegroundTask.updateService(
@@ -116,8 +110,6 @@ class StepTaskHandler extends TaskHandler {
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    print('StepTaskHandler started');
-
     int? loadedOffset;
     int? lastSavedReading;
     try {
@@ -162,12 +154,7 @@ class StepTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    if (_stepStream == null) {
-      print("StepTaskHandler [onRepeatEvent]: Stream is null, attempting to re-initialize.");
-      _initializePedometerStream();
-    }
-    
-    // Save pedometer reading periodically for reboot detection
+    if (_stepStream == null)  _initializePedometerStream();
     if (_steps > 0) {
       SharedPreferences.getInstance().then((prefs) async {
         await prefs.setInt('lastPedometerReading', _steps);
@@ -176,37 +163,86 @@ class StepTaskHandler extends TaskHandler {
     
     final String todayString = _getCurrentDateString();
     if (_offsetDateString != null && _offsetDateString != todayString) {
-      print(
-          'StepTaskHandler [onRepeatEvent]: New day detected! (Was $_offsetDateString, now $todayString)');
-      print(
-          'StepTaskHandler: Invalidating old offset. Waiting for app to provide new one.');
-      _dailyStepOffset = null;
+     print("🌙 [StepTaskHandler] Midnight Detected! Switching from $_offsetDateString to $todayString");
+      final int finalStepsYesterday = _calculateStepsToShow();
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('pending_past_date', _offsetDateString!);
+        prefs.setInt('pending_past_steps', finalStepsYesterday);
+        print("💾 [StepTaskHandler] Saved Snapshot: $finalStepsYesterday steps for $_offsetDateString");
+        final int newOffset = _steps; 
+        prefs.setInt('dailyStepOffset', newOffset);
+        prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+        prefs.remove('lastKnownDbSteps'); // Reset baseline for new day
+        
+        _dailyStepOffset = newOffset;
       _lastKnownDbSteps = 0;
       _offsetDateString = todayString;
-      _updateNotificationAndData();
+      _updateAndSendData();
+      });
+    }
+    _attemptBackgroundSync();
+  }
+
+Future<void> _attemptBackgroundSync() async {
+    if (_userId == null || _backendUrl == null) {
+      _userId = await FlutterForegroundTask.getData(key: 'userId');
+      _backendUrl = await FlutterForegroundTask.getData(key: 'backendUrl');
+      if (_userId == null) return;
     }
 
-    // Legacy fallback: Detect mid-day pedometer reset if reboot wasn't caught
-    if (_dailyStepOffset != null && _steps >= 0 && _steps < _dailyStepOffset!) {
-      final int baseline = _lastKnownDbSteps ?? 0;
-      final int diff = _dailyStepOffset! - _steps;
-      if (diff > 10) {
-        print('StepTaskHandler [onRepeatEvent]: Pedometer reset detected (steps=' + _steps.toString() + ' < offset=' + _dailyStepOffset.toString() + '). Recomputing offset using baseline=' + baseline.toString());
-        final int newOffset = _steps - baseline;
-        _dailyStepOffset = newOffset;
-        _offsetDateString = todayString;
-        SharedPreferences.getInstance().then((prefs) async {
-          await prefs.setInt('dailyStepOffset', newOffset);
-          await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
-          await prefs.setInt('lastPedometerReading', _steps);
-          print('StepTaskHandler: Persisted new offset=' + newOffset.toString() + ' after reboot.');
-        }).catchError((e) {
-          print('StepTaskHandler ERROR persisting new offset after reboot: ' + e.toString());
-        });
-        _updateAndSendData();
+    // 1. Check for Pending "Midnight Snapshots" first
+    final prefs = await SharedPreferences.getInstance();
+    final String? pendingDate = prefs.getString('pending_past_date');
+    final int? pendingSteps = prefs.getInt('pending_past_steps');
+
+    if (pendingDate != null && pendingSteps != null) {
+      print("⏳ [Sync] Found pending snapshot for $pendingDate. Syncing...");
+      bool success = await _syncPastSteps(pendingDate, pendingSteps);
+      if (success) {
+        await prefs.remove('pending_past_date');
+        await prefs.remove('pending_past_steps');
+        print("✅ [Sync] Snapshot synced and cleared.");
       }
     }
+
+    // 2. Regular Sync (Every 15 minutes)
+    final now = DateTime.now();
+    if (now.difference(_lastSyncTime).inMinutes >= 15) {
+       final int currentSteps = _calculateStepsToShow();
+       if (currentSteps > 0 || _lastKnownDbSteps != 0) {
+         await _syncCurrentSteps(currentSteps);
+         _lastSyncTime = now;
+       }
+    }
   }
+
+  Future<bool> _syncPastSteps(String date, int steps) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_backendUrl/api/user/sync-past-steps'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'uid': _userId, 'date': date, 'steps': steps}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Error syncing past steps: $e");
+      return false;
+    }
+  }
+
+  Future<void> _syncCurrentSteps(int steps) async {
+    try {
+      await http.post(
+        Uri.parse('$_backendUrl/api/user/sync-steps'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'uid': _userId, 'todaysStepCount': steps}),
+      );
+      _lastKnownDbSteps = steps; // Update local baseline
+    } catch (e) {
+      print("Error syncing current steps: $e");
+    }
+  }
+
 
   @override
   Future<void> onReceiveData(Object data) async {
