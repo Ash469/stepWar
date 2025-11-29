@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,6 +34,7 @@ import '../widget/home/section_title.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../services/step_task_handler.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
+import '../providers/step_provider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -55,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _debounce;
   final bool _isCreatingBotGame = false;
   bool _isHandlingFriendGame = false;
-  int _stepsToShow = 0;
+  // _stepsToShow removed - now using StepProvider
   bool _isFetchingOpponent = false;
   final bool _isCreatingGame = false;
   bool _isOpeningBronzeBox = false;
@@ -67,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Duration _goldTimeLeft = Duration.zero;
   KingdomItem? _latestReward;
   bool _isLoadingData = false;
+  bool _isPedometerPermissionGranted = true;
   bool _offsetInitializationDone = false;
   DateTime? _lastPausedTime;
   DateTime _lastOpponentFetchTime = DateTime.fromMillisecondsSinceEpoch(0);
@@ -80,25 +83,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _offsetInitializationDone = false;
     _debounce?.cancel();
     _stepSubscription?.cancel();
-    FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _requestPermissions();
-      _initService();
-      await _startService();
-      _checkForOngoingBattle();
-    });
+
+    // Start critical operations immediately
     _loadData(isInitialLoad: true);
-    _handleNotifications();
     WidgetsBinding.instance.addObserver(this);
     _startBoxTimers();
+
+    // Defer non-critical operations to run after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Run all initialization tasks in parallel
+      await Future.wait([
+        _requestPermissions(),
+        _handleNotifications(),
+      ], eagerError: false);
+
+      // Initialize and start service
+      _initService();
+      await _startService();
+
+      // Check for ongoing battle after a short delay to not block UI
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) _checkForOngoingBattle();
+      });
+    });
   }
 
- Future<void> _checkForOngoingBattle() async {
+  Future<void> _checkForOngoingBattle() async {
     if (!mounted) return;
     try {
       await Future.delayed(const Duration(milliseconds: 100));
       final battleService = context.read<ActiveBattleService>();
-      if (battleService.isBattleActive && battleService.isWaitingForFriend && _user != null) {
+      if (battleService.isBattleActive &&
+          battleService.isWaitingForFriend &&
+          _user != null) {
         final gameId = battleService.currentGame?.gameId;
         if (gameId != null) {
           // Navigate to the WaitingForFriendScreen
@@ -106,10 +123,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (mounted) {
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                  builder: (_) => WaitingForFriendScreen(
-                    gameId: gameId, 
-                    user: _user!,
-                  ),
+                  builder: (_) =>
+                      WaitingForFriendScreen(gameId: gameId, user: _user!),
                 ),
                 (route) => route.isFirst,
               );
@@ -117,74 +132,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           });
         }
       }
-      print("Battle service state - isBattleActive: ${battleService.isBattleActive}, isWaitingForFriend: ${battleService.isWaitingForFriend}");
+      print(
+        "Battle service state - isBattleActive: ${battleService.isBattleActive}, isWaitingForFriend: ${battleService.isWaitingForFriend}",
+      );
     } catch (e) {
       print("Error checking for ongoing battle: $e");
     }
   }
 
-  void _onReceiveTaskData(Object data) {
-    if (data is Map<String, dynamic>) {
-      if (data.containsKey('steps')) {
-        final stepsFromService = data['steps'] as int;
-        final int dbSteps = _user?.todaysStepCount ?? 0;
-
-        if (mounted && _stepsToShow != stepsFromService) {
-          // Only setState if value changed
-          setState(() {
-            _stepsToShow = stepsFromService;
-          });
-        }
-
-        // If UI is still stuck at DB baseline after reboot, force offset recompute once
-        if (_offsetInitializationDone && stepsFromService == dbSteps) {
-          StreamSubscription<String>? tempSub;
-          final completer = Completer<int>();
-          try {
-            tempSub = _healthService.stepStream.listen((stepsStr) {
-              final v = int.tryParse(stepsStr);
-              if (v != null) {
-                if (!completer.isCompleted) completer.complete(v);
-                tempSub?.cancel();
-              }
-            }, onError: (_) {
-              if (!completer.isCompleted) completer.complete(dbSteps);
-              tempSub?.cancel();
-            });
-
-            completer.future.timeout(const Duration(seconds: 5)).then((current) async {
-              const int threshold = 10;
-              if (current > dbSteps + threshold) {
-                final int newOffset = current - dbSteps;
-                try {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setInt('dailyStepOffset', newOffset);
-                  await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
-                  FlutterForegroundTask.sendDataToTask({'offset': newOffset});
-                  print('[HomeScreen] Forced offset recompute after stuck detection. newOffset=' + newOffset.toString());
-                } catch (e) {
-                  print('[HomeScreen] ERROR persisting forced offset: ' + e.toString());
-                }
-              }
-            }).catchError((_) {});
-          } catch (_) {
-            tempSub?.cancel();
-          }
-        }
-
-        _debounce?.cancel();
-        _debounce = Timer(const Duration(minutes: 30),
-            () => _saveLatestSteps(stepsFromService));
-      }
-    }
-  }
+  // Step updates are now handled by StepProvider
+  // The provider listens to the foreground service and notifies all watchers
 
   @override
   void dispose() {
     _stepSubscription?.cancel();
     _debounce?.cancel();
     _healthService.dispose();
-    FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
+    // StepProvider manages its own callback lifecycle
     WidgetsBinding.instance.removeObserver(this);
     _boxTimer?.cancel();
     super.dispose();
@@ -222,25 +186,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Duration.zero;
   }
 
- @override
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-          _lastPausedTime = DateTime.now();
+      _lastPausedTime = DateTime.now();
       print("App is pausing. Forcing final step save.");
       _debounce?.cancel();
       _stepSubscription?.cancel(); // Add this
-      await _saveLatestSteps(_stepsToShow);
+      if (mounted) {
+        final currentSteps = context.read<StepProvider>().currentSteps;
+        await _saveLatestSteps(currentSteps);
+      }
     }
     if (state == AppLifecycleState.resumed) {
       print("App resumed. Cancelling pending saves & triggering data load.");
       _debounce?.cancel();
       _stepSubscription?.cancel();
-      final bool wasPausedLong = _lastPausedTime != null && 
-                                 DateTime.now().difference(_lastPausedTime!).inMinutes >= 1;
-    if (wasPausedLong || _user == null) {
-        print("App was paused for > 1 min OR user is null. Triggering data load.");
+      final bool wasPausedLong =
+          _lastPausedTime != null &&
+          DateTime.now().difference(_lastPausedTime!).inMinutes >= 1;
+      if (wasPausedLong || _user == null) {
+        print(
+          "App was paused for > 1 min OR user is null. Triggering data load.",
+        );
         if (mounted) {
           _loadData();
         }
@@ -260,6 +230,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+
+    // Check for activity recognition permission
+    final activityStatus = await Permission.activityRecognition.status;
+    if (activityStatus.isDenied || activityStatus.isPermanentlyDenied) {
+      if (mounted) {
+        setState(() {
+          _isPedometerPermissionGranted = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isPedometerPermissionGranted = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _retryPedometerPermission() async {
+    final status = await Permission.activityRecognition.request();
+    if (status.isGranted) {
+      if (mounted) {
+        setState(() {
+          _isPedometerPermissionGranted = true;
+        });
+        // Re-initialize step counter
+        _initStepCounter(_user);
+      }
+    } else if (status.isPermanentlyDenied) {
+      openAppSettings();
     }
   }
 
@@ -306,8 +307,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!canAfford) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text("You don't have enough coins!"),
-            backgroundColor: Colors.red),
+          content: Text("You don't have enough coins!"),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -319,16 +321,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (boxType == 'gold') _isOpeningGoldBox = true;
     });
     try {
-      final reward =
-          await _mysteryBoxService.openMysteryBox(_user!.userId, boxType);
+      final reward = await _mysteryBoxService.openMysteryBox(
+        _user!.userId,
+        boxType,
+      );
       final newCoinBalance = reward['newCoinBalance'] as int?;
       if (newCoinBalance != null && mounted) {
         setState(() {
-          final updatedLastOpened =
-              Map<String, String>.from(_user!.mysteryBoxLastOpened ?? {});
+          final updatedLastOpened = Map<String, String>.from(
+            _user!.mysteryBoxLastOpened ?? {},
+          );
           updatedLastOpened[boxType] = DateTime.now().toIso8601String();
           _user = _user!.copyWith(
-              coins: newCoinBalance, mysteryBoxLastOpened: updatedLastOpened);
+            coins: newCoinBalance,
+            mysteryBoxLastOpened: updatedLastOpened,
+          );
         });
         _authService.saveUserSession(_user!);
       }
@@ -338,8 +345,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(e.toString().replaceFirst("Exception: ", "")),
-              backgroundColor: Colors.red),
+            content: Text(e.toString().replaceFirst("Exception: ", "")),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -358,20 +366,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
-        title: const Text('Confirm Purchase',
-            style: TextStyle(color: Colors.white)),
-        content: Text('Open the ${boxType.capitalize()} box for $price coins?',
-            style: const TextStyle(color: Colors.white70)),
+        title: const Text(
+          'Confirm Purchase',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Open the ${boxType.capitalize()} box for $price coins?',
+          style: const TextStyle(color: Colors.white70),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Confirm',
-                style: TextStyle(color: Color(0xFFFFC107))),
+            child: const Text(
+              'Confirm',
+              style: TextStyle(color: Color(0xFFFFC107)),
+            ),
           ),
         ],
       ),
@@ -394,7 +410,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         rewardContent = Text(
           reward['multiplierType'].toString().replaceAll('_', '.'),
           style: const TextStyle(
-              fontSize: 48, fontWeight: FontWeight.bold, color: Colors.black),
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
         );
         break;
       case 'collectible':
@@ -405,10 +424,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? item['imagePath']
             : null;
         rewardContent = imagePath != null
-            ? Image.asset(imagePath,
+            ? Image.asset(
+                imagePath,
                 height: 80,
                 errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield, size: 80, color: Colors.black))
+                    const Icon(Icons.shield, size: 80, color: Colors.black),
+              )
             : const Icon(Icons.shield, size: 80, color: Colors.black);
         break;
       default:
@@ -443,7 +464,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final token = await _notificationService.getFcmToken();
       if (token != null) {
         final success = await _notificationService.registerTokenWithBackend(
-            user.uid, token);
+          user.uid,
+          token,
+        );
         if (success) {
           await prefs.setBool('hasRegisteredFcmToken', true);
         }
@@ -452,10 +475,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _fetchOpponentProfile(ActiveBattleService battleService) async {
-  if (_isFetchingOpponent ||
+    if (_isFetchingOpponent ||
         _opponentProfile != null ||
         battleService.currentGame == null ||
-        DateTime.now().difference(_lastOpponentFetchTime).inSeconds < 10) { 
+        DateTime.now().difference(_lastOpponentFetchTime).inSeconds < 10) {
       return;
     }
     if (mounted) setState(() => _isFetchingOpponent = true);
@@ -484,8 +507,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (mounted) {
       setState(() {
-        if (opponent != null) { 
-             _opponentProfile = opponent;
+        if (opponent != null) {
+          _opponentProfile = opponent;
         }
         _isFetchingOpponent = false;
       });
@@ -548,51 +571,133 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  void _sendDbStepsToService(int? steps) {
-    if (steps != null) {
-      print("[HomeScreen] Sending DB steps ($steps) to service.");
-      FlutterForegroundTask.sendDataToTask({'dbSteps': steps});
+  /// Fetch fresh data from server in background without blocking UI
+  Future<void> _fetchFreshDataInBackground(
+    SharedPreferences prefs,
+    User? currentUser,
+  ) async {
+    if (currentUser == null || !mounted) return;
+
+    const refreshThreshold = Duration(minutes: 15);
+    final lastRefreshString = prefs.getString('lastProfileRefreshTimestamp');
+
+    // Check if we need to fetch from server
+    bool shouldFetch = false;
+    if (lastRefreshString == null) {
+      shouldFetch = true;
     } else {
-      print("[HomeScreen] Not sending DB steps to service (value is null).");
+      final lastRefreshTime = DateTime.tryParse(lastRefreshString);
+      if (lastRefreshTime != null &&
+          DateTime.now().difference(lastRefreshTime) > refreshThreshold) {
+        shouldFetch = true;
+      }
+    }
+
+    if (!shouldFetch) {
+      print("[Background Fetch] Cache is recent, skipping background fetch.");
+      return;
+    }
+
+    print("[Background Fetch] Fetching fresh data in background...");
+    try {
+      final results = await Future.wait([
+        _authService.refreshUserProfile(currentUser.uid),
+        _authService.getUserRewards(currentUser.uid),
+      ]);
+
+      final serverUser = results[0] as UserModel?;
+      final serverRewards = results[1] as Map<String, dynamic>?;
+
+      if (serverUser != null && mounted) {
+        print("[Background Fetch] SUCCESS: Got fresh data from server.");
+
+        // Update cache
+        await prefs.setString(
+          'lastProfileRefreshTimestamp',
+          DateTime.now().toIso8601String(),
+        );
+
+        if (serverRewards != null) {
+          await prefs.setString('userRewardsCache', jsonEncode(serverRewards));
+        }
+
+        // Update UI with fresh data
+        setState(() {
+          _user = serverUser;
+          if (serverRewards != null) {
+            _setLatestRewardFromData(serverRewards);
+          }
+        });
+
+        _sendDbStepsToService(serverUser.todaysStepCount);
+      }
+    } catch (e) {
+      print("[Background Fetch] Error: $e (not critical, using cached data)");
+      // Silently fail - we already have cached data showing
     }
   }
 
-  Future<void> _loadData(
-      {bool forceRefresh = false, bool isInitialLoad = false}) async {
+  void _sendDbStepsToService(int? steps) {
+    if (steps != null && mounted) {
+      print("[HomeScreen] Sending DB steps ($steps) to StepProvider.");
+      context.read<StepProvider>().sendDbStepsToService(steps);
+    } else {
+      print(
+        "[HomeScreen] Not sending DB steps to service (value is null or not mounted).",
+      );
+    }
+  }
+
+  Future<void> _loadData({
+    bool forceRefresh = false,
+    bool isInitialLoad = false,
+  }) async {
     if (!mounted || _isLoadingData) return;
     _debounce?.cancel();
     _stepSubscription?.cancel();
-    if (mounted) {
-      setState(() {
-        _isLoadingData = true;
-        if (isInitialLoad || forceRefresh) {
-          _isLoading = true;
-        }
-      });
-    }
+
     final prefs = await SharedPreferences.getInstance();
     final currentUser = FirebaseAuth.instance.currentUser;
     UserModel? loadedUser;
     Map<String, dynamic>? loadedRewards;
-    if (isInitialLoad && !_isLoading) {
+
+    // OPTIMIZATION: Always load from cache first on initial load
+    if (isInitialLoad) {
       UserModel? cachedUser = await _loadUserFromCache(prefs);
       Map<String, dynamic>? cachedRewards = _loadRewardsFromCacheSync(prefs);
+
       if (cachedUser != null && mounted) {
-        print("[Data Sync] Initial load: Displaying cached data first.");
+        print("[Data Sync] Initial load: Displaying cached data immediately.");
         setState(() {
           _user = cachedUser;
-          _stepsToShow = cachedUser.todaysStepCount ?? 0;
+          _isLoading = false; // Show UI immediately
+          _isLoadingData = false;
           if (cachedRewards != null) {
             _setLatestRewardFromData(cachedRewards);
           }
         });
         _initStepCounter(cachedUser);
-        _sendDbStepsToService(cachedUser.todaysStepCount); // Send cached steps
+        _sendDbStepsToService(cachedUser.todaysStepCount);
+
+        // Fetch fresh data in background without blocking UI
+        _fetchFreshDataInBackground(prefs, currentUser);
+        return;
       } else if (mounted) {
         print(
-            "[Data Sync] Initial load: No cache found, setting isLoading = true.");
+          "[Data Sync] Initial load: No cache found, fetching from server.",
+        );
         setState(() {
           _isLoading = true;
+          _isLoadingData = true;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isLoadingData = true;
+          if (forceRefresh) {
+            _isLoading = true;
+          }
         });
       }
     }
@@ -626,64 +731,77 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       try {
         final results = await Future.wait([
           _authService.refreshUserProfile(currentUser.uid),
-          _authService.getUserRewards(currentUser.uid)
+          _authService.getUserRewards(currentUser.uid),
         ]);
         final serverUser = results[0] as UserModel?;
         final serverRewards = results[1] as Map<String, dynamic>?;
         if (serverUser != null) {
           loadedUser = serverUser;
           print(
-              "[Data Sync] SUCCESS: Fetched user from server. Steps: ${loadedUser.todaysStepCount}");
+            "[Data Sync] SUCCESS: Fetched user from server. Steps: ${loadedUser.todaysStepCount}",
+          );
           _sendDbStepsToService(loadedUser.todaysStepCount);
           if (loadedUser.todaysStepCount == 0 &&
               prefs.getInt('dailyStepOffset') != null) {
             final storedTimestamp = prefs.getInt('dailyOffsetTimestamp');
             if (storedTimestamp != null) {
-              final offsetDate =
-                  DateTime.fromMillisecondsSinceEpoch(storedTimestamp);
+              final offsetDate = DateTime.fromMillisecondsSinceEpoch(
+                storedTimestamp,
+              );
               final now = DateTime.now();
               if (offsetDate.year == now.year &&
                   offsetDate.month == now.month &&
                   offsetDate.day == now.day) {
                 print(
-                    "[Data Sync] Server reported 0 steps but offset is from today; keeping stored offset.");
+                  "[Data Sync] Server reported 0 steps but offset is from today; keeping stored offset.",
+                );
                 // keep today's offset — no action required
               } else {
                 print(
-                    "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.");
+                  "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.",
+                );
                 await prefs.remove('dailyStepOffset');
                 await prefs.remove('dailyOffsetTimestamp');
                 _offsetInitializationDone = false;
               }
             } else {
               print(
-                  "[Data Sync] Server reported 0 steps and no offset timestamp found; keeping stored offset to avoid recalculation.");
+                "[Data Sync] Server reported 0 steps and no offset timestamp found; keeping stored offset to avoid recalculation.",
+              );
               await prefs.remove('dailyStepOffset');
               _offsetInitializationDone = false;
             }
           }
           if (serverRewards != null) {
             loadedRewards = serverRewards;
-            await prefs.setString('userRewardsCache',
-                jsonEncode(serverRewards)); // Update rewards cache
+            await prefs.setString(
+              'userRewardsCache',
+              jsonEncode(serverRewards),
+            ); // Update rewards cache
             print("[Data Sync] SUCCESS: Fetched rewards from server.");
           } else {
             print(
-                "[Data Sync] WARNING: Fetched user but rewards fetch returned null.");
+              "[Data Sync] WARNING: Fetched user but rewards fetch returned null.",
+            );
             loadedRewards = _loadRewardsFromCacheSync(prefs);
           }
           await prefs.setString(
-              'lastProfileRefreshTimestamp', DateTime.now().toIso8601String());
+            'lastProfileRefreshTimestamp',
+            DateTime.now().toIso8601String(),
+          );
         } else {
           print(
-              "[Data Sync] WARNING: Server user fetch returned null. Falling back to cache.");
+            "[Data Sync] WARNING: Server user fetch returned null. Falling back to cache.",
+          );
           loadedUser = await _loadUserFromCache(prefs);
-          loadedRewards =
-              _loadRewardsFromCacheSync(prefs); // Also load rewards from cache
+          loadedRewards = _loadRewardsFromCacheSync(
+            prefs,
+          ); // Also load rewards from cache
         }
       } catch (e) {
         print(
-            "[Data Sync] ERROR fetching from server: $e. Falling back to cache.");
+          "[Data Sync] ERROR fetching from server: $e. Falling back to cache.",
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -712,22 +830,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         if (loadedUser != null) {
           _user = loadedUser;
-          int? dbSteps = loadedUser.todaysStepCount;
-          if (dbSteps != null &&
-              (dbSteps > _stepsToShow || _stepsToShow == 0)) {
-            print(
-                "[Data Sync] setState: DB steps ($dbSteps) are higher or current is 0. Updating _stepsToShow.");
-            _stepsToShow = dbSteps;
-          } else {
-            print(
-                "[Data Sync] setState: DB steps (${dbSteps ?? 'null'}) NOT higher than current display ($_stepsToShow). _stepsToShow remains unchanged by DB load.");
-          }
+          // StepProvider now manages step display
           if (loadedRewards != null) {
             _setLatestRewardFromData(loadedRewards);
           }
         } else {
           print(
-              "[Data Sync] Final setState: Failed to load user from server and cache.");
+            "[Data Sync] Final setState: Failed to load user from server and cache.",
+          );
 
           if (isInitialLoad) _isLoading = true;
 
@@ -746,7 +856,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _isLoading = false;
         }
         print(
-            "[Data Sync] Final isLoading=$_isLoading, isLoadingData=$_isLoadingData");
+          "[Data Sync] Final isLoading=$_isLoading, isLoadingData=$_isLoadingData",
+        );
       });
       if (loadedUser != null) {
         _initStepCounter(loadedUser);
@@ -757,7 +868,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _initStepCounter(UserModel? userFromLoad) async {
     if (_offsetInitializationDone) {
       print(
-          "[Step Counter] Offset initialization already completed this session. Skipping.");
+        "[Step Counter] Offset initialization already completed this session. Skipping.",
+      );
       _sendDbStepsToService(_user?.todaysStepCount);
       return;
     }
@@ -773,12 +885,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       storedOffset = prefs.getInt('dailyStepOffset');
       offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
       print(
-          "[Step Counter] Initializing. Offset from cache: $storedOffset, TimestampMillis: $offsetTimestampMillis");
+        "[Step Counter] Initializing. Offset from cache: $storedOffset, TimestampMillis: $offsetTimestampMillis",
+      );
 
       if (storedOffset != null && offsetTimestampMillis != null) {
         // Check if the stored offset is from today
-        final offsetDate =
-            DateTime.fromMillisecondsSinceEpoch(offsetTimestampMillis);
+        final offsetDate = DateTime.fromMillisecondsSinceEpoch(
+          offsetTimestampMillis,
+        );
         final nowDate = DateTime.now();
         // Compare Year, Month, Day in local time
         if (offsetDate.year == nowDate.year &&
@@ -786,44 +900,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             offsetDate.day == nowDate.day) {
           needsNewOffset = false; // Offset is from today, use it!
           print(
-              "[Step Counter] Offset timestamp is from today. Using existing offset: $storedOffset");
+            "[Step Counter] Offset timestamp is from today. Using existing offset: $storedOffset",
+          );
         } else {
           print(
-              "[Step Counter] Offset timestamp is from a previous day (${DateFormat('yyyy-MM-dd').format(offsetDate)}). Will calculate a new one.");
+            "[Step Counter] Offset timestamp is from a previous day (${DateFormat('yyyy-MM-dd').format(offsetDate)}). Will calculate a new one.",
+          );
         }
       } else {
         print(
-            "[Step Counter] No valid offset or timestamp found in cache. Will calculate a new one.");
+          "[Step Counter] No valid offset or timestamp found in cache. Will calculate a new one.",
+        );
       }
     } catch (e) {
       print(
-          "[Step Counter] ERROR reading offset/timestamp during init: $e. Assuming new offset needed.");
+        "[Step Counter] ERROR reading offset/timestamp during init: $e. Assuming new offset needed.",
+      );
       needsNewOffset = true;
       storedOffset = null;
     }
 
     if (!needsNewOffset && storedOffset != null) {
       print(
-          "[Step Counter] Offset timestamp is from today. Verifying against current pedometer reading.");
+        "[Step Counter] Offset timestamp is from today. Verifying against current pedometer reading.",
+      );
       // Peek current pedometer reading to detect reboot/reset
       int currentReading = storedOffset ?? 0;
       StreamSubscription<String>? tempSub;
       final completer = Completer<int>();
       try {
-        tempSub = _healthService.stepStream.listen((stepsStr) {
-          final v = int.tryParse(stepsStr);
-          if (v != null) {
-            if (!completer.isCompleted) completer.complete(v);
+        tempSub = _healthService.stepStream.listen(
+          (stepsStr) {
+            final v = int.tryParse(stepsStr);
+            if (v != null) {
+              if (!completer.isCompleted) completer.complete(v);
+              tempSub?.cancel();
+            }
+          },
+          onError: (_) {
+            needsNewOffset = true;
             tempSub?.cancel();
-          }
-        }, onError: (_) {
-          needsNewOffset = true;
-          tempSub?.cancel();
-        });
+          },
+        );
         try {
-          currentReading = await completer.future.timeout(const Duration(seconds: 5));
+          currentReading = await completer.future.timeout(
+            const Duration(seconds: 5),
+          );
         } on TimeoutException {
-          print("[Step Counter] Peek timeout; will recompute offset from next pedometer event.");
+          print(
+            "[Step Counter] Peek timeout; will recompute offset from next pedometer event.",
+          );
           needsNewOffset = true;
           await tempSub?.cancel();
         }
@@ -839,105 +965,130 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final int newOffset = currentReading - dbSteps;
         try {
           await prefs.setInt('dailyStepOffset', newOffset);
-          await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
-          print("[Step Counter] Detected reset. NEW offset set to " + newOffset.toString() + " (current=" + currentReading.toString() + ", db=" + dbSteps.toString() + ").");
-        } catch (e) {
-          print("[Step Counter] ERROR persisting recomputed offset: " + e.toString());
-        }
+          await prefs.setInt(
+            'dailyOffsetTimestamp',
+            DateTime.now().millisecondsSinceEpoch,
+          );
+        } catch (e) {}
         FlutterForegroundTask.sendDataToTask({'offset': newOffset});
         _offsetInitializationDone = true;
         print(
-            "[Step Counter] Marked offset initialization as DONE (recomputed after reset).");
+          "[Step Counter] Marked offset initialization as DONE (recomputed after reset).",
+        );
         return;
       } else {
-        print("[Step Counter] Using existing offset (" + storedOffset.toString() + "). No reset detected.");
         FlutterForegroundTask.sendDataToTask({'offset': storedOffset});
         _offsetInitializationDone = true;
         print(
-            "[Step Counter] Marked offset initialization as DONE (using existing).");
+          "[Step Counter] Marked offset initialization as DONE (using existing).",
+        );
         return;
       }
     }
     print(
-        "[Step Counter] Listening for pedometer reading to calculate NEW offset...");
-    _stepSubscription = _healthService.stepStream.listen((stepsStr) async {
-      if (_isLoadingData) {
-        print(
-            "[Step Counter] Ignored step event (calculating offset), data is loading.");
-        return;
-      }
-      final currentPedometerReading = int.tryParse(stepsStr);
-      if (currentPedometerReading == null || currentPedometerReading < 0) {
-        print(
-            "[Step Counter] Invalid pedometer reading ($stepsStr) received while calculating offset.");
-        return;
-      }
-      // DB steps should be 0 for a new day, fetched by _loadData
-      final dbSteps = userFromLoad?.todaysStepCount ?? 0;
-      int calculatedOffset = currentPedometerReading - dbSteps;
-      final nowMillis = DateTime.now().millisecondsSinceEpoch;
-      try {
-        await prefs.setInt('dailyStepOffset', calculatedOffset);
-        await prefs.setInt('dailyOffsetTimestamp', nowMillis);
-        needsNewOffset = false;
-        print(
-            "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedometerReading, Server Steps: $dbSteps)");
-        print("[Step Counter] Offset Timestamp PERSISTED: $nowMillis");
+      "[Step Counter] Listening for pedometer reading to calculate NEW offset...",
+    );
+    _stepSubscription = _healthService.stepStream.listen(
+      (stepsStr) async {
+        if (_isLoadingData) {
+          print(
+            "[Step Counter] Ignored step event (calculating offset), data is loading.",
+          );
+          return;
+        }
+        final currentPedometerReading = int.tryParse(stepsStr);
+        if (currentPedometerReading == null || currentPedometerReading < 0) {
+          print(
+            "[Step Counter] Invalid pedometer reading ($stepsStr) received while calculating offset.",
+          );
+          return;
+        }
+        // DB steps should be 0 for a new day, fetched by _loadData
+        final dbSteps = userFromLoad?.todaysStepCount ?? 0;
+        int calculatedOffset = currentPedometerReading - dbSteps;
+        final nowMillis = DateTime.now().millisecondsSinceEpoch;
+        try {
+          await prefs.setInt('dailyStepOffset', calculatedOffset);
+          await prefs.setInt('dailyOffsetTimestamp', nowMillis);
+          needsNewOffset = false;
+          print(
+            "[Step Counter] NEW Daily Step Offset PERSISTED: $calculatedOffset (Pedometer: $currentPedometerReading, Server Steps: $dbSteps)",
+          );
+          print("[Step Counter] Offset Timestamp PERSISTED: $nowMillis");
 
-        FlutterForegroundTask.sendDataToTask({'offset': calculatedOffset});
+          FlutterForegroundTask.sendDataToTask({'offset': calculatedOffset});
+          _stepSubscription?.cancel();
+          _stepSubscription = null;
+          print(
+            "[Step Counter] New offset calculated and sent. HomeScreen stopping its pedometer listener.",
+          );
+          _offsetInitializationDone = true;
+          print("[Step Counter] Marked offset initialization as DONE.");
+        } catch (e) {
+          print(
+            "[Step Counter] ERROR saving newly calculated offset/timestamp: $e.",
+          );
+        }
+      },
+      onError: (error) {
+        print(
+          "[Step Counter] Error from step stream while calculating offset: $error",
+        );
         _stepSubscription?.cancel();
         _stepSubscription = null;
-        print(
-            "[Step Counter] New offset calculated and sent. HomeScreen stopping its pedometer listener.");
-        _offsetInitializationDone = true;
-        print("[Step Counter] Marked offset initialization as DONE.");
-      } catch (e) {
-        print(
-            "[Step Counter] ERROR saving newly calculated offset/timestamp: $e.");
-      }
-    }, onError: (error) {
-      print(
-          "[Step Counter] Error from step stream while calculating offset: $error");
-      _stepSubscription?.cancel();
-      _stepSubscription = null;
-    });
+      },
+    );
   }
 
   Future<void> _saveLatestSteps(int stepsToSave) async {
-      if (_isLoadingData) return;
-      final UserModel? currentUserState = _user;
-      if (currentUserState == null || currentUserState.userId.isEmpty) return;
+    if (_isLoadingData) return;
+    final UserModel? currentUserState = _user;
+    if (currentUserState == null || currentUserState.userId.isEmpty) return;
 
-      final int lastKnownStepsInState = currentUserState.todaysStepCount ?? 0;
-      const int resetThreshold = 100;
-      if (lastKnownStepsInState > resetThreshold && stepsToSave < lastKnownStepsInState - resetThreshold) {
-          print("[Step Save] ⚠️ Potential Pedometer Reset Detected! Skipping sync.");
-          print("   -> Last Known DB/State Steps: $lastKnownStepsInState, Steps Calculated Now: $stepsToSave");
-          if (mounted && _stepsToShow != stepsToSave) {
-             setState(() { _stepsToShow = stepsToSave; });
-          }
-          return;
+    final int lastKnownStepsInState = currentUserState.todaysStepCount ?? 0;
+    const int resetThreshold = 100;
+    if (lastKnownStepsInState > resetThreshold &&
+        stepsToSave < lastKnownStepsInState - resetThreshold) {
+      print(
+        "[Step Save] ⚠️ Potential Pedometer Reset Detected! Skipping sync.",
+      );
+      print(
+        "   -> Last Known DB/State Steps: $lastKnownStepsInState, Steps Calculated Now: $stepsToSave",
+      );
+      // StepProvider handles step updates now
+      return;
+    }
+
+    if (lastKnownStepsInState == stepsToSave) return;
+
+    print(
+      "[Step Save] Saving calculated step count: $stepsToSave for user ${currentUserState.userId}",
+    );
+    try {
+      await _authService.syncStepsToBackend(
+        currentUserState.userId,
+        stepsToSave,
+      );
+      final updatedUserForCache = currentUserState.copyWith(
+        todaysStepCount: stepsToSave,
+      );
+      await _authService.saveUserSession(updatedUserForCache);
+
+      if (mounted) {
+        setState(() {
+          _user = updatedUserForCache;
+          print(
+            "[Step Save] setState: Updated _user.todaysStepCount to $stepsToSave",
+          );
+        });
+        _sendDbStepsToService(stepsToSave);
       }
-
-      if (lastKnownStepsInState == stepsToSave) return;
-
-      print("[Step Save] Saving calculated step count: $stepsToSave for user ${currentUserState.userId}");
-      try {
-        await _authService.syncStepsToBackend(currentUserState.userId, stepsToSave);
-        final updatedUserForCache = currentUserState.copyWith(todaysStepCount: stepsToSave);
-        await _authService.saveUserSession(updatedUserForCache);
-
-        if (mounted) {
-          setState(() {
-            _user = updatedUserForCache;
-            print("[Step Save] setState: Updated _user.todaysStepCount to $stepsToSave");
-          });
-          _sendDbStepsToService(stepsToSave);
-        }
-        print("✅ [Step Save] Successfully saved steps to backend and updated local cache/state.");
-      } catch (e) {
-        print("❌ [Step Save] Error saving step count: $e");
-      }
+      print(
+        "✅ [Step Save] Successfully saved steps to backend and updated local cache/state.",
+      );
+    } catch (e) {
+      print("❌ [Step Save] Error saving step count: $e");
+    }
   }
 
   void _showFriendBattleDialog() {
@@ -945,26 +1096,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
-        title: const Text('Battle a Friend',
-            style: TextStyle(color: Colors.white)),
-        content: const Text('Create a new battle or join an existing one.',
-            style: TextStyle(color: Colors.white70)),
+        title: const Text(
+          'Battle a Friend',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Create a new battle or join an existing one.',
+          style: TextStyle(color: Colors.white70),
+        ),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               _handleStartFriendBattle();
             },
-            child: const Text('Start Battle',
-                style: TextStyle(color: Color(0xFFFFC107))),
+            child: const Text(
+              'Start Battle',
+              style: TextStyle(color: Color(0xFFFFC107)),
+            ),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               _handleJoinFriendBattle();
             },
-            child: const Text('Join Battle',
-                style: TextStyle(color: Color(0xFFFFC107))),
+            child: const Text(
+              'Join Battle',
+              style: TextStyle(color: Color(0xFFFFC107)),
+            ),
           ),
         ],
       ),
@@ -1013,8 +1172,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
           ),
           TextButton(
             onPressed: () {
@@ -1026,8 +1187,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _showErrorSnackbar('Please enter a Game ID.');
               }
             },
-            child:
-                const Text('Join', style: TextStyle(color: Color(0xFFFFC107))),
+            child: const Text(
+              'Join',
+              style: TextStyle(color: Color(0xFFFFC107)),
+            ),
           ),
         ],
       ),
@@ -1042,12 +1205,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (success && mounted) {
         context.read<ActiveBattleService>().startBattle(gameId, _user!);
         if (mounted) {
-          Navigator.of(context)
-              .push(MaterialPageRoute(builder: (_) => const BattleScreen()));
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const BattleScreen()));
         }
       } else if (!success) {
         _showErrorSnackbar(
-            'Could not join game. It might be full, invalid, or already started.');
+          'Could not join game. It might be full, invalid, or already started.',
+        );
       }
     } catch (e) {
       _showErrorSnackbar('Error joining game: ${e.toString()}');
@@ -1060,10 +1225,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _showErrorSnackbar(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      );
     }
   }
 
@@ -1071,8 +1235,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     if (_isLoading || _user == null) {
       return const Scaffold(
-          backgroundColor: Color(0xFF121212),
-          body: Center(child: CircularProgressIndicator(color: Colors.yellow)));
+        backgroundColor: Color(0xFF121212),
+        body: Center(child: CircularProgressIndicator(color: Colors.yellow)),
+      );
     }
     final safeUser = _user!;
 
@@ -1087,15 +1252,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             return SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.fromLTRB(
-                16.0, 
-                16.0, 
-                16.0, 
-                40.0 + MediaQuery.of(context).padding.bottom, // Add bottom padding for all devices
+                16.0,
+                16.0,
+                16.0,
+                40.0 +
+                    MediaQuery.of(
+                      context,
+                    ).padding.bottom, // Add bottom padding for all devices
               ),
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight,
-                ),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1103,11 +1269,63 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       username: safeUser.username ?? 'User',
                       coins: safeUser.coins ?? 0,
                     ),
+                    if (!_isPedometerPermissionGranted)
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          border: Border.all(color: Colors.redAccent),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.redAccent,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "Permission Required",
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    "Step counting needs physical activity permission.",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _retryPedometerPermission,
+                              child: const Text("Enable"),
+                            ),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 16),
-                    StepCounterCard(steps: _stepsToShow),
+                    Consumer<StepProvider>(
+                      builder: (context, stepProvider, child) {
+                        return StepCounterCard(
+                          steps: stepProvider.currentSteps,
+                        );
+                      },
+                    ),
                     const SizedBox(height: 24),
                     const SectionTitle(
-                        title: "---------- Today's Scorecard ----------"),
+                      title: "---------- Today's Scorecard ----------",
+                    ),
                     const SizedBox(height: 16),
                     ScorecardSection(stats: safeUser.stats ?? {}),
                     const SizedBox(height: 16),
@@ -1122,7 +1340,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 16),
                     const GameRulesWidget(),
                     const SizedBox(height: 24),
-                    const SectionTitle(title: "---------- Mystery Box ----------"),
+                    const SectionTitle(
+                      title: "---------- Mystery Box ----------",
+                    ),
                     const SizedBox(height: 16),
                     MysteryBoxSection(
                       onOpenBox: _openMysteryBox,

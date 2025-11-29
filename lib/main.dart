@@ -13,6 +13,7 @@ import 'package:clarity_flutter/clarity_flutter.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'providers/step_provider.dart';
 
 
 @pragma('vm:entry-point')
@@ -88,6 +89,9 @@ void main() async {
           Provider<AuthService>(create: (_) => AuthService()),
           ChangeNotifierProvider<ActiveBattleService>(
             create: (_) => ActiveBattleService(),
+          ),
+          ChangeNotifierProvider<StepProvider>(
+            create: (_) => StepProvider(),
           ),
           Provider<FirebaseRemoteConfig>(create: (_) => remoteConfig),
         ],

@@ -30,7 +30,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   String _statusText = "Searching for an opponent...";
   bool _isSearching = true;
   bool _isNavigating = false;
-  final Duration _timeLeft = const Duration(seconds: 15);
+  final Duration _timeLeft = const Duration(seconds: 15); // to be added in remote config 
 
   bool _matchmakingTimedOut = false;
 

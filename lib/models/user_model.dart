@@ -92,7 +92,6 @@ class UserModel {
     );
   }
 
-  // --- MODIFIED --- Integrated copyWith into the class
   UserModel copyWith({
     String? userId,
     String? email,

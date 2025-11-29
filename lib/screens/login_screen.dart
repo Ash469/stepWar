@@ -1,9 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
+import '../services/play_games_service.dart';
 import 'profile_completion_screen.dart';
-
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,7 +21,9 @@ enum LoginState {
 
 class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
+  final PlayGamesService _playGamesService = PlayGamesService();
   bool _isLoading = false;
+  bool _isPlayGamesLoading = false;
   LoginState _loginState = LoginState.initial;
 
   final TextEditingController _emailController = TextEditingController();
@@ -107,6 +110,31 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _signInWithPlayGames() async {
+    setState(() => _isPlayGamesLoading = true);
+    try {
+      final user = await _playGamesService.signInWithPlayGames();
+
+      if (user != null && mounted) {
+        await _navigateAfterLogin();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Play Games sign-in was cancelled.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Play Games sign-in failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted && _authService.currentUser == null) {
+        setState(() => _isPlayGamesLoading = false);
+      }
+    }
+  }
+
   Future<void> _sendOtp() async {
     if (_emailController.text.isEmpty || !_emailController.text.contains('@')) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -153,7 +181,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst("Exception: ", ""))),
+          const SnackBar(
+              content: Text("Failed to Login Please Try After Sometimes")),
         );
       }
     } finally {
@@ -261,6 +290,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 fontFamily: 'Montserrat',
                 fontWeight: FontWeight.bold)),
         const SizedBox(height: 30),
+        // Show Play Games button only on Android
+        if (Platform.isAndroid) ...[
+          _buildPlayGamesButton(),
+          const SizedBox(height: 16),
+        ],
         _buildButton('Sign in with Email', Icons.email, () {
           setState(() => _loginState = LoginState.enterEmail);
         }),
@@ -295,7 +329,6 @@ class _LoginScreenState extends State<LoginScreen> {
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           style: const TextStyle(color: Color.fromARGB(255, 0, 0, 0)),
-          
           decoration: InputDecoration(
             hintText: 'Enter your email',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -367,47 +400,45 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-
-Widget _buildOtpBox(int index) {
-  return SizedBox(
-    width: 45,
-    height: 55,
-    child: TextFormField(
-      controller: _otpControllers[index],
-      focusNode: _otpFocusNodes[index],
-      textAlign: TextAlign.center,
-      keyboardType: TextInputType.number,
-      maxLength: 1,
-      style: const TextStyle(
-        color: Colors.black,
-        fontSize: 22,
-        fontWeight: FontWeight.bold,
-      ),
-      decoration: InputDecoration(
-        counterText: '',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        filled: true,
-        fillColor: Colors.white.withOpacity(0.8),
-        contentPadding: EdgeInsets.zero,
-      ),
-      onChanged: (value) {
-        if (value.length == 1 && index < 5) {
-          FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
-        } else if (value.isEmpty && index > 0) {
-          FocusScope.of(context).requestFocus(_otpFocusNodes[index - 1]);
-        } else if (value.length > 1 && int.tryParse(value) != null) {
-          if (value.length == 6) {
-            for (int i = 0; i < 6; i++) {
-              _otpControllers[i].text = value[i];
+  Widget _buildOtpBox(int index) {
+    return SizedBox(
+      width: 45,
+      height: 55,
+      child: TextFormField(
+        controller: _otpControllers[index],
+        focusNode: _otpFocusNodes[index],
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        maxLength: 1,
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+        decoration: InputDecoration(
+          counterText: '',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: true,
+          fillColor: Colors.white.withOpacity(0.8),
+          contentPadding: EdgeInsets.zero,
+        ),
+        onChanged: (value) {
+          if (value.length == 1 && index < 5) {
+            FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
+          } else if (value.isEmpty && index > 0) {
+            FocusScope.of(context).requestFocus(_otpFocusNodes[index - 1]);
+          } else if (value.length > 1 && int.tryParse(value) != null) {
+            if (value.length == 6) {
+              for (int i = 0; i < 6; i++) {
+                _otpControllers[i].text = value[i];
+              }
+              FocusScope.of(context).requestFocus(_otpFocusNodes[5]);
             }
-            FocusScope.of(context).requestFocus(_otpFocusNodes[5]);
-
           }
-        }
-      },
-    ),
-  );
-}
+        },
+      ),
+    );
+  }
 
   Widget _buildButton(String text, IconData? icon, VoidCallback? onPressed,
       {bool isPrimary = false, bool isLoading = false}) {
@@ -460,5 +491,76 @@ Widget _buildOtpBox(int index) {
               ),
       );
     }
+  }
+
+  Widget _buildPlayGamesButton() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF4CAF50), // Green
+            Color(0xFF2E7D32), // Dark Green
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: _isPlayGamesLoading ? null : _signInWithPlayGames,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          shadowColor: Colors.transparent,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          minimumSize: const Size(double.infinity, 56),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        child: _isPlayGamesLoading
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.sports_esports,
+                      size: 24,
+                      color: Color(0xFF4CAF50),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Sign in with Play Games',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
   }
 }

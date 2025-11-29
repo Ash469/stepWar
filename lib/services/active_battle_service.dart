@@ -70,6 +70,40 @@ String _formatDuration(Duration d) {
     });
   }
 
+  void _handleRemoteGameEnd(Game finishedGame) {
+    if (_isGameOver) return;
+    _isGameOver = true;
+    _currentGame = finishedGame;
+    
+    // Construct the final state map similar to what the API returns
+    // so MainScreen can read it.
+    _finalBattleState = {
+      'finalState': {
+        'gameType': finishedGame.player2Id?.startsWith('bot_') == true ? 'BOT' : 'PVP', // Or derive from game data if available
+        'winnerId': finishedGame.winner, // Ensure your Game model parses 'winnerId' from RTDB
+        'result': finishedGame.result?.name.toUpperCase() ?? 'DRAW',
+        'isKnockout': finishedGame.result == GameResult.KO,
+        'player1Score': finishedGame.player1Score,
+        'player2Score': finishedGame.player2Score,
+        'rewards': {
+          // You might need to adjust Game.fromMap to read these specific reward fields 
+          // from the RTDB update we did in Step 1
+          'winnerCoins': 0, // Fallback if not in RTDB
+          'loserCoins': 0,  // Fallback if not in RTDB
+          'item': null      // Fallback
+        }
+      }
+    };
+    
+    // Stop timers
+    _botStepTimer?.cancel();
+    _gameTimer?.cancel();
+    
+    notifyListeners();
+    // Signal MainScreen to show dialog
+    _controller.add(null); 
+  }
+
   Future<void> startBattle(String gameId, UserModel user) async {
     if (isBattleActive) {
       print("Warning: Tried to start a battle while one is already active.");
@@ -90,6 +124,10 @@ String _formatDuration(Duration d) {
       }
       
       if (game == null) return;
+      if (game.gameStatus == GameStatus.completed) {
+         _handleRemoteGameEnd(game);
+         return;
+      }
       _currentGame = game;
       if (game.startTime != null && _gameTimer == null) {
         _startGameTimer(game.startTime!);

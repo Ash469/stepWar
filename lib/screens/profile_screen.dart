@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../providers/step_provider.dart';
 import 'login_screen.dart';
-import 'dart:math';
 import '../widget/footer.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -27,7 +27,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late DateTime _currentWeekStart;
   Map<String, dynamic>? _lifetimeStats;
   bool _isStatsLoading = true;
-  int _liveSteps = 0;
 
   @override
   void initState() {
@@ -36,26 +35,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserProfile();
     _loadStepHistory();
     _loadLifetimeStats();
-    FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
-  }
-
-  @override
-  void dispose() {
-    FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
-    super.dispose();
-  }
-
-void _onReceiveTaskData(Object data) {
-    if (data is Map<String, dynamic>) {
-      if (data.containsKey('steps')) {
-        final steps = data['steps'] as int;
-        if (mounted && steps > _liveSteps) {
-          setState(() {
-            _liveSteps = steps;
-          });
-        }
-      }
-    }
   }
 
   DateTime _getStartOfWeek(DateTime date) {
@@ -103,11 +82,14 @@ void _onReceiveTaskData(Object data) {
           stepGoal: (userJson['stepGoal'] as num?)?.toInt(),
           todaysStepCount: (userJson['todaysStepCount'] as num?)?.toInt(),
         );
-        if (_user?.todaysStepCount != null && _user!.todaysStepCount! > _liveSteps) {
-            _liveSteps = _user!.todaysStepCount!;
-        }
         _isLoading = false;
       });
+
+      // Update StepProvider with database value
+      if (mounted) {
+        final dbSteps = _user?.todaysStepCount ?? 0;
+        context.read<StepProvider>().updateDbSteps(dbSteps);
+      }
     } else {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -207,10 +189,9 @@ void _onReceiveTaskData(Object data) {
     try {
       final userId = _authService.currentUser?.uid;
       if (userId == null) throw Exception("User not logged in");
- final List<dynamic> history =
+      final List<dynamic> history =
           await _authService.getActivityHistory(userId);
 
-  
       Map<String, int> processedHistory = {
         'MO': 0,
         'TU': 0,
@@ -305,7 +286,10 @@ void _onReceiveTaskData(Object data) {
                 ),
                 child: Padding(
                   padding: EdgeInsets.only(
-                    bottom: 100.0 + MediaQuery.of(context).padding.bottom, // Add bottom padding
+                    bottom: 100.0 +
+                        MediaQuery.of(context)
+                            .padding
+                            .bottom, // Add bottom padding
                   ),
                   child: Column(
                     children: [
@@ -828,8 +812,9 @@ void _onReceiveTaskData(Object data) {
     if (_isCurrentWeek(_currentWeekStart) && _user != null) {
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
       final todayAbbreviation = dayAbbreviations[DateTime.now().weekday - 1];
-      final dbSteps = _user!.todaysStepCount ?? 0;
-      stepsData[todayAbbreviation] = max(dbSteps, _liveSteps);
+      // Use live steps from StepProvider for today's count
+      final currentSteps = context.watch<StepProvider>().currentSteps;
+      stepsData[todayAbbreviation] = currentSteps;
     }
 
     final bool hasData = stepsData.values.any((steps) => steps > 0);
@@ -950,12 +935,25 @@ void _onReceiveTaskData(Object data) {
     );
   }
 
- Widget _buildLifetimeScorecard({
+  Widget _buildLifetimeScorecard({
     required String battlesWon,
     required String knockouts,
     required String totalBattles,
     required int totalSteps,
   }) {
+    // Calculate dynamic total steps:
+    // Start with the loaded total steps from DB.
+    // Add the difference between current live steps and the steps recorded in DB for today.
+    // This ensures we show the most up-to-date total without needing a DB write.
+    int displayedTotalSteps = totalSteps;
+    if (_user != null) {
+      final int dbTodaysSteps = _user!.todaysStepCount ?? 0;
+      final int currentSteps = context.watch<StepProvider>().currentSteps;
+      if (currentSteps > dbTodaysSteps) {
+        displayedTotalSteps += (currentSteps - dbTodaysSteps);
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -966,29 +964,29 @@ void _onReceiveTaskData(Object data) {
         const SizedBox(height: 12),
         // --- Show a loader while stats are loading ---
         _isStatsLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.yellow))
-          : Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildScorecardItem(
-                        'assets/images/battle_won.png', battlesWon, 'Battle won'),
-                    _buildScorecardItem(
-                        'assets/images/ko_won.png', knockouts, 'Knockouts'),
-                    _buildScorecardItem(
-                        'assets/images/coin_won.png', totalBattles, 'Total Battles'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _buildScorecardItem(
-                  'assets/images/step_icon.png', // NOTE: You'll need an 'assets/images/step_icon.png' or change this
-                  NumberFormat.decimalPattern().format(totalSteps), 
-                  'Total Lifetime Steps', // Updated label
-                  isFullWidth: true
-                ),
-              ],
-            ),
+            ? const Center(
+                child: CircularProgressIndicator(color: Colors.yellow))
+            : Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildScorecardItem('assets/images/battle_won.png',
+                          battlesWon, 'Battle won'),
+                      _buildScorecardItem(
+                          'assets/images/ko_won.png', knockouts, 'Knockouts'),
+                      _buildScorecardItem('assets/images/coin_won.png',
+                          totalBattles, 'Total Battles'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildScorecardItem(
+                      'assets/images/step_icon.png',
+                      NumberFormat.decimalPattern().format(totalSteps),
+                      'Total Lifetime Steps', // Updated label
+                      isFullWidth: true),
+                ],
+              ),
       ],
     );
   }

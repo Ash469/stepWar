@@ -8,31 +8,22 @@ In src/controllers/userController.js, getUserRewards fetches the user and uses .
 JavaScript
 
 // src/controllers/userController.js: getUserRewards
-// ...
 .populate('rewards.Fort rewards.Monument rewards.Legend rewards.Badge'); // Populate reward details
 If a dedicated user collects thousands of "Badge" rewards over time, this single query will:
-
 Retrieve the IDs of thousands of RewardModel documents from the UserModel document.
-
 Execute a large query to fetch all those thousands of documents from the RewardModel collection.
-
 Assemble a massive JSON object in memory and send it to the Flutter client.
-
 This risks server memory exhaustion (OOM crash) or a slow query timeout on the MongoDB instance when multiple heavily rewarded users try to load their kingdom simultaneously.
 
 🛠️ Recommendation
 Decouple Reward Population from Fetching.
-
 Fetch IDs Only: Change getUserRewards to not use .populate() and only return the array of RewardModel IDs (which are already stored in the user document).
-
 Client-Side Resolution (or Hybrid): The Flutter client could then fetch the metadata for these rewards separately, or, more simply:
-
 Limit Fields (Preferred): Since the KingdomScreen displays item name, image path, and rarity/tier, use MongoDB's .populate() with the select option to retrieve only the necessary fields (e.g., .populate({ path: 'rewards.Badge', select: 'name imagePath tier description' })). This will significantly reduce the size of the returned data. -->
 
 <!-- 
 You mentioned you set a debounce of 5-10 minutes (I actually see 30 minutes in your home_screen.dart code).
 Status: This is perfect. You are not overloading your Node.js/MongoDB backend. No changes needed here. -->
-
 <!-- Backend: Use .lean() for faster Reads
 The Issue: currently, when you fetch data using Mongoose (e.g., UserModel.findOne(...)), Mongoose creates a heavy "Mongoose Document" with internal state, change tracking, and magic methods. The Fix: For read-only operations (like getUserProfile or getUserRewards), chaining .lean() converts the result instantly to a plain JavaScript object. Impact: This typically makes queries 2x-3x faster and uses 50% less memory on the server. -->
 

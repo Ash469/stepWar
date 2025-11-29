@@ -98,7 +98,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                             ),
                           ),
-                          // The image itself
                           SizedBox(
                             width: 100,
                             height: 100,
@@ -127,7 +126,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       builder: (context, constraints) {
         final double availableWidth = constraints.maxWidth;
         final double circleDiameter = availableWidth * 1.5;
-
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
@@ -183,7 +181,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildPageThree() {
-    // This page has its own independent layout
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Column(
@@ -220,7 +217,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildPageFour() {
-    // This page has its own independent layout
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Column(
@@ -243,7 +239,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // The bottom image (box)
                 SizedBox(
                   width: 200,
                   height: 200,
