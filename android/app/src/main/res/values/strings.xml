@@ -1,4 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
+<!-- res/values/strings.xml -->
 <resources>
-    <string name="game_services_project_id">955460127665</string>
+    <string translatable="false" name="game_services_project_id">955460127665</string>
+    <string translatable="false" name="firebase_auth_oauth_2_web_client_id">
+        955460127665-8tej7s2uktns81jsj3oqjtferb67c9o9.apps.googleusercontent.com</string>
+    <!-- <string translatable="false"
+    name="firebase_auth_oauth_2_web_client_id">955460127665-tqr9s45bfk3oeffebtdo0ohpd4gil1a4.apps.googleusercontent.com</string> -->
+    <!-- <string translatable="false"
+    name="firebase_auth_oauth_2_web_client_id">955460127665-6brdoj3j6sqs87ia8lpfi29l6g37s1v9.apps.googleusercontent.com</string> -->
 </resources>

@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
@@ -30,14 +31,23 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   String _statusText = "Searching for an opponent...";
   bool _isSearching = true;
   bool _isNavigating = false;
-  final Duration _timeLeft = const Duration(seconds: 15); // to be added in remote config 
+  late Duration _timeLeft;
 
   bool _matchmakingTimedOut = false;
 
   @override
   void initState() {
     super.initState();
+    _initializeTimeLeft();
     _startMatchmaking();
+  }
+
+  void _initializeTimeLeft() {
+    final remoteConfig = FirebaseRemoteConfig.instance;
+    // Default to 15 if not set or error
+    int seconds = remoteConfig.getInt('matchmaking_timeout_seconds');
+    if (seconds <= 0) seconds = 15;
+    _timeLeft = Duration(seconds: seconds);
   }
 
   @override
@@ -52,7 +62,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
   }
 
   void _startTimer() {
-    _countdownTimer = Timer(const Duration(seconds: 15), _onTimeout);
+    _countdownTimer = Timer(_timeLeft, _onTimeout);
   }
 
   Future<void> _startMatchmaking() async {

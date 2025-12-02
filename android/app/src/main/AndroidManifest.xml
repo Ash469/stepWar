@@ -44,6 +44,8 @@
             />
             <meta-data android:name="com.google.android.gms.games.APP_ID"
                 android:value="@string/game_services_project_id" />
+            <meta-data android:name="com.google.android.gms.version"
+                android:value="@integer/google_play_services_version" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -58,12 +60,12 @@
                     android:pathPrefix="/__/auth/links" />
             </intent-filter>
         </activity>
-         <service
+        <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="health"
             android:stopWithTask="false"
             android:exported="false" />
-        
+
         <!-- Boot receiver to auto-start step counting service after device reboot -->
         <receiver
             android:name="com.pravera.flutter_foreground_task.service.RestartReceiver"
@@ -96,6 +98,18 @@
         <package android:name="com.google.android.apps.healthdata" />
         <intent>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
+    </queries>
+    <queries>
+        <package android:name="com.google.android.gms" />
+        <intent>
+            <action android:name="com.google.android.gms.games.VIEW_LEADERBOARD" />
+        </intent>
+        <intent>
+            <action android:name="com.google.android.gms.games.VIEW_ACHIEVEMENTS" />
+        </intent>
+        <intent>
+            <action android:name="com.google.android.gms.games.internal.connect.service.START" />
         </intent>
     </queries>
 </manifest>

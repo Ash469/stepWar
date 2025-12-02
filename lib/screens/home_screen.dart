@@ -70,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   KingdomItem? _latestReward;
   bool _isLoadingData = false;
   bool _isPedometerPermissionGranted = true;
+  bool _isBatteryOptimizationEnabled = true;
   bool _offsetInitializationDone = false;
   DateTime? _lastPausedTime;
   DateTime _lastOpponentFetchTime = DateTime.fromMillisecondsSinceEpoch(0);
@@ -91,11 +92,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Defer non-critical operations to run after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Run all initialization tasks in parallel
-      await Future.wait([
-        _requestPermissions(),
-        _handleNotifications(),
-      ], eagerError: false);
+      // Request notification permission after login
+      await _requestNotificationPermission();
+
+      // Then run other initialization tasks
+      _handleNotifications();
 
       // Initialize and start service
       _initService();
@@ -204,8 +205,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print("App resumed. Cancelling pending saves & triggering data load.");
       _debounce?.cancel();
       _stepSubscription?.cancel();
-      final bool wasPausedLong =
-          _lastPausedTime != null &&
+      final bool wasPausedLong = _lastPausedTime != null &&
           DateTime.now().difference(_lastPausedTime!).inMinutes >= 1;
       if (wasPausedLong || _user == null) {
         print(
@@ -216,36 +216,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       } else {
         print("App resumed from brief pause. Skipping full data load.");
+        _lastPausedTime = null; // Clear the paused time
       }
-      _lastPausedTime = null; // Clear the paused time
     }
   }
 
-  Future<void> _requestPermissions() async {
+  Future<void> _requestNotificationPermission() async {
+    // Request Notification Permission (after login)
     final notificationPermission =
         await FlutterForegroundTask.checkNotificationPermission();
     if (notificationPermission != NotificationPermission.granted) {
       await FlutterForegroundTask.requestNotificationPermission();
     }
 
-    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
-      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
-    }
-
-    // Check for activity recognition permission
+    // Check if Activity Recognition permission is granted (should be from LoadingScreen)
     final activityStatus = await Permission.activityRecognition.status;
-    if (activityStatus.isDenied || activityStatus.isPermanentlyDenied) {
-      if (mounted) {
-        setState(() {
-          _isPedometerPermissionGranted = false;
-        });
-      }
-    } else {
-      if (mounted) {
-        setState(() {
-          _isPedometerPermissionGranted = true;
-        });
-      }
+
+    // Check if Battery Optimization is enabled (should be from LoadingScreen)
+    final batteryOptimization =
+        await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+
+    if (mounted) {
+      setState(() {
+        _isPedometerPermissionGranted = activityStatus.isGranted;
+        _isBatteryOptimizationEnabled = batteryOptimization;
+      });
     }
   }
 
@@ -261,6 +256,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } else if (status.isPermanentlyDenied) {
       openAppSettings();
+    }
+  }
+
+  Future<void> _retryBatteryOptimization() async {
+    final result =
+        await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    if (mounted) {
+      final isEnabled =
+          await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      setState(() {
+        _isBatteryOptimizationEnabled = isEnabled;
+      });
     }
   }
 
@@ -1309,6 +1316,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             TextButton(
                               onPressed: _retryPedometerPermission,
+                              child: const Text("Enable"),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (!_isBatteryOptimizationEnabled)
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          border: Border.all(color: Colors.orangeAccent),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.battery_alert,
+                              color: Colors.orangeAccent,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "Battery Optimization",
+                                    style: TextStyle(
+                                      color: Colors.orangeAccent,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    "Disable battery optimization for accurate step counting.",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _retryBatteryOptimization,
                               child: const Text("Enable"),
                             ),
                           ],

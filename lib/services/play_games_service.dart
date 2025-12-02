@@ -1,79 +1,46 @@
 import 'dart:io';
 import 'package:games_services/games_services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'auth_service.dart';
 
 class PlayGamesService {
   final AuthService _authService = AuthService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Google Sign-In configured for Play Games
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    // Explicitly use the Client ID provided
-    clientId:
-        '955460127665-hp09qv2hvb63e3b2g3fkdhinf6lcaod4.apps.googleusercontent.com',
-    scopes: [
-      'email',
-      'https://www.googleapis.com/auth/games',
-    ],
-  );
-
-  /// Sign in with Google Play Games
-  /// This provides a gaming-focused authentication experience
   Future<User?> signInWithPlayGames() async {
     try {
-      // Only available on Android
-      if (!Platform.isAndroid) {
-        print('Play Games Services is only available on Android');
-        // Fall back to regular Google Sign-In on iOS
-        return await _authService.signInWithGoogle();
-      }
+      if (!Platform.isAndroid) return null;
 
-      // Sign in to Play Games Services
-      final signInResult = await GamesServices.signIn();
+      // 1. Sign in to Native Play Games Service
+      // The error you are seeing happens HERE.
+      // If Part 1 (SHA-1 fix) is done, this line will finally work.
+      // 1. Sign in to Native Play Games Service and get the code directly
+      // In games_services 4.1.1, signIn() returns the auth code if successful
+      final String? serverAuthCode = await GamesServices.signIn();
 
-      if (signInResult == null || signInResult.isEmpty) {
-        print('Play Games sign-in was cancelled or failed');
+      if (serverAuthCode == null) {
+        print('Failed to get serverAuthCode from Play Games');
         return null;
       }
 
-      print('Successfully signed in to Play Games Services');
+      print('Got Auth Code. Swapping for Firebase Credential...');
 
-      // Get the player info
-      final playerInfo = await getPlayerInfo();
-      if (playerInfo != null) {
-        print('Player ID: ${playerInfo['playerId']}');
-        print('Player Name: ${playerInfo['displayName']}');
-      }
-
-      // Now authenticate with Firebase using Google Sign-In
-      // This links the Play Games account with Firebase
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-
-      if (googleUser == null) {
-        print('Google sign-in was cancelled');
-        return null;
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+      // 3. Create Firebase Credential
+      final AuthCredential credential = PlayGamesAuthProvider.credential(
+        serverAuthCode: serverAuthCode,
       );
 
+      // 4. Sign in to Firebase
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
       final user = userCredential.user;
 
       if (user != null) {
-        // Sync with backend
+        print('✅ Successfully signed in to Firebase via Play Games!');
+        // Sync user data to your backend
         await _authService.syncUserWithBackend(
             uid: user.uid, email: user.email);
 
-        // Cache user profile if not a new user
         if (!(await _authService.isNewUser(user.uid))) {
           await _authService.cacheUserProfile(user.uid);
         }
@@ -82,6 +49,7 @@ class PlayGamesService {
       return user;
     } catch (e) {
       print('Error signing in with Play Games: $e');
+      // If e is "failed_to_authenticate", it means Part 1 is still not fixed.
       rethrow;
     }
   }
@@ -129,7 +97,7 @@ class PlayGamesService {
       // if (Platform.isAndroid) {
       //   await GamesServices.signOut();
       // }
-      await _googleSignIn.signOut();
+      // await _googleSignIn.signOut();
       await _auth.signOut();
       await _authService.signOut();
     } catch (e) {

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../services/auth_service.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
@@ -27,6 +29,9 @@ class _LoadingScreenState extends State<LoadingScreen> {
 
     if (!mounted) return;
 
+    // Request core permissions before proceeding
+    await _requestCorePermissions();
+
     final bool loggedIn = await _authService.isLoggedIn();
 
     if (loggedIn) {
@@ -35,7 +40,8 @@ class _LoadingScreenState extends State<LoadingScreen> {
       );
     } else {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final bool hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
+      final bool hasSeenOnboarding =
+          prefs.getBool('hasSeenOnboarding') ?? false;
 
       if (hasSeenOnboarding) {
         Navigator.of(context).pushReplacement(
@@ -49,6 +55,22 @@ class _LoadingScreenState extends State<LoadingScreen> {
     }
   }
 
+  Future<void> _requestCorePermissions() async {
+    // 1. Activity Recognition Permission (Pedometer)
+    var activityStatus = await Permission.activityRecognition.status;
+    if (!activityStatus.isGranted) {
+      activityStatus = await Permission.activityRecognition.request();
+    }
+
+    // Small delay to ensure the permission dialog is fully processed
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 2. Ignore Battery Optimizations (Foreground Service)
+    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,7 +80,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/images/app_logo.png', 
+              'assets/images/app_logo.png',
               width: 240,
               height: 240,
               errorBuilder: (context, error, stackTrace) {
@@ -79,7 +101,8 @@ class _LoadingScreenState extends State<LoadingScreen> {
             ),
             const SizedBox(height: 18),
             const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color.fromARGB(255, 252, 235, 2)),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                  Color.fromARGB(255, 252, 235, 2)),
             ),
           ],
         ),

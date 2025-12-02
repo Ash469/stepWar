@@ -11,10 +11,9 @@ import 'services/active_battle_service.dart';
 import 'services/notification_service.dart';
 import 'package:clarity_flutter/clarity_flutter.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'package:onesignal_flutter/onesignal_flutter.dart';
+
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'providers/step_provider.dart';
-
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -31,21 +30,22 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 final Map<String, dynamic> remoteConfigDefaults = {
   'backend_url': 'http://3.109.141.189:5000',
-  'battle_time_minutes': 10, 
+  'battle_time_minutes': 10,
   'multiplier_3x_price': 300,
   'multiplier_2x_price': 200,
   'multiplier_1_5x_price': 100,
   'ko_diff': 200,
   'draw_diff': 50,
-  'step_save_debounce_minutes': 15, 
+  'step_save_debounce_minutes': 15,
   'bronze_box_price': 5000,
   'silver_box_price': 10000,
   'gold_box_price': 20000,
+  'matchmaking_timeout_seconds': 15,
 };
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-   FlutterForegroundTask.initCommunicationPort();
+  FlutterForegroundTask.initCommunicationPort();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
@@ -57,33 +57,28 @@ void main() async {
   try {
     await remoteConfig.setConfigSettings(RemoteConfigSettings(
       fetchTimeout: const Duration(minutes: 1),
-      minimumFetchInterval: const Duration(seconds: 10), 
+      minimumFetchInterval: const Duration(seconds: 10),
     ));
     await remoteConfig.setDefaults(remoteConfigDefaults);
     final bool activated = await remoteConfig.fetchAndActivate();
     if (activated) {
       print('✅ Remote Config: Successfully fetched AND activated new values.');
     } else {
-      print('ℹ️ Remote Config: Fetch successful, but no new values were activated (fetched values match current).');
+      print(
+          'ℹ️ Remote Config: Fetch successful, but no new values were activated (fetched values match current).');
     }
   } catch (e) {
     print('❌ Remote Config: Error during initialization or fetch/activate: $e');
   }
 
-  final config = ClarityConfig(
-      projectId: "ttsnh3p3bl",
-      logLevel: LogLevel
-          .None 
-      );
+  final config =
+      ClarityConfig(projectId: "ttsnh3p3bl", logLevel: LogLevel.None);
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
-  OneSignal.initialize("f3677a87-be26-44a2-9419-1d6241842d22");
-  OneSignal.Notifications.requestPermission(false);
 
   runApp(
     ClarityWidget(
-     clarityConfig: config,
+      clarityConfig: config,
       app: MultiProvider(
         providers: [
           Provider<AuthService>(create: (_) => AuthService()),
