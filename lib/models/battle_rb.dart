@@ -1,7 +1,7 @@
-// Enums to represent the state of the game
+// lib/models/battle_rb.dart
 
 enum GameStatus { waiting, ongoing, completed, unknown }
-// ignore: constant_identifier_names
+
 enum GameResult { win, KO, draw }
 
 class Game {
@@ -21,6 +21,9 @@ class Game {
   final bool player1MultiplierUsed;
   final bool player2MultiplierUsed;
   final Map<String, dynamic>? potentialReward;
+  final int winnerCoins;
+  final int loserCoins;
+  final Map<String, dynamic>? wonItem;
 
   Game({
     required this.gameId,
@@ -38,12 +41,18 @@ class Game {
     this.startTime,
     this.player1MultiplierUsed = false,
     this.player2MultiplierUsed = false,
-    this.potentialReward, 
+    this.potentialReward,
+    this.winnerCoins = 0,
+    this.loserCoins = 0,
+    this.wonItem,
   });
 
-  // Factory constructor to create a Game instance from a map (e.g., from Firebase)
-  // --- UPDATED to use camelCase keys ---
   factory Game.fromMap(Map<String, dynamic> data, String id) {
+    // Helper to parse rewards safely
+    final rewardsData = data['rewards'] != null
+        ? Map<String, dynamic>.from(data['rewards'] as Map)
+        : <String, dynamic>{};
+
     return Game(
       gameId: id,
       player1Id: data['player1Id'],
@@ -56,18 +65,22 @@ class Game {
       player2Score: (data['player2Score'] as num? ?? 0).toInt(),
       gameStatus: _parseGameStatus(data['gameStatus']),
       result: data['result'] != null ? _parseGameResult(data['result']) : null,
-      winner: data['winner'],
+      winner: data['winnerId'] ?? data['winner'],
+
       startTime: data['startTime'],
       player1MultiplierUsed: data['player1MultiplierUsed'] ?? false,
       player2MultiplierUsed: data['player2MultiplierUsed'] ?? false,
       potentialReward: data['potentialReward'] != null
           ? Map<String, dynamic>.from(data['potentialReward'])
           : null,
-
+      winnerCoins: (rewardsData['winnerCoins'] as num? ?? 0).toInt(),
+      loserCoins: (rewardsData['loserCoins'] as num? ?? 0).toInt(),
+      wonItem: rewardsData['item'] != null
+          ? Map<String, dynamic>.from(rewardsData['item'])
+          : null,
     );
   }
 
-  // Helper method to safely parse the GameStatus enum from a string
   static GameStatus _parseGameStatus(String? status) {
     switch (status?.toLowerCase()) {
       case 'waiting':
@@ -81,7 +94,6 @@ class Game {
     }
   }
 
-  // Helper method to safely parse the GameResult enum from a string
   static GameResult? _parseGameResult(String? result) {
     if (result == null) return null;
     switch (result.toUpperCase()) {
@@ -96,4 +108,3 @@ class Game {
     }
   }
 }
-

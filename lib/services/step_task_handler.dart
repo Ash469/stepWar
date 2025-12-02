@@ -196,12 +196,10 @@ Future<void> _attemptBackgroundSync() async {
     final int? pendingSteps = prefs.getInt('pending_past_steps');
 
     if (pendingDate != null && pendingSteps != null) {
-      print("⏳ [Sync] Found pending snapshot for $pendingDate. Syncing...");
       bool success = await _syncPastSteps(pendingDate, pendingSteps);
       if (success) {
         await prefs.remove('pending_past_date');
         await prefs.remove('pending_past_steps');
-        print("✅ [Sync] Snapshot synced and cleared.");
       }
     }
 
@@ -225,7 +223,6 @@ Future<void> _attemptBackgroundSync() async {
       );
       return response.statusCode == 200;
     } catch (e) {
-      print("Error syncing past steps: $e");
       return false;
     }
   }

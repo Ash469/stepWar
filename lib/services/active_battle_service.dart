@@ -27,7 +27,7 @@ class ActiveBattleService with ChangeNotifier {
   bool get isBattleActive => _gameId != null && !_isGameOver;
   bool _isActivatingMultiplier = false;
   bool get isActivatingMultiplier => _isActivatingMultiplier;
-  Map<String, dynamic>? _finalBattleState; 
+  Map<String, dynamic>? _finalBattleState;
   Map<String, dynamic>? get finalBattleState => _finalBattleState;
   Stream<void> get stream => _controller.stream;
   bool get isWaitingForFriend => currentGame?.gameStatus == GameStatus.waiting;
@@ -40,14 +40,12 @@ class ActiveBattleService with ChangeNotifier {
   // Sync at  once every 5 seconds to prevent firebase realtime DB flooding
   final Duration _syncInterval = const Duration(seconds: 3);
 
-
-String _formatDuration(Duration d) {
+  String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     String minutes = twoDigits(d.inMinutes.remainder(60));
     String seconds = twoDigits(d.inSeconds.remainder(60));
     return "$minutes:$seconds";
   }
-
 
   void _sendBattleStateToTask() {
     if (_currentGame == null || _currentUser == null) {
@@ -56,14 +54,17 @@ String _formatDuration(Duration d) {
     }
 
     bool isUserPlayer1 = _currentGame!.player1Id == _currentUser!.userId;
-    int myScore = isUserPlayer1 ? _currentGame!.player1Score : _currentGame!.player2Score;
-    int opponentScore = isUserPlayer1 ? _currentGame!.player2Score : _currentGame!.player1Score;
-    
+    int myScore =
+        isUserPlayer1 ? _currentGame!.player1Score : _currentGame!.player2Score;
+    int opponentScore =
+        isUserPlayer1 ? _currentGame!.player2Score : _currentGame!.player1Score;
+
     bool battleActive = !_isGameOver && _gameId != null;
-    print("ActiveBattleService: Sending battle state to task - battleActive: $battleActive, myScore: $myScore, opponentScore: $opponentScore");
+    print(
+        "ActiveBattleService: Sending battle state to task - battleActive: $battleActive, myScore: $myScore, opponentScore: $opponentScore");
 
     FlutterForegroundTask.sendDataToTask({
-      'battleActive': battleActive, 
+      'battleActive': battleActive,
       'myScore': myScore,
       'opponentScore': opponentScore,
       'timeLeft': _formatDuration(_timeLeft),
@@ -74,34 +75,29 @@ String _formatDuration(Duration d) {
     if (_isGameOver) return;
     _isGameOver = true;
     _currentGame = finishedGame;
-    
-    // Construct the final state map similar to what the API returns
-    // so MainScreen can read it.
+
+    // Construct the final state using REAL data from the updated Game model
     _finalBattleState = {
       'finalState': {
-        'gameType': finishedGame.player2Id?.startsWith('bot_') == true ? 'BOT' : 'PVP', // Or derive from game data if available
-        'winnerId': finishedGame.winner, // Ensure your Game model parses 'winnerId' from RTDB
+        'gameType':
+            finishedGame.player2Id?.startsWith('bot_') == true ? 'BOT' : 'PVP',
+        'winnerId': finishedGame.winner,
         'result': finishedGame.result?.name.toUpperCase() ?? 'DRAW',
         'isKnockout': finishedGame.result == GameResult.KO,
         'player1Score': finishedGame.player1Score,
         'player2Score': finishedGame.player2Score,
         'rewards': {
-          // You might need to adjust Game.fromMap to read these specific reward fields 
-          // from the RTDB update we did in Step 1
-          'winnerCoins': 0, // Fallback if not in RTDB
-          'loserCoins': 0,  // Fallback if not in RTDB
-          'item': null      // Fallback
+          'winnerCoins': finishedGame.winnerCoins,
+          'loserCoins': finishedGame.loserCoins,
+          'item': finishedGame.wonItem
         }
       }
     };
-    
-    // Stop timers
+
     _botStepTimer?.cancel();
     _gameTimer?.cancel();
-    
     notifyListeners();
-    // Signal MainScreen to show dialog
-    _controller.add(null); 
+    _controller.add(null);
   }
 
   Future<void> startBattle(String gameId, UserModel user) async {
@@ -122,11 +118,11 @@ String _formatDuration(Duration d) {
         _gameSubscription = null;
         return;
       }
-      
+
       if (game == null) return;
       if (game.gameStatus == GameStatus.completed) {
-         _handleRemoteGameEnd(game);
-         return;
+        _handleRemoteGameEnd(game);
+        return;
       }
       _currentGame = game;
       if (game.startTime != null && _gameTimer == null) {
@@ -152,7 +148,7 @@ String _formatDuration(Duration d) {
         _stepSubscription = null;
         return;
       }
-      
+
       _onPlayerStep(stepsStr, user.userId);
     });
     await Future.delayed(const Duration(milliseconds: 100));
@@ -160,8 +156,8 @@ String _formatDuration(Duration d) {
     notifyListeners();
   }
 
-Future<void> forfeitBattle() async {
-print("ActiveBattleService: forfeitBattle called");
+  Future<void> forfeitBattle() async {
+    print("ActiveBattleService: forfeitBattle called");
     if (_currentGame == null) return;
     if (_currentUser == null) return;
     if (_isEndingBattle) return;
@@ -173,7 +169,7 @@ print("ActiveBattleService: forfeitBattle called");
     try {
       if (_currentGame!.gameId.isEmpty) {
         throw Exception('Invalid game ID');
-      }    
+      }
       _finalBattleState = await _gameService.endBattle(
         _currentGame!.gameId,
         player1FinalScore: p1Score,
@@ -183,7 +179,8 @@ print("ActiveBattleService: forfeitBattle called");
       print("Error forfeiting battle from service: $e");
       String gameType = 'UNKNOWN';
       if (_currentGame != null) {
-        if (_currentGame!.player2Id != null && _currentGame!.player2Id!.startsWith('bot_')) {
+        if (_currentGame!.player2Id != null &&
+            _currentGame!.player2Id!.startsWith('bot_')) {
           gameType = 'BOT';
         } else if (_currentGame!.player2Id != null) {
           gameType = 'PVP';
@@ -203,7 +200,7 @@ print("ActiveBattleService: forfeitBattle called");
       };
     } finally {
       _isEndingBattle = false;
-      notifyListeners(); 
+      notifyListeners();
     }
     _sendBattleStateToTask();
     if (_finalBattleState != null) {
@@ -225,7 +222,7 @@ print("ActiveBattleService: forfeitBattle called");
     if (_initialPlayerSteps == -1) {
       _initialPlayerSteps = currentTotalSteps;
     }
-    int stepsThisGame = currentTotalSteps - _initialPlayerSteps; 
+    int stepsThisGame = currentTotalSteps - _initialPlayerSteps;
     if (stepsThisGame < 0) {
       print("Pedometer reset detected! Recalibrating initial steps.");
       _initialPlayerSteps = currentTotalSteps;
@@ -236,14 +233,14 @@ print("ActiveBattleService: forfeitBattle called");
         isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
     final newScore = (stepsThisGame * multiplier).round();
     if (isUserPlayer1) {
-      // Create a temporary copy for UI only (don't overwrite _currentGame structure directly if immutable, 
-      // but here we are assuming we rely on the stream for the "source of truth". 
+      // Create a temporary copy for UI only (don't overwrite _currentGame structure directly if immutable,
+      // but here we are assuming we rely on the stream for the "source of truth".
       // Ideally, we wait for stream, but for responsiveness we can calculate locally)
     }
-   final now = DateTime.now();
+    final now = DateTime.now();
     if (now.difference(_lastSyncTime) >= _syncInterval) {
       print("Syncing steps to DB: $stepsThisGame");
-      
+
       final updateData = isUserPlayer1
           ? {'step1Count': stepsThisGame, 'player1Score': newScore}
           : {'step2Count': stepsThisGame, 'player2Score': newScore};
@@ -252,10 +249,10 @@ print("ActiveBattleService: forfeitBattle called");
       _lastSyncTime = now;
     }
   }
- 
+
   void _startGameTimer(int startTimeMillis) {
     final startTime = DateTime.fromMillisecondsSinceEpoch(startTimeMillis);
-   final battleMinutes = _remoteConfig.getInt('battle_time_minutes');
+    final battleMinutes = _remoteConfig.getInt('battle_time_minutes');
     final gameDuration = Duration(minutes: battleMinutes);
     _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -263,7 +260,7 @@ print("ActiveBattleService: forfeitBattle called");
         timer.cancel();
         return;
       }
-      
+
       final elapsed = DateTime.now().difference(startTime);
       if (elapsed >= gameDuration) {
         _timeLeft = Duration.zero;
@@ -272,7 +269,7 @@ print("ActiveBattleService: forfeitBattle called");
         _timeLeft = gameDuration - elapsed;
         _sendBattleStateToTask();
       }
-      
+
       notifyListeners();
     });
   }
@@ -283,12 +280,11 @@ print("ActiveBattleService: forfeitBattle called");
         timer.cancel();
         return;
       }
-      
+
       final botId = _currentGame!.player2Id!;
       final botType = _botService.getBotTypeFromId(botId);
       if (botType != null) {
-        final generatedSteps =
-            _botService.generateStepsForOneSecond(botType);
+        final generatedSteps = _botService.generateStepsForOneSecond(botType);
         final newBotSteps = (_currentGame!.step2Count) + generatedSteps;
         final newBotScore = (newBotSteps * _currentGame!.multiplier2).round();
         _gameService.updateGame(_currentGame!.gameId, {
@@ -300,23 +296,21 @@ print("ActiveBattleService: forfeitBattle called");
   }
 
   Future<void> endBattle() async {
-    if (_currentGame == null) {
-      print("Cannot end battle: No current game data");
-      return;
-    }
-    if (_isEndingBattle) {
-      print("Battle ending already in progress, skipping duplicate call");
-      return;
-    }
+    if (_currentGame == null) return;
+    if (_isEndingBattle) return;
+    
     _isEndingBattle = true;
     _isGameOver = true;
     notifyListeners();
+    
     int p1Score = _currentGame!.player1Score;
     int p2Score = _currentGame!.player2Score;
+    
     try {
       if (_currentGame!.gameId.isEmpty) {
         throw Exception('Invalid game ID');
       }
+      // This call returns the JSON you posted. We assign it directly.
       _finalBattleState = await _gameService.endBattle(
         _currentGame!.gameId,
         player1FinalScore: p1Score,
@@ -338,17 +332,17 @@ print("ActiveBattleService: forfeitBattle called");
           'result': 'ERROR',
           'gameType': gameType,
           'isKnockout': false,
-          'rewards': {
-            'winnerCoins': 0,
-            'loserCoins': 0,
-          }
+          'rewards': {'winnerCoins': 0, 'loserCoins': 0}
         }
       };
     } finally {
       _isEndingBattle = false;
       notifyListeners();
     }
+    
     _sendBattleStateToTask();
+    
+    // Explicitly notify MainScreen
     if (_finalBattleState != null) {
        notifyListeners();
        _controller.add(null);
@@ -363,7 +357,7 @@ print("ActiveBattleService: forfeitBattle called");
 
   void dismissBattleResults() {
     _finalBattleState = null;
-    _isGameOver = false; 
+    _isGameOver = false;
     _cleanup();
   }
 
@@ -390,7 +384,7 @@ print("ActiveBattleService: forfeitBattle called");
   Future<void> activateMultiplier(String multiplierType, String userId) async {
     if (_isActivatingMultiplier || _currentGame == null) return;
     _isActivatingMultiplier = true;
-    notifyListeners(); 
+    notifyListeners();
     try {
       await _gameService.useMultiplier(
         gameId: _currentGame!.gameId,
@@ -405,7 +399,6 @@ print("ActiveBattleService: forfeitBattle called");
     }
   }
 
-
   Future<void> cancelFriendBattle() async {
     if (_gameId == null) return;
     try {
@@ -417,4 +410,3 @@ print("ActiveBattleService: forfeitBattle called");
     }
   }
 }
-
