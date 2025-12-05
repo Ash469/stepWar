@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../services/auth_service.dart';
+import '../services/play_games_service.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
+import 'profile_completion_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
@@ -17,6 +20,7 @@ class LoadingScreen extends StatefulWidget {
 
 class _LoadingScreenState extends State<LoadingScreen> {
   final AuthService _authService = AuthService();
+  final PlayGamesService _playGamesService = PlayGamesService();
 
   @override
   void initState() {
@@ -32,26 +36,70 @@ class _LoadingScreenState extends State<LoadingScreen> {
     // Request core permissions before proceeding
     await _requestCorePermissions();
 
+    // Check if user is already logged in (any provider)
     final bool loggedIn = await _authService.isLoggedIn();
 
     if (loggedIn) {
+      // User is already authenticated, go to main screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainScreen()),
       );
-    } else {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final bool hasSeenOnboarding =
-          prefs.getBool('hasSeenOnboarding') ?? false;
+      return;
+    }
 
-      if (hasSeenOnboarding) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-        );
-      } else {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-        );
+    // User is not logged in - attempt automatic Play Games sign-in on Android
+    if (Platform.isAndroid) {
+      print('[LoadingScreen] Attempting automatic Play Games sign-in...');
+      try {
+        final user = await _playGamesService.attemptSilentSignIn();
+
+        if (user != null && mounted) {
+          print('[LoadingScreen] ✅ Automatic Play Games sign-in successful!');
+
+          // Check if this is a new user
+          final isNew = await _authService.isNewUser(user.uid);
+
+          if (!mounted) return;
+
+          if (isNew) {
+            // New user - go to profile completion
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => ProfileCompletionScreen(user: user),
+              ),
+            );
+          } else {
+            // Existing user - go to main screen
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainScreen()),
+            );
+          }
+          return;
+        } else {
+          print(
+              '[LoadingScreen] Automatic Play Games sign-in not available, showing manual login options');
+        }
+      } catch (e) {
+        print('[LoadingScreen] Play Games automatic sign-in failed: $e');
+        // Continue to manual login screen
       }
+    }
+
+    // If we get here, automatic sign-in failed or not available
+    // Show onboarding or login screen
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final bool hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
+
+    if (!mounted) return;
+
+    if (hasSeenOnboarding) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+      );
     }
   }
 

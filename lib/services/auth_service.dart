@@ -205,9 +205,16 @@ class AuthService {
         final userData = jsonDecode(response.body);
 
         print(
-            "[AuthService] Fetched profile from backend.User steps : ${userData['todaysStepCount']}");
+            "[AuthService] Fetched profile from backend. Steps: ${userData['todaysStepCount']}");
         final user = UserModel.fromJson(userData);
-        await saveUserSession(user);
+        
+        if (currentUser?.uid == user.userId) {
+           print("[AuthService] Updating local session for CURRENT user.");
+           await saveUserSession(user);
+        } else {
+           print("[AuthService] Fetched OTHER user (Opponent). NOT saving to session.");
+        }
+
         return user;
       } else {
         print("Failed to refresh user profile: ${response.body}");

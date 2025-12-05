@@ -8,6 +8,7 @@ import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
 import '../services/bot_service.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'main_screen.dart';
 
 class BattleScreen extends StatefulWidget {
   const BattleScreen({super.key});
@@ -21,8 +22,10 @@ class _BattleScreenState extends State<BattleScreen> {
   UserModel? _opponentProfile;
   bool _isFetchingData = false;
   final BotService _botService = BotService();
-
   bool _isEndingBattle = false;
+
+  // 1. Add this subscription variable
+  StreamSubscription? _battleStreamSubscription; 
 
   @override
   void initState() {
@@ -30,10 +33,25 @@ class _BattleScreenState extends State<BattleScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchBattleDataIfNeeded();
     });
+
+    // 2. Add this listener to watch for Game End signal
+    final battleService = context.read<ActiveBattleService>();
+    _battleStreamSubscription = battleService.stream.listen((_) {
+      // If the service has a final state, the game is over.
+      if (battleService.finalBattleState != null && mounted) {
+        // Force navigation to MainScreen to show the result dialog
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const MainScreen()),
+          (route) => false,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
+    // 3. Cancel the listener
+    _battleStreamSubscription?.cancel();
     super.dispose();
   }
 

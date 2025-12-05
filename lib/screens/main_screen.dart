@@ -36,21 +36,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   late final StreamSubscription _battleStateSubscription;
-  @override
+@override
   void initState() {
     super.initState();
     final battleService = context.read<ActiveBattleService>();
-    _battleStateSubscription = battleService.stream.listen((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (battleService.finalBattleState != null) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
         _showGameOverDialog(battleService.finalBattleState!);
       }
-      else if (!battleService.isBattleActive &&
+    });
+
+    // 2. Keep your existing listener for background updates
+    _battleStateSubscription = battleService.stream.listen((_) {
+      if (battleService.finalBattleState != null) {
+        // Ensure we are on the base screen before showing dialog
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        _showGameOverDialog(battleService.finalBattleState!);
+      } else if (!battleService.isBattleActive &&
           battleService.currentGame != null) {
         Navigator.of(context).popUntil((route) => route.isFirst);
         _showSimpleBattleEndDialog();
       }
     });
+    
     WidgetsBinding.instance.addObserver(this);
   }
 

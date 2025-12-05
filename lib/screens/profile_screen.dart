@@ -396,6 +396,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileHeader() {
+    // Check if user is signed in with Play Games (we can check if provider is 'playgames.google.com')
+    final isPlayGamesUser = _user!.email?.contains('playgames') ?? false;
+
     return Column(
       children: [
         Stack(
@@ -410,6 +413,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? const Icon(Icons.person, size: 50, color: Colors.white70)
                   : null,
             ),
+            // Play Games badge overlay if signed in via Play Games
+            if (isPlayGamesUser)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey.shade900, width: 2),
+                  ),
+                  child: const Icon(
+                    Icons.sports_esports,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 12),
@@ -442,6 +464,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
         const SizedBox(height: 4),
+        // Show Play Games info if signed in via Play Games
+        if (isPlayGamesUser)
+          Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4CAF50).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+              border:
+                  Border.all(color: const Color(0xFF4CAF50).withOpacity(0.5)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.sports_esports,
+                  size: 14,
+                  color: Color(0xFF4CAF50),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Play Games Player',
+                  style: TextStyle(
+                    color: Colors.green[300],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
         Text(
           _user!.email ?? 'No email provided',
           style: TextStyle(color: Colors.grey.shade400, fontSize: 16),

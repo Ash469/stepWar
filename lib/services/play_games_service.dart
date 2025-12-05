@@ -7,36 +7,93 @@ class PlayGamesService {
   final AuthService _authService = AuthService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  Future<User?> signInWithPlayGames() async {
+  /// Attempt silent sign-in for automatic authentication
+  /// Returns User if successful, null if user needs to manually authenticate
+  Future<User?> attemptSilentSignIn() async {
     try {
-      if (!Platform.isAndroid) return null;
-
-      // 1. Sign in to Native Play Games Service
-      // The error you are seeing happens HERE.
-      // If Part 1 (SHA-1 fix) is done, this line will finally work.
-      // 1. Sign in to Native Play Games Service and get the code directly
-      // In games_services 4.1.1, signIn() returns the auth code if successful
-      final String? serverAuthCode = await GamesServices.signIn();
-
-      if (serverAuthCode == null) {
-        print('Failed to get serverAuthCode from Play Games');
+      if (!Platform.isAndroid) {
+        print('[Play Games] Not on Android, skipping silent sign-in');
         return null;
       }
 
-      print('Got Auth Code. Swapping for Firebase Credential...');
+      // Check if already signed in to Play Games
+      final isSignedIn = await GamesServices.isSignedIn;
+      if (!isSignedIn) {
+        print(
+            '[Play Games] User not signed in to Play Games, attempting sign-in...');
+      }
 
-      // 3. Create Firebase Credential
+      // Attempt to sign in silently
+      final String? serverAuthCode = await GamesServices.signIn();
+
+      if (serverAuthCode == null) {
+        print('[Play Games] Silent sign-in failed - no auth code received');
+        return null;
+      }
+
+      print(
+          '[Play Games] ✅ Silent sign-in successful, authenticating with Firebase...');
+
+      // Create Firebase Credential
       final AuthCredential credential = PlayGamesAuthProvider.credential(
         serverAuthCode: serverAuthCode,
       );
 
-      // 4. Sign in to Firebase
+      // Sign in to Firebase
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
       final user = userCredential.user;
 
       if (user != null) {
-        print('✅ Successfully signed in to Firebase via Play Games!');
+        print(
+            '[Play Games] ✅ Firebase authentication successful for ${user.uid}');
+
+        // Sync user data to backend
+        await _authService.syncUserWithBackend(
+            uid: user.uid, email: user.email);
+
+        if (!(await _authService.isNewUser(user.uid))) {
+          await _authService.cacheUserProfile(user.uid);
+        }
+      }
+
+      return user;
+    } catch (e) {
+      print('[Play Games] Silent sign-in error: $e');
+      // Silent failure - don't throw, just return null
+      return null;
+    }
+  }
+
+  /// Manual sign-in with Play Games (for button-triggered auth)
+  Future<User?> signInWithPlayGames() async {
+    try {
+      if (!Platform.isAndroid) return null;
+
+      print('[Play Games] Starting manual sign-in...');
+
+      final String? serverAuthCode = await GamesServices.signIn();
+
+      if (serverAuthCode == null) {
+        print('[Play Games] Failed to get serverAuthCode from Play Games');
+        return null;
+      }
+
+      print('[Play Games] Got Auth Code. Swapping for Firebase Credential...');
+
+      // Create Firebase Credential
+      final AuthCredential credential = PlayGamesAuthProvider.credential(
+        serverAuthCode: serverAuthCode,
+      );
+
+      // Sign in to Firebase
+      final UserCredential userCredential =
+          await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
+
+      if (user != null) {
+        print(
+            '[Play Games] ✅ Successfully signed in to Firebase via Play Games!');
         // Sync user data to your backend
         await _authService.syncUserWithBackend(
             uid: user.uid, email: user.email);
@@ -48,8 +105,7 @@ class PlayGamesService {
 
       return user;
     } catch (e) {
-      print('Error signing in with Play Games: $e');
-      // If e is "failed_to_authenticate", it means Part 1 is still not fixed.
+      print('[Play Games] Error signing in with Play Games: $e');
       rethrow;
     }
   }
@@ -58,6 +114,7 @@ class PlayGamesService {
   Future<Map<String, dynamic>?> getPlayerInfo() async {
     try {
       if (!Platform.isAndroid) {
+        print('[Play Games] Not on Android, cannot get player info');
         return null;
       }
 
@@ -65,13 +122,28 @@ class PlayGamesService {
       final playerName = await GamesServices.getPlayerName();
       final playerScore = await GamesServices.getPlayerScore();
 
+      // Get player icon/avatar URL (if available)
+      String? avatarUrl;
+      try {
+        // Note: games_services package may not expose avatar directly
+        // You might need to use Play Games REST API for avatar
+        // For now, we'll use a placeholder approach
+        avatarUrl = null; // Will be handled by backend or manual fetch
+      } catch (e) {
+        print('[Play Games] Could not fetch avatar: $e');
+      }
+
+      print(
+          '[Play Games] Player info retrieved - ID: $playerId, Name: $playerName');
+
       return {
         'playerId': playerId,
         'displayName': playerName,
         'score': playerScore,
+        'avatarUrl': avatarUrl,
       };
     } catch (e) {
-      print('Error getting player info: $e');
+      print('[Play Games] Error getting player info: $e');
       return null;
     }
   }

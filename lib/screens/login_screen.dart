@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
 import '../services/auth_service.dart';
-import '../services/play_games_service.dart';
 import 'profile_completion_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -21,9 +20,7 @@ enum LoginState {
 
 class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
-  final PlayGamesService _playGamesService = PlayGamesService();
   bool _isLoading = false;
-  bool _isPlayGamesLoading = false;
   LoginState _loginState = LoginState.initial;
 
   final TextEditingController _emailController = TextEditingController();
@@ -106,31 +103,6 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted && _authService.currentUser == null) {
         setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _signInWithPlayGames() async {
-    setState(() => _isPlayGamesLoading = true);
-    try {
-      final user = await _playGamesService.signInWithPlayGames();
-
-      if (user != null && mounted) {
-        await _navigateAfterLogin();
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Play Games sign-in was cancelled.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Play Games sign-in failed: ${e.toString()}')),
-        );
-      }
-    } finally {
-      if (mounted && _authService.currentUser == null) {
-        setState(() => _isPlayGamesLoading = false);
       }
     }
   }
@@ -289,12 +261,34 @@ class _LoginScreenState extends State<LoginScreen> {
                 color: Colors.black,
                 fontFamily: 'Montserrat',
                 fontWeight: FontWeight.bold)),
-        const SizedBox(height: 30),
-        // Show Play Games button only on Android
-        if (Platform.isAndroid) ...[
-          _buildPlayGamesButton(),
-          const SizedBox(height: 16),
-        ],
+        const SizedBox(height: 20),
+        // Show automatic Play Games info on Android
+        if (Platform.isAndroid)
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.green[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Play Games sign-in is automatic on your next app launch',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green[900],
+                      fontFamily: 'Montserrat',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         _buildButton('Sign in with Email', Icons.email, () {
           setState(() => _loginState = LoginState.enterEmail);
         }),
@@ -491,76 +485,5 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
       );
     }
-  }
-
-  Widget _buildPlayGamesButton() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF4CAF50), // Green
-            Color(0xFF2E7D32), // Dark Green
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.green.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: _isPlayGamesLoading ? null : _signInWithPlayGames,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.white,
-          shadowColor: Colors.transparent,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          minimumSize: const Size(double.infinity, 56),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-        child: _isPlayGamesLoading
-            ? const SizedBox(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeWidth: 2.5,
-                ),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Icon(
-                      Icons.sports_esports,
-                      size: 24,
-                      color: Color(0xFF4CAF50),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Sign in with Play Games',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
   }
 }
