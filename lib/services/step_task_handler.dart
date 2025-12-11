@@ -18,6 +18,7 @@ class StepTaskHandler extends TaskHandler {
   int _steps = 0;
   int? _dailyStepOffset;
   int? _lastKnownDbSteps;
+  int? _localStepCount; // LOCAL STORAGE IS SOURCE OF TRUTH
   int? offsetTimestampMillis;
   String? _offsetDateString;
   bool _isBattleActive = false;
@@ -34,8 +35,8 @@ class StepTaskHandler extends TaskHandler {
     return DateFormat('yyyy-MM-dd').format(DateTime.now());
   }
 
-  final NotificationIcon notificationIcon = const NotificationIcon(
-      metaDataName: '@drawable/ic_notification');
+  final NotificationIcon notificationIcon =
+      const NotificationIcon(metaDataName: '@drawable/ic_notification');
 
   Future<void> _initializePedometerStream() async {
     if (_stepStream != null) return;
@@ -46,25 +47,34 @@ class StepTaskHandler extends TaskHandler {
       try {
         _stepStream = Pedometer.stepCountStream.listen((event) {
           _steps = event.steps;
-          if (_lastSavedPedometerReading > 10 && _steps < _lastSavedPedometerReading && 
+          if (_lastSavedPedometerReading > 10 &&
+              _steps < _lastSavedPedometerReading &&
               (_lastSavedPedometerReading - _steps) > 10) {
-            print('🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=' + _lastSavedPedometerReading.toString() + ', Current=' + _steps.toString());
+            print('🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=' +
+                _lastSavedPedometerReading.toString() +
+                ', Current=' +
+                _steps.toString());
             final int baseline = _lastKnownDbSteps ?? 0;
             final int newOffset = _steps - baseline;
             _dailyStepOffset = newOffset;
             _offsetDateString = _getCurrentDateString();
-            
+
             SharedPreferences.getInstance().then((prefs) async {
               await prefs.setInt('dailyStepOffset', newOffset);
-              await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+              await prefs.setInt('dailyOffsetTimestamp',
+                  DateTime.now().millisecondsSinceEpoch);
               await prefs.setInt('lastPedometerReading', _steps);
-              print('✅ StepTaskHandler: REBOOT FIX APPLIED! NewOffset=' + newOffset.toString() + ' (baseline=' + baseline.toString() + ')');
+              print('✅ StepTaskHandler: REBOOT FIX APPLIED! NewOffset=' +
+                  newOffset.toString() +
+                  ' (baseline=' +
+                  baseline.toString() +
+                  ')');
             }).catchError((e) {
-              print('StepTaskHandler ERROR saving reboot offset: ' + e.toString());
+              print('StepTaskHandler ERROR saving reboot offset: ' +
+                  e.toString());
             });
-            
           }
-          
+
           // Auto-compute offset on first event if missing
           if (_dailyStepOffset == null) {
             final int baseline = _lastKnownDbSteps ?? 0;
@@ -74,17 +84,22 @@ class StepTaskHandler extends TaskHandler {
             _offsetDateString = todayString;
             SharedPreferences.getInstance().then((prefs) async {
               await prefs.setInt('dailyStepOffset', newOffset);
-              await prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+              await prefs.setInt('dailyOffsetTimestamp',
+                  DateTime.now().millisecondsSinceEpoch);
               await prefs.setInt('lastPedometerReading', _steps);
-              print('StepTaskHandler: First pedometer event. Computed offset=' + newOffset.toString() + ' using baseline=' + baseline.toString());
+              print('StepTaskHandler: First pedometer event. Computed offset=' +
+                  newOffset.toString() +
+                  ' using baseline=' +
+                  baseline.toString());
             }).catchError((e) {
-              print('StepTaskHandler ERROR saving first offset: ' + e.toString());
+              print(
+                  'StepTaskHandler ERROR saving first offset: ' + e.toString());
             });
           }
-          
+
           // Continuously save pedometer reading for reboot detection
           _lastSavedPedometerReading = _steps;
-          
+
           _updateAndSendData();
         }, onError: (e) {
           print("StepTaskHandler: Pedometer stream error: $e");
@@ -117,18 +132,25 @@ class StepTaskHandler extends TaskHandler {
       loadedOffset = prefs.getInt('dailyStepOffset');
       offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
       lastSavedReading = prefs.getInt('lastPedometerReading');
+
+      // 🔑 LOAD LOCAL STEP COUNT - THIS IS THE SOURCE OF TRUTH
+      _localStepCount = prefs.getInt('local_step_count');
+
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
       print('StepTaskHandler loaded lastPedometerReading: $lastSavedReading');
+      print(
+          '🔑 StepTaskHandler loaded LOCAL step count: $_localStepCount (SOURCE OF TRUTH)');
     } catch (e) {
       print(
           'StepTaskHandler ERROR reading offset onStart: $e. Treating as null.');
       loadedOffset = null;
       offsetTimestampMillis = null;
       lastSavedReading = null;
+      _localStepCount = null;
     }
     _dailyStepOffset = loadedOffset;
     _lastSavedPedometerReading = lastSavedReading ?? 0;
-    
+
     if (offsetTimestampMillis != null) {
       _offsetDateString = DateFormat('yyyy-MM-dd')
           .format(DateTime.fromMillisecondsSinceEpoch(offsetTimestampMillis!));
@@ -137,16 +159,16 @@ class StepTaskHandler extends TaskHandler {
     }
     print('StepTaskHandler: Offset date initialized to: $_offsetDateString');
     try {
-      final dynamic storedDbSteps =
-          await FlutterForegroundTask.getData(key: 'lastKnownDbSteps');
-      if (storedDbSteps is int) {
+      final prefs = await SharedPreferences.getInstance();
+      final int? storedDbSteps = prefs.getInt('service_last_known_db_steps');
+      if (storedDbSteps != null) {
         _lastKnownDbSteps = storedDbSteps;
         print(
-            'StepTaskHandler loaded lastKnownDbSteps from service storage: $_lastKnownDbSteps');
+            'StepTaskHandler loaded lastKnownDbSteps from SharedPreferences: $_lastKnownDbSteps');
       }
     } catch (e) {
       print(
-          'StepTaskHandler ERROR reading lastKnownDbSteps from service storage: $e.');
+          'StepTaskHandler ERROR reading lastKnownDbSteps from SharedPreferences: $e.');
     }
 
     await _initializePedometerStream();
@@ -154,36 +176,40 @@ class StepTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    if (_stepStream == null)  _initializePedometerStream();
+    if (_stepStream == null) _initializePedometerStream();
     if (_steps > 0) {
       SharedPreferences.getInstance().then((prefs) async {
         await prefs.setInt('lastPedometerReading', _steps);
       }).catchError((_) {});
     }
-    
+
     final String todayString = _getCurrentDateString();
     if (_offsetDateString != null && _offsetDateString != todayString) {
-     print("🌙 [StepTaskHandler] Midnight Detected! Switching from $_offsetDateString to $todayString");
+      print(
+          "🌙 [StepTaskHandler] Midnight Detected! Switching from $_offsetDateString to $todayString");
       final int finalStepsYesterday = _calculateStepsToShow();
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('pending_past_date', _offsetDateString!);
         prefs.setInt('pending_past_steps', finalStepsYesterday);
-        print("💾 [StepTaskHandler] Saved Snapshot: $finalStepsYesterday steps for $_offsetDateString");
-        final int newOffset = _steps; 
+        print(
+            "💾 [StepTaskHandler] Saved Snapshot: $finalStepsYesterday steps for $_offsetDateString");
+        final int newOffset = _steps;
         prefs.setInt('dailyStepOffset', newOffset);
-        prefs.setInt('dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
-        prefs.remove('lastKnownDbSteps'); // Reset baseline for new day
-        
+        prefs.setInt(
+            'dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
+        prefs.remove(
+            'service_last_known_db_steps'); // Reset baseline for new day
+
         _dailyStepOffset = newOffset;
-      _lastKnownDbSteps = 0;
-      _offsetDateString = todayString;
-      _updateAndSendData();
+        _lastKnownDbSteps = 0;
+        _offsetDateString = todayString;
+        _updateAndSendData();
       });
     }
     _attemptBackgroundSync();
   }
 
-Future<void> _attemptBackgroundSync() async {
+  Future<void> _attemptBackgroundSync() async {
     if (_userId == null || _backendUrl == null) {
       _userId = await FlutterForegroundTask.getData(key: 'userId');
       _backendUrl = await FlutterForegroundTask.getData(key: 'backendUrl');
@@ -206,11 +232,11 @@ Future<void> _attemptBackgroundSync() async {
     // 2. Regular Sync (Every 15 minutes)
     final now = DateTime.now();
     if (now.difference(_lastSyncTime).inMinutes >= 15) {
-       final int currentSteps = _calculateStepsToShow();
-       if (currentSteps > 0 || _lastKnownDbSteps != 0) {
-         await _syncCurrentSteps(currentSteps);
-         _lastSyncTime = now;
-       }
+      final int currentSteps = _calculateStepsToShow();
+      if (currentSteps > 0 || _lastKnownDbSteps != 0) {
+        await _syncCurrentSteps(currentSteps);
+        _lastSyncTime = now;
+      }
     }
   }
 
@@ -240,7 +266,6 @@ Future<void> _attemptBackgroundSync() async {
     }
   }
 
-
   @override
   Future<void> onReceiveData(Object data) async {
     print("StepTaskHandler: onReceiveData called with data: $data");
@@ -266,27 +291,32 @@ Future<void> _attemptBackgroundSync() async {
         needsUpdate = true; // Need to recalculate steps with new offset
       } else if (data.containsKey('dbSteps')) {
         final newDbSteps = data['dbSteps'] as int?;
-        if (_lastKnownDbSteps != newDbSteps) {
+
+        // 🔑 LOCAL STORAGE IS SOURCE OF TRUTH - Only accept DB steps if higher
+        if (_localStepCount != null &&
+            newDbSteps != null &&
+            newDbSteps <= _localStepCount!) {
+          print(
+              '🔑 StepTaskHandler: IGNORING dbSteps ($newDbSteps) - Local step count ($_localStepCount) is SOURCE OF TRUTH');
+          // Don't update, local storage takes precedence
+        } else if (_lastKnownDbSteps != newDbSteps) {
           _lastKnownDbSteps = newDbSteps;
           print(
               'StepTaskHandler received dbSteps baseline: $_lastKnownDbSteps');
           try {
+            final prefs = await SharedPreferences.getInstance();
             if (_lastKnownDbSteps != null) {
-              await FlutterForegroundTask.saveData(
-                  key: 'lastKnownDbSteps', value: _lastKnownDbSteps!);
+              await prefs.setInt(
+                  'service_last_known_db_steps', _lastKnownDbSteps!);
               print(
-                  'StepTaskHandler saved lastKnownDbSteps to service storage: $_lastKnownDbSteps');
+                  'StepTaskHandler saved lastKnownDbSteps to SharedPreferences: $_lastKnownDbSteps');
             } else {
-              await FlutterForegroundTask.removeData(key: 'lastKnownDbSteps');
+              await prefs.remove('service_last_known_db_steps');
             }
           } catch (e) {
             print(
-                'StepTaskHandler ERROR saving lastKnownDbSteps to service storage: $e.');
+                'StepTaskHandler ERROR saving lastKnownDbSteps to SharedPreferences: $e.');
           }
-
-          // REMOVED: Offset realignment logic to prevent drastic step drops
-          // Offset should only be recalculated on new day or explicit reboot detection
-          // NOT on every dbSteps update to avoid race conditions and incorrect calculations
 
           needsUpdate = true; // Need to recalculate steps with new baseline
         }
@@ -313,7 +343,16 @@ Future<void> _attemptBackgroundSync() async {
 
   int _calculateStepsToShow() {
     int stepsToShow = 0;
-    if (_dailyStepOffset == null) {
+
+    // 🔑 If we have a local step count, use it as the baseline
+    if (_localStepCount != null && _dailyStepOffset != null) {
+      int calculatedSteps = _steps - _dailyStepOffset!;
+      if (calculatedSteps < 0) calculatedSteps = 0;
+      // Use the higher of calculated steps or local step count
+      stepsToShow = max(calculatedSteps, _localStepCount!);
+      print(
+          "🔑 StepTaskHandler: Using LOCAL step count as baseline: $_localStepCount, calculated: $calculatedSteps, showing: $stepsToShow");
+    } else if (_dailyStepOffset == null) {
       print(
           "StepTaskHandler: Offset is NULL (new day?). Reporting baseline steps: ${_lastKnownDbSteps ?? 0}");
       stepsToShow = _lastKnownDbSteps ?? 0;
@@ -325,17 +364,17 @@ Future<void> _attemptBackgroundSync() async {
     return stepsToShow;
   }
 
-  void _updateAndSendData() {
-    int stepsToShow = 0; // Default to 0
+  void _updateAndSendData() async {
+    int stepsToShow = _calculateStepsToShow();
 
-    if (_dailyStepOffset != null) {
-      int calculatedSteps = _steps - _dailyStepOffset!;
-      if (calculatedSteps < 0) calculatedSteps = 0;
-      stepsToShow = max(calculatedSteps, _lastKnownDbSteps ?? 0);
-    } else {
-      stepsToShow = _lastKnownDbSteps ?? 0;
-      print(
-          "StepTaskHandler: Offset is null, showing baseline steps: $stepsToShow");
+    // 🔑 SAVE LOCAL STEP COUNT - This is the source of truth
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('local_step_count', stepsToShow);
+      _localStepCount = stepsToShow; // Update in-memory value
+      print('🔑 StepTaskHandler: Saved LOCAL step count: $stepsToShow');
+    } catch (e) {
+      print('StepTaskHandler ERROR saving local step count: $e');
     }
 
     _updateNotificationAndData();
@@ -346,7 +385,7 @@ Future<void> _attemptBackgroundSync() async {
     int stepsToShow = _calculateStepsToShow();
     String title;
     String body;
-    
+
     if (_isBattleActive) {
       title = "⚔️ Ongoing Battle!";
       body = "You: $_myScore - Opponent: $_opponentScore | 🕒 $_timeLeftString";
@@ -356,22 +395,22 @@ Future<void> _attemptBackgroundSync() async {
       body = "Steps today: $stepsToShow 👣";
       if (stepsToShow > 10000) {
         title = "🏅 StepWars Elite!";
-        body = "Boom! $stepsToShow steps achieved! Time to rest those legs 😎";
+        body = "Boom! $stepsToShow steps achieved!😎";
       } else if (stepsToShow > 5000) {
         title = "🚀 StepWars Rising Star!";
-        body = "Awesome! $stepsToShow steps done — halfway to glory 🌟";
+        body = "Awesome! $stepsToShow steps done 🌟";
       }
     }
 
     // Create notification with action buttons
     final notificationButtons = <NotificationButton>[];
-    
-    // Add cancel button only when not in battle
-    if (!_isBattleActive) {
-      notificationButtons.add(
-        NotificationButton(id: 'cancel', text: 'Cancel'),
-      );
-    }
+
+    // // Add cancel button only when not in battle
+    // if (!_isBattleActive) {
+    //   notificationButtons.add(
+    //     NotificationButton(id: 'cancel', text: 'Cancel'),
+    //   );
+    // }
 
     FlutterForegroundTask.updateService(
       notificationTitle: title,

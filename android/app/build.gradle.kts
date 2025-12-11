@@ -34,8 +34,8 @@ android {
         applicationId = "com.stepwars.stepwarsnew_app"
         minSdkVersion(26)
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.0"
+        versionCode = 5
+        versionName = "1.0.1"
         multiDexEnabled = true
     }
 
@@ -75,4 +75,5 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.4.0")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.android.gms:play-services-games-v2:19.0.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
 }

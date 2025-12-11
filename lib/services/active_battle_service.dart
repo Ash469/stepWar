@@ -298,14 +298,14 @@ class ActiveBattleService with ChangeNotifier {
   Future<void> endBattle() async {
     if (_currentGame == null) return;
     if (_isEndingBattle) return;
-    
+
     _isEndingBattle = true;
     _isGameOver = true;
     notifyListeners();
-    
+
     int p1Score = _currentGame!.player1Score;
     int p2Score = _currentGame!.player2Score;
-    
+
     try {
       if (_currentGame!.gameId.isEmpty) {
         throw Exception('Invalid game ID');
@@ -320,7 +320,8 @@ class ActiveBattleService with ChangeNotifier {
     } catch (e) {
       String gameType = 'UNKNOWN';
       if (_currentGame != null) {
-        if (_currentGame!.player2Id != null && _currentGame!.player2Id!.startsWith('bot_')) {
+        if (_currentGame!.player2Id != null &&
+            _currentGame!.player2Id!.startsWith('bot_')) {
           gameType = 'BOT';
         } else if (_currentGame!.player2Id != null) {
           gameType = 'PVP';
@@ -339,13 +340,13 @@ class ActiveBattleService with ChangeNotifier {
       _isEndingBattle = false;
       notifyListeners();
     }
-    
+
     _sendBattleStateToTask();
-    
+
     // Explicitly notify MainScreen
     if (_finalBattleState != null) {
-       notifyListeners();
-       _controller.add(null);
+      notifyListeners();
+      _controller.add(null);
     } else {
       _cleanup();
       _gameId = null;

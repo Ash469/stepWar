@@ -14,7 +14,9 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/game_service.dart';
 import '../services/step_counting.dart';
+import '../services/permission_service.dart';
 import '../widget/footer.dart';
+import '../widgets/permission_bottom_sheet.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
 import 'matchmaking_screen.dart';
@@ -244,30 +246,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _retryPedometerPermission() async {
-    final status = await Permission.activityRecognition.request();
-    if (status.isGranted) {
-      if (mounted) {
-        setState(() {
-          _isPedometerPermissionGranted = true;
-        });
-        // Re-initialize step counter
-        _initStepCounter(_user);
-      }
-    } else if (status.isPermanentlyDenied) {
-      openAppSettings();
-    }
+  Future<void> _showPermissionSheet() async {
+    await PermissionBottomSheet.show(
+      context,
+      showCloseButton: true,
+      onAllGranted: () {
+        // Reload permission status
+        _loadPermissionStatus();
+      },
+    );
+    // Reload after sheet is closed
+    await _loadPermissionStatus();
   }
 
-  Future<void> _retryBatteryOptimization() async {
-    final result =
-        await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+  Future<void> _loadPermissionStatus() async {
+    final activityStatus = await Permission.activityRecognition.status;
+    final batteryOptimization =
+        await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+
     if (mounted) {
-      final isEnabled =
-          await FlutterForegroundTask.isIgnoringBatteryOptimizations;
       setState(() {
-        _isBatteryOptimizationEnabled = isEnabled;
+        _isPedometerPermissionGranted = activityStatus.isGranted;
+        _isBatteryOptimizationEnabled = batteryOptimization;
       });
+
+      // Re-initialize step counter if permission was just granted
+      if (activityStatus.isGranted) {
+        _initStepCounter(_user);
+      }
     }
   }
 
@@ -644,8 +650,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _sendDbStepsToService(int? steps) {
+  void _sendDbStepsToService(int? steps) async {
     if (steps != null && mounted) {
+      // 🔑 Check local storage first - it's the source of truth
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final localStepCount = prefs.getInt('local_step_count');
+
+        if (localStepCount != null && steps <= localStepCount) {
+          print(
+            "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) is SOURCE OF TRUTH",
+          );
+          // Don't send database steps, local storage takes precedence
+          return;
+        } else if (localStepCount != null && steps > localStepCount) {
+          print(
+            "[HomeScreen] DB steps ($steps) are higher than local ($localStepCount). Sending to service (possible sync from another device).",
+          );
+        } else {
+          print(
+            "[HomeScreen] No local step count found. Sending DB steps ($steps) to StepProvider.",
+          );
+        }
+      } catch (e) {
+        print("[HomeScreen] Error checking local step count: $e");
+      }
+
       print("[HomeScreen] Sending DB steps ($steps) to StepProvider.");
       context.read<StepProvider>().sendDbStepsToService(steps);
     } else {
@@ -1276,97 +1306,92 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       username: safeUser.username ?? 'User',
                       coins: safeUser.coins ?? 0,
                     ),
-                    if (!_isPedometerPermissionGranted)
+                    if (!_isPedometerPermissionGranted ||
+                        !_isBatteryOptimizationEnabled)
                       Container(
                         margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
-                          border: Border.all(color: Colors.redAccent),
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFFFFC107).withOpacity(0.15),
+                              const Color(0xFFFF9800).withOpacity(0.1),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          border: Border.all(
+                            color: const Color(0xFFFFC107).withOpacity(0.3),
+                            width: 1.5,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.redAccent,
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFC107).withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.security,
+                                color: Color(0xFFFFC107),
+                                size: 24,
+                              ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 16),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    "Permission Required",
+                                    "Permissions Needed",
                                     style: TextStyle(
-                                      color: Colors.redAccent,
+                                      color: Colors.white,
                                       fontWeight: FontWeight.bold,
+                                      fontSize: 15,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  const Text(
-                                    "Step counting needs physical activity permission.",
-                                    style: TextStyle(
+                                  Text(
+                                    !_isPedometerPermissionGranted
+                                        ? "Grant permissions for full app experience"
+                                        : "Battery optimization needed for background tracking",
+                                    style: const TextStyle(
                                       color: Colors.white70,
-                                      fontSize: 12,
+                                      fontSize: 13,
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                            TextButton(
-                              onPressed: _retryPedometerPermission,
-                              child: const Text("Enable"),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (!_isBatteryOptimizationEnabled)
-                      Container(
-                        margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          border: Border.all(color: Colors.orangeAccent),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.battery_alert,
-                              color: Colors.orangeAccent,
                             ),
                             const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Battery Optimization",
-                                    style: TextStyle(
-                                      color: Colors.orangeAccent,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text(
-                                    "Disable battery optimization for accurate step counting.",
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
+                            ElevatedButton(
+                              onPressed: _showPermissionSheet,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFFC107),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                elevation: 0,
                               ),
-                            ),
-                            TextButton(
-                              onPressed: _retryBatteryOptimization,
-                              child: const Text("Enable"),
+                              child: const Text(
+                                "Fix",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    const SizedBox(height: 16),
                     Consumer<StepProvider>(
                       builder: (context, stepProvider, child) {
                         return StepCounterCard(

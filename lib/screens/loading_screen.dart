@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stepwars_app/screens/main_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../services/auth_service.dart';
 import '../services/play_games_service.dart';
 import 'onboarding_screen.dart';
@@ -32,9 +30,6 @@ class _LoadingScreenState extends State<LoadingScreen> {
     await Future.delayed(const Duration(seconds: 3));
 
     if (!mounted) return;
-
-    // Request core permissions before proceeding
-    await _requestCorePermissions();
 
     // Check if user is already logged in (any provider)
     final bool loggedIn = await _authService.isLoggedIn();
@@ -100,22 +95,6 @@ class _LoadingScreenState extends State<LoadingScreen> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const OnboardingScreen()),
       );
-    }
-  }
-
-  Future<void> _requestCorePermissions() async {
-    // 1. Activity Recognition Permission (Pedometer)
-    var activityStatus = await Permission.activityRecognition.status;
-    if (!activityStatus.isGranted) {
-      activityStatus = await Permission.activityRecognition.request();
-    }
-
-    // Small delay to ensure the permission dialog is fully processed
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    // 2. Ignore Battery Optimizations (Foreground Service)
-    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
-      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
     }
   }
 

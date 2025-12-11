@@ -1,6 +1,7 @@
 // ignore_for_file: unused_import
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
 import 'profile_screen.dart';
@@ -10,6 +11,8 @@ import '../models/user_model.dart';
 import '../models/battle_rb.dart';
 import '../services/active_battle_service.dart';
 import '../services/auth_service.dart';
+import '../services/permission_service.dart';
+import '../widgets/permission_bottom_sheet.dart';
 import 'bot_selection_screen.dart';
 import 'matchmaking_screen.dart';
 import 'waiting_for_friend_screen.dart';
@@ -36,14 +39,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   late final StreamSubscription _battleStateSubscription;
-@override
+  @override
   void initState() {
     super.initState();
     final battleService = context.read<ActiveBattleService>();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (battleService.finalBattleState != null) {
         _showGameOverDialog(battleService.finalBattleState!);
       }
+
+      // Show permission bottom sheet after login
+      await _checkAndShowPermissions();
     });
 
     // 2. Keep your existing listener for background updates
@@ -58,7 +64,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _showSimpleBattleEndDialog();
       }
     });
-    
+
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -67,6 +73,37 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _battleStateSubscription.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _checkAndShowPermissions() async {
+    // Check if we've already shown permissions this session
+    final prefs = await SharedPreferences.getInstance();
+    final hasShownThisSession =
+        prefs.getBool('permissionsShownThisSession') ?? false;
+
+    if (hasShownThisSession) {
+      // Already shown this session, skip
+      return;
+    }
+
+    // Check if all permissions are already granted
+    final allGranted = await PermissionService.areAllPermissionsGranted();
+
+    if (!allGranted && mounted) {
+      // Mark as shown for this session
+      await prefs.setBool('permissionsShownThisSession', true);
+
+      // Small delay to ensure UI is ready
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (!mounted) return;
+
+      // Show permission bottom sheet
+      await PermissionBottomSheet.show(
+        context,
+        showCloseButton: true,
+      );
+    }
   }
 
   @override
