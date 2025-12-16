@@ -37,6 +37,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../services/step_task_handler.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import '../providers/step_provider.dart';
+import 'google_fit_stats_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -656,10 +657,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       try {
         final prefs = await SharedPreferences.getInstance();
         final localStepCount = prefs.getInt('local_step_count');
+        final localStepCountDate = prefs.getString('local_step_count_date');
+        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-        if (localStepCount != null && steps <= localStepCount) {
+        // 🔑 VALIDATE LOCAL STEP COUNT DATE
+        if (localStepCountDate != null && localStepCountDate != today) {
           print(
-            "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) is SOURCE OF TRUTH",
+            "🗓️ [HomeScreen] Local step count is from $localStepCountDate, but today is $today. Clearing outdated local count.",
+          );
+          await prefs.remove('local_step_count');
+          await prefs.remove('local_step_count_date');
+          // Proceed with DB steps since local count is outdated
+        } else if (localStepCount != null &&
+            localStepCountDate == today &&
+            steps <= localStepCount) {
+          print(
+            "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) from today is SOURCE OF TRUTH",
           );
           // Don't send database steps, local storage takes precedence
           return;
@@ -1438,6 +1451,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             );
           },
         ),
+      ),
+      floatingActionButton: Consumer<StepProvider>(
+        builder: (context, stepProvider, child) {
+          // Show Google Fit button for all users
+          return FloatingActionButton.extended(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const GoogleFitStatsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.bar_chart),
+            label: const Text('Google Fit'),
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+          );
+        },
       ),
     );
   }

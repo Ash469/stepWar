@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'google_fit_service.dart';
 
 @pragma('vm:entry-point')
 void startCallback() {
@@ -19,6 +20,7 @@ class StepTaskHandler extends TaskHandler {
   int? _dailyStepOffset;
   int? _lastKnownDbSteps;
   int? _localStepCount; // LOCAL STORAGE IS SOURCE OF TRUTH
+  String? _localStepCountDate; // Date of the local step count (yyyy-MM-dd)
   int? offsetTimestampMillis;
   String? _offsetDateString;
   bool _isBattleActive = false;
@@ -31,6 +33,11 @@ class StepTaskHandler extends TaskHandler {
   String? _userId;
   String? _backendUrl;
   DateTime _lastSyncTime = DateTime.now().subtract(const Duration(minutes: 20));
+  DateTime _lastGoogleFitSync =
+      DateTime.now().subtract(const Duration(minutes: 20));
+  final GoogleFitService _googleFitService = GoogleFitService();
+  bool _googleFitEnabled = false;
+
   String _getCurrentDateString() {
     return DateFormat('yyyy-MM-dd').format(DateTime.now());
   }
@@ -135,11 +142,23 @@ class StepTaskHandler extends TaskHandler {
 
       // 🔑 LOAD LOCAL STEP COUNT - THIS IS THE SOURCE OF TRUTH
       _localStepCount = prefs.getInt('local_step_count');
+      _localStepCountDate = prefs.getString('local_step_count_date');
+
+      // 🔑 VALIDATE LOCAL STEP COUNT DATE
+      final today = _getCurrentDateString();
+      if (_localStepCountDate != null && _localStepCountDate != today) {
+        print(
+            '🗓️ StepTaskHandler: Local step count is from $_localStepCountDate, but today is $today. Clearing outdated local count.');
+        await prefs.remove('local_step_count');
+        await prefs.remove('local_step_count_date');
+        _localStepCount = null;
+        _localStepCountDate = null;
+      }
 
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
       print('StepTaskHandler loaded lastPedometerReading: $lastSavedReading');
       print(
-          '🔑 StepTaskHandler loaded LOCAL step count: $_localStepCount (SOURCE OF TRUTH)');
+          '🔑 StepTaskHandler loaded LOCAL step count: $_localStepCount (date: $_localStepCountDate)');
     } catch (e) {
       print(
           'StepTaskHandler ERROR reading offset onStart: $e. Treating as null.');
@@ -147,6 +166,7 @@ class StepTaskHandler extends TaskHandler {
       offsetTimestampMillis = null;
       lastSavedReading = null;
       _localStepCount = null;
+      _localStepCountDate = null;
     }
     _dailyStepOffset = loadedOffset;
     _lastSavedPedometerReading = lastSavedReading ?? 0;
@@ -172,6 +192,31 @@ class StepTaskHandler extends TaskHandler {
     }
 
     await _initializePedometerStream();
+    await _initializeGoogleFit();
+  }
+
+  /// Initialize Google Fit for background sync
+  Future<void> _initializeGoogleFit() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _googleFitEnabled = prefs.getBool('google_fit_enabled') ?? false;
+
+      if (_googleFitEnabled) {
+        final initialized = await _googleFitService.initialize();
+        if (initialized) {
+          final hasPerms = await _googleFitService.hasPermissions();
+          if (hasPerms) {
+            print(
+                '[StepTaskHandler] Google Fit initialized for background sync');
+          } else {
+            _googleFitEnabled = false;
+          }
+        }
+      }
+    } catch (e) {
+      print('[StepTaskHandler] Error initializing Google Fit: $e');
+      _googleFitEnabled = false;
+    }
   }
 
   @override
@@ -200,13 +245,21 @@ class StepTaskHandler extends TaskHandler {
         prefs.remove(
             'service_last_known_db_steps'); // Reset baseline for new day
 
+        // 🔑 CLEAR LOCAL STEP COUNT ON NEW DAY
+        prefs.remove('local_step_count');
+        prefs.remove('local_step_count_date');
+        print("🗓️ [StepTaskHandler] Cleared local step count for new day");
+
         _dailyStepOffset = newOffset;
         _lastKnownDbSteps = 0;
+        _localStepCount = null;
+        _localStepCountDate = null;
         _offsetDateString = todayString;
         _updateAndSendData();
       });
     }
     _attemptBackgroundSync();
+    _attemptGoogleFitSync();
   }
 
   Future<void> _attemptBackgroundSync() async {
@@ -236,6 +289,41 @@ class StepTaskHandler extends TaskHandler {
       if (currentSteps > 0 || _lastKnownDbSteps != 0) {
         await _syncCurrentSteps(currentSteps);
         _lastSyncTime = now;
+      }
+    }
+  }
+
+  /// Attempt to sync with Google Fit (every 15 minutes)
+  Future<void> _attemptGoogleFitSync() async {
+    if (!_googleFitEnabled) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastGoogleFitSync).inMinutes >= 15) {
+      try {
+        // Get today's steps from Google Fit
+        final googleFitSteps = await _googleFitService.getTodaySteps();
+
+        if (googleFitSteps > 0) {
+          final currentSteps = _calculateStepsToShow();
+
+          // If Google Fit has more steps, update our local count
+          if (googleFitSteps > currentSteps) {
+            print(
+                '[StepTaskHandler] Google Fit sync: $googleFitSteps steps (current: $currentSteps)');
+
+            // Update local step count
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setInt('local_step_count', googleFitSteps);
+            _localStepCount = googleFitSteps;
+
+            // Trigger UI update
+            _updateAndSendData();
+          }
+        }
+
+        _lastGoogleFitSync = now;
+      } catch (e) {
+        print('[StepTaskHandler] Error syncing with Google Fit: $e');
       }
     }
   }
@@ -292,12 +380,14 @@ class StepTaskHandler extends TaskHandler {
       } else if (data.containsKey('dbSteps')) {
         final newDbSteps = data['dbSteps'] as int?;
 
-        // 🔑 LOCAL STORAGE IS SOURCE OF TRUTH - Only accept DB steps if higher
+        // 🔑 LOCAL STORAGE IS SOURCE OF TRUTH - Only accept DB steps if higher AND from today
+        final today = _getCurrentDateString();
         if (_localStepCount != null &&
+            _localStepCountDate == today &&
             newDbSteps != null &&
             newDbSteps <= _localStepCount!) {
           print(
-              '🔑 StepTaskHandler: IGNORING dbSteps ($newDbSteps) - Local step count ($_localStepCount) is SOURCE OF TRUTH');
+              '🔑 StepTaskHandler: IGNORING dbSteps ($newDbSteps) - Local step count ($_localStepCount) from today is SOURCE OF TRUTH');
           // Don't update, local storage takes precedence
         } else if (_lastKnownDbSteps != newDbSteps) {
           _lastKnownDbSteps = newDbSteps;
@@ -370,9 +460,13 @@ class StepTaskHandler extends TaskHandler {
     // 🔑 SAVE LOCAL STEP COUNT - This is the source of truth
     try {
       final prefs = await SharedPreferences.getInstance();
+      final today = _getCurrentDateString();
       await prefs.setInt('local_step_count', stepsToShow);
+      await prefs.setString('local_step_count_date', today);
       _localStepCount = stepsToShow; // Update in-memory value
-      print('🔑 StepTaskHandler: Saved LOCAL step count: $stepsToShow');
+      _localStepCountDate = today; // Update in-memory date
+      print(
+          '🔑 StepTaskHandler: Saved LOCAL step count: $stepsToShow (date: $today)');
     } catch (e) {
       print('StepTaskHandler ERROR saving local step count: $e');
     }
