@@ -660,21 +660,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final localStepCountDate = prefs.getString('local_step_count_date');
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-        // 🔑 VALIDATE LOCAL STEP COUNT DATE
+        // 🔑 VALIDATE LOCAL STEP COUNT DATE - Only clear if from PREVIOUS day
         if (localStepCountDate != null && localStepCountDate != today) {
+          try {
+            final localDate = DateTime.parse(localStepCountDate);
+            final todayDate = DateTime.parse(today);
+
+            if (localDate.isBefore(todayDate)) {
+              print(
+                "🗓️ [HomeScreen] Local step count is from PREVIOUS day $localStepCountDate, clearing it. Today is $today.",
+              );
+              await prefs.remove('local_step_count');
+              await prefs.remove('local_step_count_date');
+              // Proceed with DB steps since local count is from previous day
+            } else {
+              print(
+                "🗓️ [HomeScreen] Local step count date $localStepCountDate is valid.",
+              );
+              // Don't clear, it's from today or future
+              if (steps <= localStepCount!) {
+                print(
+                  "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) from today is SOURCE OF TRUTH",
+                );
+                return;
+              }
+            }
+          } catch (e) {
+            print("[HomeScreen] Error parsing dates: $e. Keeping local count.");
+            if (localStepCount != null && steps <= localStepCount) {
+              return; // Keep local count on error
+            }
+          }
+        } else if (localStepCountDate == null && localStepCount != null) {
+          // No date but have count - assume it's from today
           print(
-            "🗓️ [HomeScreen] Local step count is from $localStepCountDate, but today is $today. Clearing outdated local count.",
+            "[HomeScreen] Local step count has no date, assuming today.",
           );
-          await prefs.remove('local_step_count');
-          await prefs.remove('local_step_count_date');
-          // Proceed with DB steps since local count is outdated
+          await prefs.setString('local_step_count_date', today);
+          if (steps <= localStepCount) {
+            print(
+              "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) is SOURCE OF TRUTH",
+            );
+            return;
+          }
         } else if (localStepCount != null &&
             localStepCountDate == today &&
             steps <= localStepCount) {
           print(
             "🔑 [HomeScreen] IGNORING DB steps ($steps) - Local step count ($localStepCount) from today is SOURCE OF TRUTH",
           );
-          // Don't send database steps, local storage takes precedence
           return;
         } else if (localStepCount != null && steps > localStepCount) {
           print(

@@ -7,6 +7,7 @@ import '../providers/step_provider.dart';
 import '../models/step_stats_model.dart';
 import '../models/user_model.dart';
 import '../const/app_theme.dart';
+import '../services/google_fit_service.dart';
 
 /// Professional Google Fit Statistics Screen with interactive charts
 class GoogleFitStatsScreen extends StatefulWidget {
@@ -88,6 +89,23 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
           style: AppTextStyles.titleLarge.copyWith(color: Colors.white),
         ),
         actions: [
+          // 🐛 DEBUG: Test Health Connect data
+          IconButton(
+            icon: const Icon(Icons.bug_report, color: Colors.red),
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content:
+                      Text('🐛 Testing Health Connect... Check console logs!'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+              // Call the debug method to test Health Connect data
+              await GoogleFitService().debugHealthConnectData();
+            },
+            tooltip: '🐛 Debug Health Connect',
+          ),
           // 🧪 TEST DATA BUTTON (for UI testing)
           IconButton(
             icon: const Icon(Icons.science, color: Colors.amber),

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:intl/intl.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:pedometer/pedometer.dart';
@@ -61,7 +60,8 @@ class StepTaskHandler extends TaskHandler {
                 _lastSavedPedometerReading.toString() +
                 ', Current=' +
                 _steps.toString());
-            final int baseline = _lastKnownDbSteps ?? 0;
+            // 🔑 Use LOCAL step count as baseline if available, otherwise use DB steps
+            final int baseline = _localStepCount ?? _lastKnownDbSteps ?? 0;
             final int newOffset = _steps - baseline;
             _dailyStepOffset = newOffset;
             _offsetDateString = _getCurrentDateString();
@@ -75,6 +75,8 @@ class StepTaskHandler extends TaskHandler {
                   newOffset.toString() +
                   ' (baseline=' +
                   baseline.toString() +
+                  ', localStepCount=' +
+                  (_localStepCount?.toString() ?? 'null') +
                   ')');
             }).catchError((e) {
               print('StepTaskHandler ERROR saving reboot offset: ' +
@@ -84,7 +86,8 @@ class StepTaskHandler extends TaskHandler {
 
           // Auto-compute offset on first event if missing
           if (_dailyStepOffset == null) {
-            final int baseline = _lastKnownDbSteps ?? 0;
+            // 🔑 Use LOCAL step count as baseline if available, otherwise use DB steps
+            final int baseline = _localStepCount ?? _lastKnownDbSteps ?? 0;
             final String todayString = _getCurrentDateString();
             final int newOffset = _steps - baseline;
             _dailyStepOffset = newOffset;
@@ -97,7 +100,10 @@ class StepTaskHandler extends TaskHandler {
               print('StepTaskHandler: First pedometer event. Computed offset=' +
                   newOffset.toString() +
                   ' using baseline=' +
-                  baseline.toString());
+                  baseline.toString() +
+                  ' (localStepCount=' +
+                  (_localStepCount?.toString() ?? 'null') +
+                  ')');
             }).catchError((e) {
               print(
                   'StepTaskHandler ERROR saving first offset: ' + e.toString());
@@ -144,15 +150,44 @@ class StepTaskHandler extends TaskHandler {
       _localStepCount = prefs.getInt('local_step_count');
       _localStepCountDate = prefs.getString('local_step_count_date');
 
-      // 🔑 VALIDATE LOCAL STEP COUNT DATE
+      // 🔑 VALIDATE LOCAL STEP COUNT DATE - Only clear if from PREVIOUS day
       final today = _getCurrentDateString();
       if (_localStepCountDate != null && _localStepCountDate != today) {
+        // Check if it's actually from a previous day (not just missing date)
+        try {
+          final localDate = DateTime.parse(_localStepCountDate!);
+          final todayDate = DateTime.parse(today);
+
+          if (localDate.isBefore(todayDate)) {
+            print(
+                '🗓️ StepTaskHandler: Local step count is from PREVIOUS day $_localStepCountDate, clearing it. Today is $today.');
+            await prefs.remove('local_step_count');
+            await prefs.remove('local_step_count_date');
+            _localStepCount = null;
+            _localStepCountDate = null;
+          } else if (localDate.isAfter(todayDate)) {
+            // Future date - user changed device time backwards
+            print(
+                '⚠️ StepTaskHandler: Local step count is from FUTURE date $_localStepCountDate, clearing it. Today is $today.');
+            await prefs.remove('local_step_count');
+            await prefs.remove('local_step_count_date');
+            _localStepCount = null;
+            _localStepCountDate = null;
+          } else {
+            print(
+                '🗓️ StepTaskHandler: Local step count date $_localStepCountDate is valid (same day).');
+          }
+        } catch (e) {
+          print(
+              'StepTaskHandler: Error parsing dates: $e. Keeping local count since we cannot confirm it is outdated.');
+          // Don't clear - we can't confirm the date is wrong
+        }
+      } else if (_localStepCountDate == null && _localStepCount != null) {
+        // No date stored but we have a count - assume it's from today and add the date
         print(
-            '🗓️ StepTaskHandler: Local step count is from $_localStepCountDate, but today is $today. Clearing outdated local count.');
-        await prefs.remove('local_step_count');
-        await prefs.remove('local_step_count_date');
-        _localStepCount = null;
-        _localStepCountDate = null;
+            '🔑 StepTaskHandler: Local step count has no date, assuming today and adding date.');
+        await prefs.setString('local_step_count_date', today);
+        _localStepCountDate = today;
       }
 
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
@@ -382,6 +417,19 @@ class StepTaskHandler extends TaskHandler {
 
         // 🔑 LOCAL STORAGE IS SOURCE OF TRUTH - Only accept DB steps if higher AND from today
         final today = _getCurrentDateString();
+
+        // First, validate that local count is from today
+        if (_localStepCount != null && _localStepCountDate != today) {
+          print(
+              '⚠️ StepTaskHandler: Local step count date ($_localStepCountDate) != today ($today). Clearing outdated local count.');
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('local_step_count');
+          await prefs.remove('local_step_count_date');
+          _localStepCount = null;
+          _localStepCountDate = null;
+        }
+
+        // Now check if we should ignore DB steps
         if (_localStepCount != null &&
             _localStepCountDate == today &&
             newDbSteps != null &&
@@ -432,26 +480,25 @@ class StepTaskHandler extends TaskHandler {
   }
 
   int _calculateStepsToShow() {
-    int stepsToShow = 0;
+    // 🔑 OPTION A: Always use raw calculated pedometer value
+    // This value updates continuously with every step
 
-    // 🔑 If we have a local step count, use it as the baseline
-    if (_localStepCount != null && _dailyStepOffset != null) {
-      int calculatedSteps = _steps - _dailyStepOffset!;
-      if (calculatedSteps < 0) calculatedSteps = 0;
-      // Use the higher of calculated steps or local step count
-      stepsToShow = max(calculatedSteps, _localStepCount!);
+    if (_dailyStepOffset == null) {
+      // No offset yet (app just started, waiting for first pedometer event)
+      // Return 0 until we get pedometer data
       print(
-          "🔑 StepTaskHandler: Using LOCAL step count as baseline: $_localStepCount, calculated: $calculatedSteps, showing: $stepsToShow");
-    } else if (_dailyStepOffset == null) {
-      print(
-          "StepTaskHandler: Offset is NULL (new day?). Reporting baseline steps: ${_lastKnownDbSteps ?? 0}");
-      stepsToShow = _lastKnownDbSteps ?? 0;
-    } else {
-      int calculatedSteps = _steps - _dailyStepOffset!;
-      if (calculatedSteps < 0) calculatedSteps = 0;
-      stepsToShow = max(calculatedSteps, _lastKnownDbSteps ?? 0);
+          "StepTaskHandler: Offset is NULL (waiting for pedometer). Showing: 0");
+      return 0;
     }
-    return stepsToShow;
+
+    int calculatedSteps = _steps - _dailyStepOffset!;
+    if (calculatedSteps < 0) {
+      calculatedSteps = 0;
+    }
+
+    print(
+        "🔢 StepTaskHandler: Raw pedometer value: $_steps - $_dailyStepOffset = $calculatedSteps steps");
+    return calculatedSteps;
   }
 
   void _updateAndSendData() async {
