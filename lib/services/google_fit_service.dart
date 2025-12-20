@@ -53,6 +53,35 @@ class GoogleFitService {
     }
   }
 
+  /// Check if Health Connect is available on this device
+  Future<bool> isHealthConnectAvailable() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    try {
+      final available = await _health!.isHealthConnectAvailable();
+      print('[GoogleFitService] Health Connect available: $available');
+      return available;
+    } catch (e) {
+      print(
+          '[GoogleFitService] Error checking Health Connect availability: $e');
+      return false;
+    }
+  }
+
+  /// Prompt the user to install Health Connect from the Play Store
+  Future<void> installHealthConnect() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    try {
+      await _health!.installHealthConnect();
+      print('[GoogleFitService] Prompted user to install Health Connect');
+    } catch (e) {
+      print('[GoogleFitService] Error installing Health Connect: $e');
+    }
+  }
+
   /// Request authorization for step data
   Future<bool> requestAuthorization() async {
     if (!_isInitialized) {
@@ -61,6 +90,15 @@ class GoogleFitService {
     }
 
     try {
+      // First check if Health Connect is available
+      final isAvailable = await isHealthConnectAvailable();
+      if (!isAvailable) {
+        print(
+            '[GoogleFitService] Health Connect not available, prompting installation...');
+        await installHealthConnect();
+        return false; // Return false since user needs to install first
+      }
+
       // Define the types of health data we want to access
       final types = [
         HealthDataType.STEPS,
