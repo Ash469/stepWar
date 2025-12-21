@@ -34,8 +34,8 @@ android {
         applicationId = "com.stepwars.stepwarsnew_app"
         minSdkVersion(26)
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.2"
+        versionCode = 7
+        versionName = "1.1.0"
         multiDexEnabled = true
     }
 
