@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'google_fit_service.dart';
+import 'step_history_service.dart';
 
 @pragma('vm:entry-point')
 void startCallback() {
@@ -18,7 +19,7 @@ class StepTaskHandler extends TaskHandler {
   int _steps = 0;
   int? _dailyStepOffset;
   int? _lastKnownDbSteps;
-  int? _localStepCount; // LOCAL STORAGE IS SOURCE OF TRUTH
+  int? _localStepCount;
   String? _localStepCountDate; // Date of the local step count (yyyy-MM-dd)
   int? offsetTimestampMillis;
   String? _offsetDateString;
@@ -28,7 +29,8 @@ class StepTaskHandler extends TaskHandler {
   String _timeLeftString = '';
   int _lastSavedPedometerReading = 0;
 
-  // --- Sync Variables ---
+  final StepHistoryService _historyService = StepHistoryService();
+
   String? _userId;
   String? _backendUrl;
   DateTime _lastSyncTime = DateTime.now().subtract(const Duration(minutes: 20));
@@ -56,9 +58,30 @@ class StepTaskHandler extends TaskHandler {
 
           bool rebootDetected = false;
           // Condition 1: Steps dropped significantly vs last saved reading
+
+          bool rebootDetected = false;
+          // Condition 1: Steps dropped significantly vs last saved reading
           if (_lastSavedPedometerReading > 10 &&
               _steps < _lastSavedPedometerReading &&
               (_lastSavedPedometerReading - _steps) > 10) {
+            rebootDetected = true;
+          }
+          // Condition 2: Steps are less than current offset (Mathematical impossibility in same session)
+          if (_dailyStepOffset != null && _steps < _dailyStepOffset!) {
+            print(
+                "StepTaskHandler: Reboot Detected via Offset Check! Steps: $_steps < Offset: $_dailyStepOffset");
+            rebootDetected = true;
+          }
+
+          int currentCalculated = _steps - (_dailyStepOffset ?? 0);
+          if (_localStepCount != null &&
+              currentCalculated < (_localStepCount! - 10)) {
+            print(
+                "StepTaskHandler: Reboot Detected via Local Count Check! Calculated: $currentCalculated < Local: $_localStepCount");
+            rebootDetected = true;
+          }
+
+          if (rebootDetected) {
             rebootDetected = true;
           }
           // Condition 2: Steps are less than current offset (Mathematical impossibility in same session)
@@ -81,6 +104,13 @@ class StepTaskHandler extends TaskHandler {
                 _lastSavedPedometerReading.toString() +
                 ', Current=' +
                 _steps.toString());
+
+            // 🔑 REBOOT RESUME: Use local step count as baseline if available and higher than DB
+            int baseline = _lastKnownDbSteps ?? 0;
+            if (_localStepCount != null && _localStepCount! > baseline) {
+              baseline = _localStepCount!;
+            }
+
 
             // 🔑 REBOOT RESUME: Use local step count as baseline if available and higher than DB
             int baseline = _lastKnownDbSteps ?? 0;
@@ -112,6 +142,12 @@ class StepTaskHandler extends TaskHandler {
 
           // Auto-compute offset on first event if missing
           if (_dailyStepOffset == null) {
+            // 🔑 STARTUP/RESUME: Use local step count as baseline if available
+            int baseline = _lastKnownDbSteps ?? 0;
+            if (_localStepCount != null && _localStepCount! > baseline) {
+              baseline = _localStepCount!;
+            }
+
             // 🔑 STARTUP/RESUME: Use local step count as baseline if available
             int baseline = _lastKnownDbSteps ?? 0;
             if (_localStepCount != null && _localStepCount! > baseline) {
@@ -168,6 +204,8 @@ class StepTaskHandler extends TaskHandler {
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
+    // 📊 Load step history first
+    await _historyService.loadHistory();
     int? loadedOffset;
     int? lastSavedReading;
     try {
@@ -198,7 +236,33 @@ class StepTaskHandler extends TaskHandler {
         _localStepCount = null;
         await prefs.remove('local_step_count');
       }
+      final String? localStepCountDate =
+          prefs.getString('local_step_count_date');
+      final String todayString = _getCurrentDateString();
 
+      // Validate that local step count is from today
+      if (_localStepCount != null && localStepCountDate != null) {
+        if (localStepCountDate != todayString) {
+          print(
+              '🔑 StepTaskHandler: Local step count is from $localStepCountDate, today is $todayString. Resetting to null.');
+          _localStepCount = null;
+          await prefs.remove('local_step_count');
+          await prefs.remove('local_step_count_date');
+        }
+      } else if (_localStepCount != null && localStepCountDate == null) {
+        print(
+            '🔑 StepTaskHandler: Local step count has no date. Resetting to null.');
+        _localStepCount = null;
+        await prefs.remove('local_step_count');
+      }
+      if (_localStepCount == null) {
+        final historicalSteps = _historyService.getStepsForDate(todayString);
+        if (historicalSteps != null) {
+          _localStepCount = historicalSteps;
+          print(
+              '📊 StepTaskHandler: Loaded historical steps for $todayString: $historicalSteps');
+        }
+      }
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
       print('StepTaskHandler loaded lastPedometerReading: $lastSavedReading');
       print(
@@ -238,6 +302,7 @@ class StepTaskHandler extends TaskHandler {
     await _initializePedometerStream();
     // Immediately show notification with loaded values (prevent blank/late notification)
     _updateAndSendData();
+    _updateAndSendData();
   }
 
   @override
@@ -254,6 +319,10 @@ class StepTaskHandler extends TaskHandler {
       print(
           "🌙 [StepTaskHandler] Midnight Detected! Switching from $_offsetDateString to $todayString");
       final int finalStepsYesterday = _calculateStepsToShow();
+
+      // 📊 Save yesterday's steps to history
+      _historyService.saveStepsForDate(_offsetDateString!, finalStepsYesterday);
+
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('pending_past_date', _offsetDateString!);
         prefs.setInt('pending_past_steps', finalStepsYesterday);
@@ -263,8 +332,18 @@ class StepTaskHandler extends TaskHandler {
         prefs.setInt('dailyStepOffset', newOffset);
         prefs.setInt(
             'dailyOffsetTimestamp', DateTime.now().millisecondsSinceEpoch);
-        prefs.remove(
-            'service_last_known_db_steps'); // Reset baseline for new day
+        prefs.remove('service_last_known_db_steps');
+
+        prefs.remove('local_step_count');
+        prefs.remove('local_step_count_date');
+        _localStepCount = null;
+        print("🔑 [StepTaskHandler] Reset local step count for new day");
+
+        // 🔑 RESET LOCAL STEP COUNT FOR NEW DAY
+        prefs.remove('local_step_count');
+        prefs.remove('local_step_count_date');
+        _localStepCount = null;
+        print("🔑 [StepTaskHandler] Reset local step count for new day");
 
         // 🔑 RESET LOCAL STEP COUNT FOR NEW DAY
         prefs.remove('local_step_count');
@@ -277,6 +356,9 @@ class StepTaskHandler extends TaskHandler {
         _localStepCount = null;
         _localStepCountDate = null;
         _offsetDateString = todayString;
+
+        _historyService.cleanupOldEntries();
+
         _updateAndSendData();
       });
     }
@@ -290,12 +372,10 @@ class StepTaskHandler extends TaskHandler {
       _backendUrl = await FlutterForegroundTask.getData(key: 'backendUrl');
       if (_userId == null) return;
     }
-
     // 1. Check for Pending "Midnight Snapshots" first
     final prefs = await SharedPreferences.getInstance();
     final String? pendingDate = prefs.getString('pending_past_date');
     final int? pendingSteps = prefs.getInt('pending_past_steps');
-
     if (pendingDate != null && pendingSteps != null) {
       bool success = await _syncPastSteps(pendingDate, pendingSteps);
       if (success) {
@@ -303,7 +383,6 @@ class StepTaskHandler extends TaskHandler {
         await prefs.remove('pending_past_steps');
       }
     }
-
     // 2. Regular Sync (Every 15 minutes)
     final now = DateTime.now();
     if (now.difference(_lastSyncTime).inMinutes >= 15) {
@@ -370,7 +449,7 @@ class StepTaskHandler extends TaskHandler {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'uid': _userId, 'todaysStepCount': steps}),
       );
-      _lastKnownDbSteps = steps; // Update local baseline
+      _lastKnownDbSteps = steps;
     } catch (e) {
       print("Error syncing current steps: $e");
     }
@@ -398,7 +477,7 @@ class StepTaskHandler extends TaskHandler {
         } catch (e) {
           print('StepTaskHandler ERROR saving offset: $e.');
         }
-        needsUpdate = true; // Need to recalculate steps with new offset
+        needsUpdate = true;
       } else if (data.containsKey('dbSteps')) {
         final newDbSteps = data['dbSteps'] as int?;
 
@@ -423,7 +502,6 @@ class StepTaskHandler extends TaskHandler {
             newDbSteps <= _localStepCount!) {
           print(
               '🔑 StepTaskHandler: IGNORING dbSteps ($newDbSteps) - Local step count ($_localStepCount) from today is SOURCE OF TRUTH');
-          // Don't update, local storage takes precedence
         } else if (_lastKnownDbSteps != newDbSteps) {
           _lastKnownDbSteps = newDbSteps;
           print(
@@ -443,11 +521,10 @@ class StepTaskHandler extends TaskHandler {
                 'StepTaskHandler ERROR saving lastKnownDbSteps to SharedPreferences: $e.');
           }
 
-          needsUpdate = true; // Need to recalculate steps with new baseline
+          needsUpdate = true;
         }
       } else if (data.containsKey('battleActive')) {
         bool newBattleActive = data['battleActive'] ?? false;
-        // Always update the battle state, even if it's the same value, to ensure scores are updated
         _isBattleActive = newBattleActive;
         if (_isBattleActive) {
           _myScore = data['myScore'] ?? 0;
@@ -495,11 +572,30 @@ class StepTaskHandler extends TaskHandler {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String todayString = _getCurrentDateString();
-      await prefs.setInt('local_step_count', stepsToShow);
+      final String todayString = _getCurrentDateString();
+
+      // 📊 Check historical steps and use the higher value
+      final existingHistoricalSteps =
+          _historyService.getStepsForDate(todayString);
+      final int stepsToSave = (existingHistoricalSteps != null &&
+              existingHistoricalSteps > stepsToShow)
+          ? existingHistoricalSteps
+          : stepsToShow;
+
+      await prefs.setInt('local_step_count', stepsToSave);
       await prefs.setString('local_step_count_date', todayString);
-      _localStepCount = stepsToShow; // Update in-memory value
+      await prefs.setString('local_step_count_date', todayString);
+      _localStepCount = stepsToSave;
+
+      // 📊 Save to step history only if higher than existing value
+      if (existingHistoricalSteps == null ||
+          stepsToSave > existingHistoricalSteps) {
+        await _historyService.saveStepsForDate(todayString, stepsToSave);
+      }
+
       print(
-          '🔑 StepTaskHandler: Saved LOCAL step count: $stepsToShow for date: $todayString');
+          
+          '🔑 StepTaskHandler: Saved LOCAL step count: $stepsToSave for date: $todayString (calculated: $stepsToShow for date: $todayString, historical: $existingHistoricalSteps)');
     } catch (e) {
       print('StepTaskHandler ERROR saving local step count: $e');
     }
