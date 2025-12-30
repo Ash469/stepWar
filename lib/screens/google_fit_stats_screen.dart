@@ -89,40 +89,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
           style: AppTextStyles.titleLarge.copyWith(color: Colors.white),
         ),
         actions: [
-          // 🐛 DEBUG: Test Health Connect data
-          IconButton(
-            icon: const Icon(Icons.bug_report, color: Colors.red),
-            onPressed: () async {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content:
-                      Text('🐛 Testing Health Connect... Check console logs!'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-              // Call the debug method to test Health Connect data
-              await GoogleFitService().debugHealthConnectData();
-            },
-            tooltip: '🐛 Debug Health Connect',
-          ),
-          // 🧪 TEST DATA BUTTON (for UI testing)
-          IconButton(
-            icon: const Icon(Icons.science, color: Colors.amber),
-            onPressed: () {
-              final stepProvider =
-                  Provider.of<StepProvider>(context, listen: false);
-              stepProvider.loadDummyGoogleFitData();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('🧪 Loaded dummy test data!'),
-                  backgroundColor: AppColors.success,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            },
-            tooltip: '🧪 Load Test Data',
-          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _isLoading ? null : _loadData,
@@ -153,8 +119,8 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
                   // Today's Steps Hero Card
                   _buildTodayHeroCard(stepProvider),
 
-                  // Sync Status
-                  _buildSyncStatus(stepProvider),
+                  // // Sync Status
+                  // _buildSyncStatus(stepProvider),
 
                   // Tabs for Weekly/Monthly
                   _buildTabSection(stepProvider),
@@ -408,7 +374,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
               ],
             ),
           ),
-          Icon(Icons.sync, color: AppColors.onBackground, size: 20),
+          const Icon(Icons.sync, color: AppColors.onBackground, size: 20),
         ],
       ),
     );
@@ -418,13 +384,14 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     return Column(
       children: [
         Container(
-          margin: const EdgeInsets.all(16),
+          // margin: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(16),
           ),
           child: TabBar(
             controller: _tabController,
+            indicatorSize: TabBarIndicatorSize.tab,
             indicator: BoxDecoration(
               color: AppColors.info,
               borderRadius: BorderRadius.circular(16),

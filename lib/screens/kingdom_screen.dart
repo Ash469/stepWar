@@ -138,7 +138,14 @@ class _KingdomScreenState extends State<KingdomScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Image
-              Image.asset(item.imagePath, height: 120, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 80)),
+              ClipOval(
+  child: Image.network(
+    item.imagePath,
+    width: 120,
+    height: 120,
+    fit: BoxFit.cover,
+  ),
+),
               const SizedBox(height: 16),
               Text(
                 item.name,
@@ -204,7 +211,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           return SingleChildScrollView(
-            padding: EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(16.0),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 minHeight: constraints.maxHeight,
@@ -220,7 +227,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
                     '${_currentItems.length} items',
                     style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
                   ),
-                  const SizedBox(height: 12),
+                  // const SizedBox(height: 12),
                   _buildKingdomGrid(),
                   const SizedBox(height: 40 + 20), // Add extra spacing
                   const StepWarsFooter(),
@@ -353,7 +360,14 @@ class _KingdomScreenState extends State<KingdomScreen> {
                   _buildRarityTag(item.rarity, item.rarityColor),
                   const Spacer(),
                   item.imagePath.isNotEmpty
-                      ? Image.network(item.imagePath, fit: BoxFit.contain, width: 60, height: 60)
+                      ? ClipOval(
+  child: Image.network(
+    item.imagePath,
+    width: 80,
+    height: 80,
+    fit: BoxFit.cover,
+  ),
+)
                       : const Icon(Icons.question_mark, color: Colors.white, size: 60),
                   const Spacer(),
                   Text(
