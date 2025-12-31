@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/google_fit_service.dart';
+import '../services/step_history_service.dart';
 import '../models/step_stats_model.dart';
 
 /// Single Source of Truth for Step Counting
@@ -16,6 +17,7 @@ class StepProvider extends ChangeNotifier {
 
   // Google Fit integration
   final GoogleFitService _googleFitService = GoogleFitService();
+  final StepHistoryService _stepHistoryService = StepHistoryService();
   bool _isGoogleFitEnabled = false;
   bool _isGoogleFitInitialized = false;
   DateTime? _lastGoogleFitSync;
@@ -45,6 +47,9 @@ class StepProvider extends ChangeNotifier {
   void _initializeSync() {
     // Register callback to receive step updates from foreground service
     FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
+
+    // Load step history
+    _stepHistoryService.loadHistory();
 
     // Load initial step count synchronously from cache
     _loadInitialStepsSync();
@@ -144,9 +149,31 @@ class StepProvider extends ChangeNotifier {
   /// Manually refresh steps (useful for pull-to-refresh)
   void refresh() {
     _loadInitialStepsSync();
+    _recoverFromHistory();
     if (_isGoogleFitEnabled) {
       syncWithGoogleFit();
     }
+  }
+
+  /// Recover steps from local history if current steps are 0 or missing
+  Future<void> _recoverFromHistory() async {
+    try {
+      if (_currentSteps == 0) {
+        final recoveredSteps = await _stepHistoryService.recoverTodaySteps();
+        if (recoveredSteps != null && recoveredSteps > 0) {
+          print('[StepProvider] Recovered $recoveredSteps steps from history');
+          _currentSteps = recoveredSteps;
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      print('[StepProvider] Error recovering from history: $e');
+    }
+  }
+
+  /// Get step history for the last N days
+  Map<String, int> getStepHistory(int days) {
+    return _stepHistoryService.getLastNDays(days);
   }
 
   // ========== Google Fit Integration Methods ==========

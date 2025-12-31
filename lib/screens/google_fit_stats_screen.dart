@@ -219,112 +219,115 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     final progress = (todaySteps / goal).clamp(0.0, 1.0);
 
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(24),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [AppColors.warning, AppColors.primaryVariant],
+          colors: [AppColors.primary, AppColors.primaryVariant],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: AppColors.primary.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'TODAY',
-                style: AppTextStyles.labelLarge.copyWith(
-                  color: Colors.white70,
-                  letterSpacing: 2,
+          // Left side - Steps count
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'TODAY',
+                  style: AppTextStyles.caption.copyWith(
+                    color: Colors.white70,
+                    letterSpacing: 1.5,
+                    fontSize: 11,
+                  ),
                 ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
+                const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Icon(Icons.calendar_today,
-                        size: 14, color: Colors.white),
-                    const SizedBox(width: 6),
                     Text(
-                      DateFormat('MMM d').format(DateTime.now()),
-                      style: AppTextStyles.caption.copyWith(
+                      _formatNumberShort(todaySteps),
+                      style: AppTextStyles.headline1.copyWith(
                         color: Colors.white,
+                        fontSize: 36,
                         fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        'steps',
+                        style: AppTextStyles.caption.copyWith(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _formatNumber(todaySteps),
-                style: AppTextStyles.headline1.copyWith(
-                  color: Colors.white,
-                  fontSize: 56,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'steps',
-                  style: AppTextStyles.bodyMedium.copyWith(
+                const SizedBox(height: 8),
+                Text(
+                  '${(progress * 100).toInt()}% of ${_formatNumberShort(goal)}',
+                  style: AppTextStyles.caption.copyWith(
                     color: Colors.white70,
+                    fontSize: 11,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: Colors.white.withOpacity(0.2),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${(progress * 100).toInt()}% of daily goal',
-                style: AppTextStyles.caption.copyWith(
-                  color: Colors.white70,
+          // Right side - Circular progress
+          SizedBox(
+            width: 80,
+            height: 80,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 80,
+                  height: 80,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 6,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
                 ),
-              ),
-              Text(
-                '${_formatNumber(goal)} goal',
-                style: AppTextStyles.caption.copyWith(
-                  color: Colors.white70,
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      progress >= 1.0
+                          ? Icons.check_circle
+                          : Icons.directions_walk,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      DateFormat('MMM d').format(DateTime.now()),
+                      style: AppTextStyles.caption.copyWith(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -406,7 +409,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
           ),
         ),
         SizedBox(
-          height: 500,
+          height: 600,
           child: TabBarView(
             controller: _tabController,
             children: [

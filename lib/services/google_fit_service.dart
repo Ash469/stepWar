@@ -156,7 +156,7 @@ class GoogleFitService {
     if (!_hasPermissions) {
       final hasPerms = await hasPermissions();
       if (!hasPerms) {
-        print('[GoogleFitService] No permissions to read steps');
+        print('[GoogleFitService] ❌ No permissions to read steps');
         return 0;
       }
     }
@@ -165,26 +165,79 @@ class GoogleFitService {
       final startOfDay = DateTime(date.year, date.month, date.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
+      print(
+          '[GoogleFitService] 🔍 Requesting steps for ${date.toIso8601String().split('T')[0]}');
+      print('[GoogleFitService] 📅 Time range: $startOfDay to $endOfDay');
+
       final healthData = await _health!.getHealthDataFromTypes(
         types: [HealthDataType.STEPS],
         startTime: startOfDay,
         endTime: endOfDay,
       );
 
+      print(
+          '[GoogleFitService] 📊 Received ${healthData.length} data points from Health Connect');
+
+      if (healthData.isEmpty) {
+        print('[GoogleFitService] ⚠️ No step data found for this date!');
+        print('[GoogleFitService] 💡 Possible reasons:');
+        print('[GoogleFitService]    1. Health Connect is not installed');
+        print(
+            '[GoogleFitService]    2. Google Fit is not syncing to Health Connect');
+        print('[GoogleFitService]    3. No steps were recorded on this date');
+        print(
+            '[GoogleFitService]    4. Data source (Google Fit) is not connected');
+      }
+
       // Sum up all step counts for the day
       int totalSteps = 0;
       for (var data in healthData) {
         if (data.type == HealthDataType.STEPS) {
-          totalSteps += _extractSteps(data.value);
+          final steps = _extractSteps(data.value);
+          totalSteps += steps;
+          print(
+              '[GoogleFitService] 📈 Found $steps steps from ${data.sourceName}');
         }
       }
 
+      // If no raw data, try aggregate (Health Connect often stores aggregated data)
+      if (totalSteps == 0 && healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw data found, trying aggregate query...');
+        totalSteps = await _getAggregateSteps(startOfDay, endOfDay);
+      }
+
       print(
-          '[GoogleFitService] Steps for ${date.toIso8601String().split('T')[0]}: $totalSteps');
+          '[GoogleFitService] ✅ Total steps for ${date.toIso8601String().split('T')[0]}: $totalSteps');
       await _updateLastSyncTime();
       return totalSteps;
     } catch (e) {
-      print('[GoogleFitService] Error fetching steps for date: $e');
+      print('[GoogleFitService] ❌ Error fetching steps for date: $e');
+      print('[GoogleFitService] Stack trace: ${StackTrace.current}');
+      return 0;
+    }
+  }
+
+  /// Get aggregate steps (fallback for when raw data is empty)
+  Future<int> _getAggregateSteps(DateTime startTime, DateTime endTime) async {
+    try {
+      // Use getTotalStepsInInterval with timeout
+      final steps =
+          await _health!.getTotalStepsInInterval(startTime, endTime).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('[GoogleFitService] ⏱️ Aggregate query timed out');
+          return null;
+        },
+      );
+
+      if (steps != null && steps > 0) {
+        return steps;
+      }
+
+      return 0;
+    } catch (e) {
+      print('[GoogleFitService] ❌ Error in aggregate query: $e');
       return 0;
     }
   }
@@ -238,6 +291,21 @@ class GoogleFitService {
           stepsByDate[date] = (stepsByDate[date] ?? 0) + steps;
           print(
               '[GoogleFitService] Added $steps steps for ${date.toIso8601String().split('T')[0]}');
+        }
+      }
+
+      // If no raw data, try aggregate for each day
+      if (healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw weekly data, trying aggregate for each day...');
+        for (int i = 0; i < 7; i++) {
+          final date = today.subtract(Duration(days: i));
+          final startOfDay = DateTime(date.year, date.month, date.day);
+          final endOfDay = startOfDay.add(const Duration(days: 1));
+          final steps = await _getAggregateSteps(startOfDay, endOfDay);
+          if (steps > 0) {
+            stepsByDate[date] = steps;
+          }
         }
       }
 
@@ -299,6 +367,41 @@ class GoogleFitService {
           final steps = _extractSteps(data.value);
           stepsByDate[date] = (stepsByDate[date] ?? 0) + steps;
         }
+      }
+
+      // If no raw data, try aggregate for each day
+      if (healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw monthly data, trying aggregate queries...');
+
+        // Batch process in chunks of 7 days to avoid overwhelming the API
+        final List<Future<void>> futures = [];
+
+        for (int i = 0; i < 30; i++) {
+          final date = today.subtract(Duration(days: i));
+          final startOfDay = DateTime(date.year, date.month, date.day);
+          final endOfDay = startOfDay.add(const Duration(days: 1));
+
+          // Add to parallel batch
+          futures.add(_getAggregateSteps(startOfDay, endOfDay).then((steps) {
+            if (steps > 0) {
+              stepsByDate[date] = steps;
+              print(
+                  '[GoogleFitService] 📊 Day ${i + 1}/30: ${date.toIso8601String().split('T')[0]} = $steps steps');
+            }
+          }).catchError((e) {
+            print('[GoogleFitService] ⚠️ Error fetching day $i: $e');
+          }));
+
+          // Process in batches of 7 to avoid timeout
+          if ((i + 1) % 7 == 0 || i == 29) {
+            print('[GoogleFitService] Processing batch ${(i ~/ 7) + 1}...');
+            await Future.wait(futures);
+            futures.clear();
+          }
+        }
+
+        print('[GoogleFitService] ✅ Aggregate monthly fetch complete');
       }
 
       print(
