@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:stepwars_app/screens/main_screen.dart';
+
 import '../services/auth_service.dart';
 import '../services/play_games_service.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
 import 'profile_completion_screen.dart';
+import 'main_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});

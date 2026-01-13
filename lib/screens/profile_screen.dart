@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/step_history_service.dart';
 import '../providers/step_provider.dart';
 import 'login_screen.dart';
 import '../widget/footer.dart';
@@ -189,8 +190,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final userId = _authService.currentUser?.uid;
       if (userId == null) throw Exception("User not logged in");
+
+      // 1. Fetch Backend Data
       final List<dynamic> history =
           await _authService.getActivityHistory(userId);
+
+      // Map backend data: "yyyy-MM-dd" -> stepCount
+      final Map<String, int> backendMap = {};
+      for (var dayData in history) {
+        final date = DateTime.tryParse(dayData['date'])?.toLocal();
+        if (date != null) {
+          final dateString = DateFormat('yyyy-MM-dd').format(date);
+          backendMap[dateString] = dayData['stepCount'] ?? 0;
+        }
+      }
+
+      // 2. Load Local Data
+      final stepHistoryService = StepHistoryService();
+      await stepHistoryService.loadHistory();
 
       Map<String, int> processedHistory = {
         'MO': 0,
@@ -203,18 +220,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       };
       const dayAbbreviations = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
-      for (var dayData in history) {
-        final date = DateTime.tryParse(dayData['date'])?.toLocal();
-        if (date != null) {
-          final startOfSelectedWeek = weekStartDate ?? _currentWeekStart;
-          final endOfSelectedWeek =
-              startOfSelectedWeek.add(const Duration(days: 7));
-          if (!date.isBefore(startOfSelectedWeek) &&
-              date.isBefore(endOfSelectedWeek)) {
-            String dayAbbreviation = dayAbbreviations[date.weekday - 1];
-            processedHistory[dayAbbreviation] = dayData['stepCount'] ?? 0;
-          }
-        }
+      final startOfSelectedWeek = weekStartDate ?? _currentWeekStart;
+
+      for (int i = 0; i < 7; i++) {
+        final currentDate = startOfSelectedWeek.add(Duration(days: i));
+        final dateString = DateFormat('yyyy-MM-dd').format(currentDate);
+
+        // Get max from backend and local
+        final int backendSteps = backendMap[dateString] ?? 0;
+        final int localSteps =
+            stepHistoryService.getStepsForDate(dateString) ?? 0;
+
+        final int maxSteps =
+            (backendSteps > localSteps) ? backendSteps : localSteps;
+
+        String dayAbbreviation = dayAbbreviations[currentDate.weekday - 1];
+        processedHistory[dayAbbreviation] = maxSteps;
       }
 
       if (mounted) {

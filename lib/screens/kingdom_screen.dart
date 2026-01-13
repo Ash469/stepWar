@@ -130,11 +130,52 @@ class _KingdomScreenState extends State<KingdomScreen> {
   }
 
   void _processAndSetRewards(Map<String, dynamic> rawRewards) {
-    final processedRewards = rawRewards.map((key, value) {
-      final items =
-          (value as List).map((item) => KingdomItem.fromJson(item)).toList();
-      return MapEntry(key, items);
+    if (rawRewards.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _allRewards = {};
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    final processedRewards = <String, List<KingdomItem>>{};
+
+    rawRewards.forEach((key, value) {
+      if (value is List) {
+        final items = value
+            .map((item) {
+              if (item is Map<String, dynamic>) {
+                try {
+                  return KingdomItem.fromJson(item);
+                } catch (e) {
+                  print("Error parsing KingdomItem from map: $e");
+                  return null;
+                }
+              } else if (item is String) {
+                // Check if it's a JSON string
+                try {
+                  final decoded = jsonDecode(item);
+                  if (decoded is Map<String, dynamic>) {
+                    return KingdomItem.fromJson(decoded);
+                  }
+                } catch (_) {
+                  // Not a JSON string, likely an ID or invalid data
+                }
+                print("Skipping invalid reward item (String): $item");
+                return null;
+              }
+              print("Skipping invalid reward item (Unknown type): $item");
+              return null;
+            })
+            .whereType<KingdomItem>()
+            .toList();
+
+        processedRewards[key] = items;
+      }
     });
+
     if (mounted) {
       setState(() {
         _allRewards = processedRewards;

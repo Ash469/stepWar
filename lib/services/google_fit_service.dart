@@ -3,6 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service to interact with Google Fit via Health Connect API
 /// Handles step data fetching for daily, weekly, and monthly periods
+enum HealthConnectStatus {
+  notSupported,
+  notInstalled,
+  notAuthorized,
+  authorized
+}
+
 class GoogleFitService {
   GoogleFitService._internal();
   static final GoogleFitService _instance = GoogleFitService._internal();
@@ -124,6 +131,33 @@ class GoogleFitService {
     } catch (e) {
       print('[GoogleFitService] Authorization error: $e');
       return false;
+    }
+  }
+
+  /// Check the detailed status of Health Connect
+  Future<HealthConnectStatus> checkHealthConnectStatus() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      // 1. Check if Health Connect is installed/supported
+      // Note: isHealthConnectAvailable returns false if not installed
+      final isAvailable = await _health!.isHealthConnectAvailable();
+      if (!isAvailable) {
+        return HealthConnectStatus.notInstalled;
+      }
+
+      // 2. Check permissions
+      final hasPerms = await hasPermissions();
+      if (hasPerms) {
+        return HealthConnectStatus.authorized;
+      } else {
+        return HealthConnectStatus.notAuthorized;
+      }
+    } catch (e) {
+      print('[GoogleFitService] Error checking status: $e');
+      return HealthConnectStatus.notSupported;
     }
   }
 

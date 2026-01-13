@@ -178,6 +178,9 @@ class StepProvider extends ChangeNotifier {
 
   // ========== Google Fit Integration Methods ==========
 
+  HealthConnectStatus _connectionStatus = HealthConnectStatus.notAuthorized;
+  HealthConnectStatus get connectionStatus => _connectionStatus;
+
   /// Initialize Google Fit service
   Future<void> _initializeGoogleFit() async {
     try {
@@ -185,8 +188,11 @@ class StepProvider extends ChangeNotifier {
       if (enabled) {
         final initialized = await _googleFitService.initialize();
         if (initialized) {
-          final hasPerms = await _googleFitService.hasPermissions();
-          if (hasPerms) {
+          // Check status
+          _connectionStatus =
+              await _googleFitService.checkHealthConnectStatus();
+
+          if (_connectionStatus == HealthConnectStatus.authorized) {
             _isGoogleFitEnabled = true;
             _isGoogleFitInitialized = true;
             print('[StepProvider] Google Fit initialized and enabled');
@@ -198,25 +204,54 @@ class StepProvider extends ChangeNotifier {
     } catch (e) {
       print('[StepProvider] Error initializing Google Fit: $e');
     }
+    notifyListeners();
   }
 
   /// Request Google Fit authorization
-  Future<bool> requestGoogleFitAuthorization() async {
+  Future<HealthConnectStatus> requestGoogleFitAuthorization() async {
     try {
-      final authorized = await _googleFitService.requestAuthorization();
-      if (authorized) {
-        _isGoogleFitEnabled = true;
-        _isGoogleFitInitialized = true;
-        notifyListeners();
-        // Perform initial sync
-        await syncWithGoogleFit();
-        return true;
+      // 1. Check current status
+      var status = await _googleFitService.checkHealthConnectStatus();
+      _connectionStatus = status;
+
+      if (status == HealthConnectStatus.notInstalled) {
+        // Prompt install
+        await _googleFitService.installHealthConnect();
+        // Return status so UI can show "Installed? Click this" or something
+        // Actually, install is an intent, we might want to return here and let user come back
+        return status;
       }
-      return false;
+
+      if (status == HealthConnectStatus.authorized) {
+        // Already authorized
+        _enableAndSync();
+        return status;
+      }
+
+      // 2. Request permissions
+      final authorized = await _googleFitService.requestAuthorization();
+
+      // 3. Re-check status
+      status = await _googleFitService.checkHealthConnectStatus();
+      _connectionStatus = status;
+
+      if (status == HealthConnectStatus.authorized) {
+        _enableAndSync();
+      }
+
+      notifyListeners();
+      return status;
     } catch (e) {
       print('[StepProvider] Error requesting Google Fit authorization: $e');
-      return false;
+      return HealthConnectStatus.notSupported;
     }
+  }
+
+  void _enableAndSync() {
+    _isGoogleFitEnabled = true;
+    _isGoogleFitInitialized = true;
+    notifyListeners();
+    syncWithGoogleFit();
   }
 
   /// Sync current steps with Google Fit

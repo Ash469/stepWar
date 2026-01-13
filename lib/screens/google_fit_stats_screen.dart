@@ -169,9 +169,12 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
             ElevatedButton.icon(
               onPressed: () async {
                 setState(() => _isLoading = true);
-                final authorized =
+                final status =
                     await stepProvider.requestGoogleFitAuthorization();
-                if (authorized) {
+
+                setState(() => _isLoading = false);
+
+                if (status == HealthConnectStatus.authorized) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: const Text('Connected successfully!'),
@@ -179,13 +182,33 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
                     ),
                   );
                   await _loadData();
-                } else {
-                  setState(() => _isLoading = false);
+                } else if (status == HealthConnectStatus.notInstalled) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content:
-                          const Text('Failed to connect. Grant permissions.'),
+                      content: const Text(
+                          'Please install Health Connect from Play Store'),
+                      backgroundColor: AppColors.warning,
+                      action: SnackBarAction(
+                        label: 'Install',
+                        textColor: Colors.white,
+                        onPressed: () => stepProvider
+                            .requestGoogleFitAuthorization(), // Retry/Install
+                      ),
+                      duration: const Duration(seconds: 5),
+                    ),
+                  );
+                } else if (status == HealthConnectStatus.notAuthorized) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text(
+                          'Please grant permissions in Health Connect'),
                       backgroundColor: AppColors.error,
+                      action: SnackBarAction(
+                        label: 'Retry',
+                        textColor: Colors.white,
+                        onPressed: () =>
+                            stepProvider.requestGoogleFitAuthorization(),
+                      ),
                     ),
                   );
                 }

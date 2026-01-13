@@ -95,9 +95,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Defer non-critical operations to run after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Request notification permission after login
-      await _requestNotificationPermission();
-
       // Then run other initialization tasks
       _handleNotifications();
 
@@ -221,29 +218,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         print("App resumed from brief pause. Skipping full data load.");
         _lastPausedTime = null; // Clear the paused time
       }
-    }
-  }
-
-  Future<void> _requestNotificationPermission() async {
-    // Request Notification Permission (after login)
-    final notificationPermission =
-        await FlutterForegroundTask.checkNotificationPermission();
-    if (notificationPermission != NotificationPermission.granted) {
-      await FlutterForegroundTask.requestNotificationPermission();
-    }
-
-    // Check if Activity Recognition permission is granted (should be from LoadingScreen)
-    final activityStatus = await Permission.activityRecognition.status;
-
-    // Check if Battery Optimization is enabled (should be from LoadingScreen)
-    final batteryOptimization =
-        await FlutterForegroundTask.isIgnoringBatteryOptimizations;
-
-    if (mounted) {
-      setState(() {
-        _isPedometerPermissionGranted = activityStatus.isGranted;
-        _isBatteryOptimizationEnabled = batteryOptimization;
-      });
     }
   }
 

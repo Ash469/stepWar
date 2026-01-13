@@ -55,7 +55,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data
                     android:scheme="https"
-                    android:host="stepwars-35179.firebaseapp.com or your custom domain"
+                    android:host="stepwarsnew.firebaseapp.com"
                     android:pathPrefix="/__/auth/links" />
             </intent-filter>
         </activity>
