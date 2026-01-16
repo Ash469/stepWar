@@ -87,8 +87,6 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
                 _buildOpponentPlaceholder(),
               ],
             ),
-
-            // Game ID Section
             Column(
               children: [
                 const Text(
@@ -117,8 +115,6 @@ class _WaitingForFriendScreenState extends State<WaitingForFriendScreen> {
                 const Text('Waiting for opponent...', style: TextStyle(color: Colors.white70)),
               ],
             ),
-            
-            // Rules Section
             const GameRulesWidget(),
           ],
         ),

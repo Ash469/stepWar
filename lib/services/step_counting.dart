@@ -14,20 +14,13 @@ class HealthService {
 
   bool _isInitialized = false;
 
-  Future<bool> _requestPermission() async {
-    var status = await Permission.activityRecognition.status;
-    if (status.isDenied) {
-      status = await Permission.activityRecognition.request();
-    }
-    return status.isGranted;
-  }
-
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    final hasPermission = await _requestPermission();
-    if (!hasPermission) {
-      _stepController.addError('Permission denied.');
+    // Check status, but DO NOT request.
+    var status = await Permission.activityRecognition.status;
+    if (!status.isGranted) {
+      _stepController.addError('Permission needed.');
       return;
     }
 
@@ -44,13 +37,13 @@ class HealthService {
       );
       _isInitialized = true;
     } catch (error) {
-       _stepController.addError('Pedometer not available on this device.');
+      _stepController.addError('Pedometer not available on this device.');
     }
   }
 
   void dispose() {
     _stepCountSubscription?.cancel();
-    _stepCountSubscription = null; 
+    _stepCountSubscription = null;
     _isInitialized = false;
   }
 }

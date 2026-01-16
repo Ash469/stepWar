@@ -5,16 +5,11 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/permission_model.dart';
 
-/// Service to manage all app permissions
 class PermissionService {
-  /// Method channel for auto-start settings
   static const MethodChannel _autoStartChannel =
       MethodChannel('auto_start_channel');
 
-  /// SharedPreferences key for auto-start permission
   static const String _autostartEnabledKey = 'autostart_permission_enabled';
-
-  /// Get all required permissions for the app
   static List<AppPermission> getAllPermissions() {
     return [
       AppPermission(
@@ -52,8 +47,6 @@ class PermissionService {
       ),
     ];
   }
-
-  /// Check the status of all permissions
   static Future<List<AppPermission>> checkAllPermissions() async {
     final permissions = getAllPermissions();
 
@@ -78,8 +71,6 @@ class PermissionService {
           break;
 
         case 'autostart':
-          // Auto-start permission requires manual setup by user
-          // Check if user has previously visited the settings page
           final prefs = await SharedPreferences.getInstance();
           permission.isGranted = prefs.getBool(_autostartEnabledKey) ?? false;
           break;
@@ -88,8 +79,6 @@ class PermissionService {
 
     return permissions;
   }
-
-  /// Request a specific permission
   static Future<bool> requestPermission(String permissionId) async {
     switch (permissionId) {
       case 'activity_recognition':
@@ -109,11 +98,8 @@ class PermissionService {
         return notificationPermission == NotificationPermission.granted;
 
       case 'autostart':
-        // Open manufacturer-specific auto-start settings
         try {
           await _autoStartChannel.invokeMethod('openAutoStart');
-          // Mark as granted after user visits settings
-          // We assume they enabled it
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool(_autostartEnabledKey, true);
           return true;
@@ -143,10 +129,8 @@ class PermissionService {
         break;
 
       case 'autostart':
-        // Open manufacturer-specific auto-start settings
         try {
           await _autoStartChannel.invokeMethod('openAutoStart');
-          // Mark as granted after user visits settings
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool(_autostartEnabledKey, true);
         } catch (e) {
@@ -156,7 +140,6 @@ class PermissionService {
     }
   }
 
-  /// Check if all required permissions are granted
   static Future<bool> areAllPermissionsGranted() async {
     final permissions = await checkAllPermissions();
     return permissions.every((p) => p.isGranted || !p.isRequired);

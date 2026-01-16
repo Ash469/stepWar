@@ -44,7 +44,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
   void _initializeTimeLeft() {
     final remoteConfig = FirebaseRemoteConfig.instance;
-    // Default to 15 if not set or error
     int seconds = remoteConfig.getInt('matchmaking_timeout_seconds');
     if (seconds <= 0) seconds = 15;
     _timeLeft = Duration(seconds: seconds);
@@ -213,7 +212,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
         _matchmakingTimedOut = true;
       });
 
-      // Wait for 3 seconds, then navigate automatically
       await Future.delayed(const Duration(seconds: 3));
       _navigateToBotSelection();
     }
@@ -295,16 +293,14 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                 child: Text(
                   _statusText,
                   key: ValueKey<String>(_statusText),
-                  textAlign: TextAlign.center, // Added for better line breaking
+                  textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white70, fontSize: 18),
                 ),
               ),
               const SizedBox(height: 80),
-
-              // --- MODIFICATION: The button is now hidden on timeout ---
               Visibility(
                 visible: !_matchmakingTimedOut,
-                maintainSize: true, // Keeps the space to avoid layout jumps
+                maintainSize: true,
                 maintainAnimation: true,
                 maintainState: true,
                 child: TextButton(
@@ -316,7 +312,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  // Pressing it manually now also calls the final navigation function
                   onPressed: _isNavigating ? null : _navigateToBotSelection,
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -339,8 +334,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
                   ),
                 ),
               ),
-              // --- END MODIFICATION ---
-
               const SizedBox(height: 50),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 24.0),

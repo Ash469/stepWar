@@ -1,0 +1,558 @@
+import 'package:health/health.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+enum HealthConnectStatus {
+  notSupported,
+  notInstalled,
+  notAuthorized,
+  authorized
+}
+
+class GoogleFitService {
+  GoogleFitService._internal();
+  static final GoogleFitService _instance = GoogleFitService._internal();
+  factory GoogleFitService() => _instance;
+
+  Health? _health;
+  bool _isInitialized = false;
+  bool _hasPermissions = false;
+
+  static const String _lastSyncKey = 'google_fit_last_sync';
+  static const String _enabledKey = 'google_fit_enabled';
+
+  int _extractSteps(dynamic healthValue) {
+    try {
+      final json = healthValue.toJson();
+      if (json is num) {
+        return json.toInt();
+      } else if (json is Map) {
+        // NumericHealthValue.toJson() returns {"numericValue": 123.0}
+        final numericValue = json['numericValue'];
+        if (numericValue is num) {
+          return numericValue.toInt();
+        }
+      }
+      return int.tryParse(healthValue.toString()) ?? 0;
+    } catch (e) {
+      print(
+          '[GoogleFitService] Error extracting steps: $e, value: $healthValue');
+      return 0;
+    }
+  }
+
+  /// Initialize Health Connect API
+  Future<bool> initialize() async {
+    if (_isInitialized) return true;
+
+    try {
+      _health = Health();
+      _isInitialized = true;
+      print('[GoogleFitService] Initialized successfully');
+      return true;
+    } catch (e) {
+      print('[GoogleFitService] Initialization error: $e');
+      return false;
+    }
+  }
+
+  /// Check if Health Connect is available on this device
+  Future<bool> isHealthConnectAvailable() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    try {
+      final available = await _health!.isHealthConnectAvailable();
+      print('[GoogleFitService] Health Connect available: $available');
+      return available;
+    } catch (e) {
+      print(
+          '[GoogleFitService] Error checking Health Connect availability: $e');
+      return false;
+    }
+  }
+
+  /// Prompt the user to install Health Connect from the Play Store
+  Future<void> installHealthConnect() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+    try {
+      await _health!.installHealthConnect();
+      print('[GoogleFitService] Prompted user to install Health Connect');
+    } catch (e) {
+      print('[GoogleFitService] Error installing Health Connect: $e');
+    }
+  }
+
+  /// Request authorization for step data
+  Future<bool> requestAuthorization() async {
+    if (!_isInitialized) {
+      final initialized = await initialize();
+      if (!initialized) return false;
+    }
+
+    try {
+      // First check if Health Connect is available
+      final isAvailable = await isHealthConnectAvailable();
+      if (!isAvailable) {
+        print(
+            '[GoogleFitService] Health Connect not available, prompting installation...');
+        await installHealthConnect();
+        return false; // Return false since user needs to install first
+      }
+
+      // Define the types of health data we want to access
+      final types = [
+        HealthDataType.STEPS,
+      ];
+
+      // Request permissions
+      final permissions = [
+        HealthDataAccess.READ,
+      ];
+
+      final requested =
+          await _health!.requestAuthorization(types, permissions: permissions);
+
+      if (requested) {
+        _hasPermissions = true;
+        await _setEnabled(true);
+        print('[GoogleFitService] Authorization granted');
+      } else {
+        print('[GoogleFitService] Authorization denied');
+      }
+
+      return requested;
+    } catch (e) {
+      print('[GoogleFitService] Authorization error: $e');
+      return false;
+    }
+  }
+
+  /// Check the detailed status of Health Connect
+  Future<HealthConnectStatus> checkHealthConnectStatus() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      final isAvailable = await _health!.isHealthConnectAvailable();
+      if (!isAvailable) {
+        return HealthConnectStatus.notInstalled;
+      }
+
+      // 2. Check permissions
+      final hasPerms = await hasPermissions();
+      if (hasPerms) {
+        return HealthConnectStatus.authorized;
+      } else {
+        return HealthConnectStatus.notAuthorized;
+      }
+    } catch (e) {
+      print('[GoogleFitService] Error checking status: $e');
+      return HealthConnectStatus.notSupported;
+    }
+  }
+
+  /// Check if we have permissions
+  Future<bool> hasPermissions() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      final types = [HealthDataType.STEPS];
+      final permissions = await _health!.hasPermissions(types);
+      _hasPermissions = permissions ?? false;
+      return _hasPermissions;
+    } catch (e) {
+      print('[GoogleFitService] Permission check error: $e');
+      return false;
+    }
+  }
+
+  /// Get steps for today
+  Future<int> getTodaySteps() async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    return await getStepsForDate(startOfDay);
+  }
+
+  /// Get steps for a specific date
+  Future<int> getStepsForDate(DateTime date) async {
+    if (!_hasPermissions) {
+      final hasPerms = await hasPermissions();
+      if (!hasPerms) {
+        print('[GoogleFitService] ❌ No permissions to read steps');
+        return 0;
+      }
+    }
+
+    try {
+      final startOfDay = DateTime(date.year, date.month, date.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      print(
+          '[GoogleFitService] 🔍 Requesting steps for ${date.toIso8601String().split('T')[0]}');
+      print('[GoogleFitService] 📅 Time range: $startOfDay to $endOfDay');
+
+      final healthData = await _health!.getHealthDataFromTypes(
+        types: [HealthDataType.STEPS],
+        startTime: startOfDay,
+        endTime: endOfDay,
+      );
+
+      print(
+          '[GoogleFitService] 📊 Received ${healthData.length} data points from Health Connect');
+
+      if (healthData.isEmpty) {
+        print('[GoogleFitService] ⚠️ No step data found for this date!');
+        print('[GoogleFitService] 💡 Possible reasons:');
+        print('[GoogleFitService]    1. Health Connect is not installed');
+        print(
+            '[GoogleFitService]    2. Google Fit is not syncing to Health Connect');
+        print('[GoogleFitService]    3. No steps were recorded on this date');
+        print(
+            '[GoogleFitService]    4. Data source (Google Fit) is not connected');
+      }
+
+      // Sum up all step counts for the day
+      int totalSteps = 0;
+      for (var data in healthData) {
+        if (data.type == HealthDataType.STEPS) {
+          final steps = _extractSteps(data.value);
+          totalSteps += steps;
+          print(
+              '[GoogleFitService] 📈 Found $steps steps from ${data.sourceName}');
+        }
+      }
+
+      // If no raw data, try aggregate (Health Connect often stores aggregated data)
+      if (totalSteps == 0 && healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw data found, trying aggregate query...');
+        totalSteps = await _getAggregateSteps(startOfDay, endOfDay);
+      }
+
+      print(
+          '[GoogleFitService] ✅ Total steps for ${date.toIso8601String().split('T')[0]}: $totalSteps');
+      await _updateLastSyncTime();
+      return totalSteps;
+    } catch (e) {
+      print('[GoogleFitService] ❌ Error fetching steps for date: $e');
+      print('[GoogleFitService] Stack trace: ${StackTrace.current}');
+      return 0;
+    }
+  }
+
+  /// Get aggregate steps (fallback for when raw data is empty)
+  Future<int> _getAggregateSteps(DateTime startTime, DateTime endTime) async {
+    try {
+      // Use getTotalStepsInInterval with timeout
+      final steps =
+          await _health!.getTotalStepsInInterval(startTime, endTime).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('[GoogleFitService] ⏱️ Aggregate query timed out');
+          return null;
+        },
+      );
+
+      if (steps != null && steps > 0) {
+        return steps;
+      }
+
+      return 0;
+    } catch (e) {
+      print('[GoogleFitService] ❌ Error in aggregate query: $e');
+      return 0;
+    }
+  }
+
+  /// Get weekly steps (last 7 days including today)
+  Future<Map<DateTime, int>> getWeeklySteps() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // Pre-populate all 7 days with 0 steps - this ensures we always return data
+    Map<DateTime, int> stepsByDate = {};
+    for (int i = 0; i < 7; i++) {
+      final date = today.subtract(Duration(days: i));
+      stepsByDate[date] = 0;
+    }
+
+    // Check permissions
+    if (!_hasPermissions) {
+      final hasPerms = await hasPermissions();
+      if (!hasPerms) {
+        print(
+            '[GoogleFitService] No permissions to read steps - returning 0-filled data');
+        return stepsByDate; // Return 0-filled instead of empty
+      }
+    }
+
+    try {
+      final weekAgo = today.subtract(const Duration(days: 6));
+
+      print(
+          '[GoogleFitService] Fetching weekly steps from $weekAgo to $today...');
+
+      final healthData = await _health!.getHealthDataFromTypes(
+        types: [HealthDataType.STEPS],
+        startTime: weekAgo,
+        endTime: today.add(const Duration(days: 1)),
+      );
+
+      print(
+          '[GoogleFitService] Health Connect returned ${healthData.length} data points');
+
+      // Merge actual data with pre-populated map
+      for (var data in healthData) {
+        if (data.type == HealthDataType.STEPS) {
+          final date = DateTime(
+            data.dateFrom.year,
+            data.dateFrom.month,
+            data.dateFrom.day,
+          );
+          final steps = _extractSteps(data.value);
+          stepsByDate[date] = (stepsByDate[date] ?? 0) + steps;
+          print(
+              '[GoogleFitService] Added $steps steps for ${date.toIso8601String().split('T')[0]}');
+        }
+      }
+
+      // If no raw data, try aggregate for each day
+      if (healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw weekly data, trying aggregate for each day...');
+        for (int i = 0; i < 7; i++) {
+          final date = today.subtract(Duration(days: i));
+          final startOfDay = DateTime(date.year, date.month, date.day);
+          final endOfDay = startOfDay.add(const Duration(days: 1));
+          final steps = await _getAggregateSteps(startOfDay, endOfDay);
+          if (steps > 0) {
+            stepsByDate[date] = steps;
+          }
+        }
+      }
+
+      print(
+          '[GoogleFitService] Weekly steps fetched: ${stepsByDate.length} days');
+      await _updateLastSyncTime();
+      return stepsByDate;
+    } catch (e) {
+      print('[GoogleFitService] Error fetching weekly steps: $e');
+      return stepsByDate; // Return 0-filled instead of empty
+    }
+  }
+
+  /// Get monthly steps (last 30 days including today)
+  Future<Map<DateTime, int>> getMonthlySteps() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // Pre-populate all 30 days with 0 steps - this ensures we always return data
+    Map<DateTime, int> stepsByDate = {};
+    for (int i = 0; i < 30; i++) {
+      final date = today.subtract(Duration(days: i));
+      stepsByDate[date] = 0;
+    }
+
+    // Check permissions
+    if (!_hasPermissions) {
+      final hasPerms = await hasPermissions();
+      if (!hasPerms) {
+        print(
+            '[GoogleFitService] No permissions to read steps - returning 0-filled data');
+        return stepsByDate; // Return 0-filled instead of empty
+      }
+    }
+
+    try {
+      final monthAgo = today.subtract(const Duration(days: 29));
+
+      print(
+          '[GoogleFitService] Fetching monthly steps from $monthAgo to $today...');
+
+      final healthData = await _health!.getHealthDataFromTypes(
+        types: [HealthDataType.STEPS],
+        startTime: monthAgo,
+        endTime: today.add(const Duration(days: 1)),
+      );
+
+      print(
+          '[GoogleFitService] Health Connect returned ${healthData.length} data points for monthly');
+
+      // Merge actual data with pre-populated map
+      for (var data in healthData) {
+        if (data.type == HealthDataType.STEPS) {
+          final date = DateTime(
+            data.dateFrom.year,
+            data.dateFrom.month,
+            data.dateFrom.day,
+          );
+          final steps = _extractSteps(data.value);
+          stepsByDate[date] = (stepsByDate[date] ?? 0) + steps;
+        }
+      }
+
+      // If no raw data, try aggregate for each day
+      if (healthData.isEmpty) {
+        print(
+            '[GoogleFitService] 🔄 No raw monthly data, trying aggregate queries...');
+
+        // Batch process in chunks of 7 days to avoid overwhelming the API
+        final List<Future<void>> futures = [];
+
+        for (int i = 0; i < 30; i++) {
+          final date = today.subtract(Duration(days: i));
+          final startOfDay = DateTime(date.year, date.month, date.day);
+          final endOfDay = startOfDay.add(const Duration(days: 1));
+
+          // Add to parallel batch
+          futures.add(_getAggregateSteps(startOfDay, endOfDay).then((steps) {
+            if (steps > 0) {
+              stepsByDate[date] = steps;
+              print(
+                  '[GoogleFitService] 📊 Day ${i + 1}/30: ${date.toIso8601String().split('T')[0]} = $steps steps');
+            }
+          }).catchError((e) {
+            print('[GoogleFitService] ⚠️ Error fetching day $i: $e');
+          }));
+
+          // Process in batches of 7 to avoid timeout
+          if ((i + 1) % 7 == 0 || i == 29) {
+            print('[GoogleFitService] Processing batch ${(i ~/ 7) + 1}...');
+            await Future.wait(futures);
+            futures.clear();
+          }
+        }
+
+        print('[GoogleFitService] ✅ Aggregate monthly fetch complete');
+      }
+
+      print(
+          '[GoogleFitService] Monthly steps fetched: ${stepsByDate.length} days');
+      await _updateLastSyncTime();
+      return stepsByDate;
+    } catch (e) {
+      print('[GoogleFitService] Error fetching monthly steps: $e');
+      return stepsByDate; // Return 0-filled instead of empty
+    }
+  }
+
+  /// Get total steps for a date range
+  Future<int> getTotalSteps(DateTime start, DateTime end) async {
+    if (!_hasPermissions) {
+      final hasPerms = await hasPermissions();
+      if (!hasPerms) {
+        print('[GoogleFitService] No permissions to read steps');
+        return 0;
+      }
+    }
+
+    try {
+      final healthData = await _health!.getHealthDataFromTypes(
+        types: [HealthDataType.STEPS],
+        startTime: start,
+        endTime: end,
+      );
+
+      int totalSteps = 0;
+      for (var data in healthData) {
+        if (data.type == HealthDataType.STEPS) {
+          totalSteps += _extractSteps(data.value);
+        }
+      }
+
+      print(
+          '[GoogleFitService] Total steps from ${start.toIso8601String()} to ${end.toIso8601String()}: $totalSteps');
+      await _updateLastSyncTime();
+      return totalSteps;
+    } catch (e) {
+      print('[GoogleFitService] Error fetching total steps: $e');
+      return 0;
+    }
+  }
+
+  /// Get last sync timestamp
+  Future<DateTime?> getLastSyncTime() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final timestamp = prefs.getInt(_lastSyncKey);
+      if (timestamp != null) {
+        return DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+      return null;
+    } catch (e) {
+      print('[GoogleFitService] Error getting last sync time: $e');
+      return null;
+    }
+  }
+
+  /// Update last sync timestamp
+  Future<void> _updateLastSyncTime() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_lastSyncKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      print('[GoogleFitService] Error updating last sync time: $e');
+    }
+  }
+
+  /// Check if Google Fit is enabled
+  Future<bool> isEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_enabledKey) ?? false;
+    } catch (e) {
+      print('[GoogleFitService] Error checking enabled status: $e');
+      return false;
+    }
+  }
+
+  /// Set Google Fit enabled status
+  Future<void> _setEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_enabledKey, enabled);
+    } catch (e) {
+      print('[GoogleFitService] Error setting enabled status: $e');
+    }
+  }
+
+  /// Disable Google Fit integration
+  Future<void> disable() async {
+    await _setEnabled(false);
+    _hasPermissions = false;
+    print('[GoogleFitService] Disabled');
+  }
+
+  /// Write steps to Health Connect (for future use)
+  Future<bool> writeSteps(int steps, DateTime dateFrom, DateTime dateTo) async {
+    if (!_hasPermissions) {
+      print('[GoogleFitService] No permissions to write steps');
+      return false;
+    }
+
+    try {
+      final success = await _health!.writeHealthData(
+        value: steps.toDouble(),
+        type: HealthDataType.STEPS,
+        startTime: dateFrom,
+        endTime: dateTo,
+      );
+
+      if (success) {
+        print('[GoogleFitService] Successfully wrote $steps steps');
+      } else {
+        print('[GoogleFitService] Failed to write steps');
+      }
+
+      return success;
+    } catch (e) {
+      print('[GoogleFitService] Error writing steps: $e');
+      return false;
+    }
+  }
+}

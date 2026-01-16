@@ -16,6 +16,8 @@ import '../widgets/permission_bottom_sheet.dart';
 import 'bot_selection_screen.dart';
 import 'matchmaking_screen.dart';
 import 'waiting_for_friend_screen.dart';
+import 'package:showcaseview/showcaseview.dart';
+import 'package:upgrader/upgrader.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -26,11 +28,16 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _currentIndex = 1;
-  final List<Widget> _pages = [
-    const KingdomScreen(),
-    const app_screens.HomeScreen(),
-    const ProfileScreen(),
-  ];
+
+  // Showcase Keys
+  final GlobalKey _onlineBattleKey = GlobalKey();
+  final GlobalKey _friendBattleKey = GlobalKey();
+  // final GlobalKey _googleFitKey = GlobalKey();
+  final GlobalKey _kingdomButtonKey = GlobalKey();
+  final GlobalKey _profileButtonKey = GlobalKey();
+  final GlobalKey _stepCountKey = GlobalKey();
+
+  late final List<Widget> _pages;
 
   void _onTabTapped(int index) {
     setState(() {
@@ -42,20 +49,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _pages = [
+      const KingdomScreen(),
+      app_screens.HomeScreen(
+        onlineBattleKey: _onlineBattleKey,
+        friendBattleKey: _friendBattleKey,
+        // googleFitKey: _googleFitKey,
+        stepCountKey: _stepCountKey,
+      ),
+      const ProfileScreen(),
+    ];
     final battleService = context.read<ActiveBattleService>();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (battleService.finalBattleState != null) {
         _showGameOverDialog(battleService.finalBattleState!);
       }
-
-      // Show permission bottom sheet after login
-      await _checkAndShowPermissions();
     });
 
-    // 2. Keep your existing listener for background updates
     _battleStateSubscription = battleService.stream.listen((_) {
       if (battleService.finalBattleState != null) {
-        // Ensure we are on the base screen before showing dialog
         Navigator.of(context).popUntil((route) => route.isFirst);
         _showGameOverDialog(battleService.finalBattleState!);
       } else if (!battleService.isBattleActive &&
@@ -75,49 +87,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  Future<void> _checkAndShowPermissions() async {
-    // Check if we've already shown permissions this session
-    final prefs = await SharedPreferences.getInstance();
-    final hasShownThisSession =
-        prefs.getBool('permissionsShownThisSession') ?? false;
-
-    if (hasShownThisSession) {
-      // Already shown this session, skip
-      return;
-    }
-
-    // Check if all permissions are already granted
-    final allGranted = await PermissionService.areAllPermissionsGranted();
-
-    if (!allGranted && mounted) {
-      // Mark as shown for this session
-      await prefs.setBool('permissionsShownThisSession', true);
-
-      // Small delay to ensure UI is ready
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (!mounted) return;
-
-      // Show permission bottom sheet
-      await PermissionBottomSheet.show(
-        context,
-        showCloseButton: true,
-      );
-    }
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final battleService = context.read<ActiveBattleService>();
-    // *** ADD THIS LINE to get the actual game status ***
     final bool isBattleOngoing =
         battleService.currentGame?.gameStatus == GameStatus.ongoing;
 
     if (state == AppLifecycleState.resumed) {
-      // *** MODIFIED THIS IF-CONDITION ***
-      if (battleService.isBattleActive &&
-          isBattleOngoing && // Check if battle is actually ONGOING
+     if (battleService.isBattleActive &&
+          isBattleOngoing && 
           (battleService.timeLeft.isNegative ||
               battleService.timeLeft.inSeconds == 0)) {
         print(
@@ -125,17 +104,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         battleService.endBattle();
       }
     }
-    // Removed the automatic forfeit when app goes to background to allow battles to continue
-    // else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-    //   // *** MODIFIED THIS IF-CONDITION ***
-    //   if (battleService.isBattleActive &&
-    //       isBattleOngoing && // Check if battle is actually ONGOING
-    //       !battleService.isEndingBattle)
-    //   {
-    //     print("App pausing with active, ONGOING battle. Triggering forfeit.");
-    //     battleService.forfeitBattle(); // This is async, but we don't await it here
-    //   }
-    // }
+  }
+
+  Future<void>? _permissionCheckFuture;
+
+  Future<void> _checkAndShowPermissions() {
+    _permissionCheckFuture ??= _doCheckPermissions();
+    return _permissionCheckFuture!;
+  }
+
+  Future<void> _doCheckPermissions() async {
+    final allGranted = await PermissionService.areAllPermissionsGranted();
+
+    if (!allGranted && mounted) {
+      await Future.delayed(const Duration(milliseconds: 1000));
+
+      if (!mounted) return;
+      await PermissionBottomSheet.show(
+        context,
+        showCloseButton: true,
+      );
+    }
   }
 
   void _showGameOverDialog(Map<String, dynamic> finalState) {
@@ -144,13 +133,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final currentUserId = authService.currentUser?.uid;
 
     final gameState = finalState['finalState'];
-    // Handle error case
     if (gameState == null) return;
 
     final String? p1Id = battleService.currentGame?.player1Id;
     final String? p2Id = battleService.currentGame?.player2Id;
-
-    // Handle error case
     if (gameState['result'] == 'ERROR') {
       _showSimpleBattleEndDialog();
       return;
@@ -538,9 +524,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2a2a2a),
-                  borderRadius: const BorderRadius.only(
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2a2a2a),
+                  borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(16),
                     topRight: Radius.circular(16),
                   ),
@@ -550,15 +536,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     right: BorderSide(color: Colors.red, width: 3),
                   ),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text(
+                    Text(
                       '⚠️',
                       style: TextStyle(fontSize: 20),
                     ),
-                    const SizedBox(width: 8),
-                    const Text(
+                    SizedBox(width: 8),
+                    Text(
                       'Battle Ended',
                       style: TextStyle(
                         color: Colors.white,
@@ -567,19 +553,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         letterSpacing: 1,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Text(
+                    SizedBox(width: 8),
+                    Text(
                       '⚠️',
                       style: TextStyle(fontSize: 20),
                     ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(24),
+              const Padding(
+                padding: EdgeInsets.all(24),
                 child: Column(
                   children: [
-                    const Text(
+                    Text(
                       "The battle has ended.",
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -588,8 +574,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    SizedBox(height: 16),
+                    Text(
                       "Note: We couldn't retrieve your battle results. This might be due to a network issue.",
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -597,7 +583,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         fontSize: 14,
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    SizedBox(height: 24),
                   ],
                 ),
               ),
@@ -644,46 +630,83 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
-    final double bottomNavBarHeight =
+    const double bottomNavBarHeight =
         kBottomNavigationBarHeight + 30; // More adaptive height
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-      ),
-      child: Scaffold(
-        body: Column(
-          children: [
-            Container(
-              height: statusBarHeight,
-              color: Colors.yellow.shade700,
+    return ShowCaseWidget(
+      blurValue: 1,
+      autoPlayDelay: const Duration(seconds: 3),
+      builder: (context) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await _checkAndShowPermissions();
+          if (context.mounted) {
+            await Future.delayed(const Duration(milliseconds: 500));
+            _checkAndStartShowcase(context);
+          }
+        });
+
+        return UpgradeAlert(
+          // upgrader: Upgrader(debugDisplayAlways: true), 
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: const SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.dark,
             ),
-            Expanded(
-              child: Stack(
+            child: Scaffold(
+              body: Column(
                 children: [
-                  // Use a more adaptive approach for bottom padding
                   Container(
-                    padding: EdgeInsets.only(
-                      bottom: MediaQuery.of(context).padding.bottom +
-                          bottomNavBarHeight,
-                    ),
-                    child: _pages[_currentIndex],
+                    height: statusBarHeight,
+                    color: Colors.yellow.shade700,
                   ),
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: _buildBottomNavBar(),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        // Use a more adaptive approach for bottom padding
+                        Container(
+                          padding: EdgeInsets.only(
+                            bottom: MediaQuery.of(context).padding.bottom +
+                                bottomNavBarHeight,
+                          ),
+                          child: _pages[_currentIndex],
+                        ),
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: _buildBottomNavBar(context),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );  
+      },
     );
   }
 
-  Widget _buildBottomNavBar() {
+  Future<void> _checkAndStartShowcase(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    // V2 key to force re-show for users who experienced the overlap bug
+    final bool showcaseShown = prefs.getBool('showcase_shown_v2') ?? false;
+
+    if (!showcaseShown) {
+      if (context.mounted) {
+        ShowCaseWidget.of(context).startShowCase([
+          _stepCountKey,
+          _onlineBattleKey,
+          _friendBattleKey,
+          // _googleFitKey,
+          _kingdomButtonKey,
+          _profileButtonKey,
+        ]);
+        await prefs.setBool('showcase_shown_v2', true);
+      }
+    }
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -716,6 +739,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               inactiveImageAsset: 'assets/images/kingdom.png',
               label: 'Kingdom',
               index: 0,
+              key: _kingdomButtonKey,
+              description: 'Manage your Kingdom\nand upgrades!',
             ),
             _buildNavItem(
               activeImageAsset: 'assets/images/home_active.png',
@@ -728,6 +753,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               inactiveImageAsset: 'assets/images/profile.png',
               label: 'Profile',
               index: 2,
+              key: _profileButtonKey,
+              description: 'View your stats\nand settings',
             ),
           ],
         ),
@@ -740,9 +767,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     required String inactiveImageAsset,
     required String label,
     required int index,
+    GlobalKey? key,
+    String? description,
   }) {
     final isSelected = _currentIndex == index;
-    return GestureDetector(
+    final content = GestureDetector(
       onTap: () => _onTabTapped(index),
       behavior: HitTestBehavior.translucent,
       child: AnimatedContainer(
@@ -776,5 +805,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+
+    if (key != null && description != null) {
+      return Showcase(
+        key: key,
+        description: description,
+        tooltipBackgroundColor: const Color(0xFF1E1E1E),
+        textColor: Colors.white,
+        tooltipBorderRadius: BorderRadius.circular(12),
+        // targetShapeBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        child: content,
+      );
+    }
+    return content;
   }
 }

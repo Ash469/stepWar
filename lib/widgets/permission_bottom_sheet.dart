@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/permission_model.dart';
 import '../services/permission_service.dart';
-import '../widget/responsive_wrapper.dart';
 
-/// Professional bottom sheet to display and manage app permissions
 class PermissionBottomSheet extends StatefulWidget {
   final VoidCallback? onAllGranted;
   final bool showCloseButton;
@@ -14,7 +12,6 @@ class PermissionBottomSheet extends StatefulWidget {
     this.showCloseButton = true,
   });
 
-  /// Show the permission bottom sheet
   static Future<void> show(
     BuildContext context, {
     VoidCallback? onAllGranted,
@@ -23,8 +20,8 @@ class PermissionBottomSheet extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      isDismissible: showCloseButton,
-      enableDrag: showCloseButton,
+      isDismissible: false, 
+      enableDrag: true, 
       backgroundColor: Colors.transparent,
       builder: (context) => PermissionBottomSheet(
         onAllGranted: onAllGranted,
@@ -38,87 +35,117 @@ class PermissionBottomSheet extends StatefulWidget {
 }
 
 class _PermissionBottomSheetState extends State<PermissionBottomSheet>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   List<AppPermission> _permissions = [];
   bool _isLoading = true;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
+  late PageController _pageController;
+  int _currentIndex = 0;
+  bool _isNavigating = false;
+  bool get _areAllRequiredGranted =>
+      _permissions.every((p) => p.isGranted || !p.isRequired);
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
+    WidgetsBinding.instance.addObserver(this);
+    _pageController = PageController();
     _loadPermissions();
-    _animationController.forward();
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissionsOnResume();
+    }
+  }
+
+  Future<void> _checkPermissionsOnResume() async {
+    final updatedPermissions = await PermissionService.checkAllPermissions();
+    if (mounted) {
+      setState(() {
+        _permissions = updatedPermissions;
+      });
+      if (_currentIndex < _permissions.length) {
+        final currentPerm = _permissions[_currentIndex];
+        if (currentPerm.isGranted) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) _nextPage();
+        }
+      }
+    }
   }
 
   Future<void> _loadPermissions() async {
     setState(() => _isLoading = true);
     final permissions = await PermissionService.checkAllPermissions();
+
     setState(() {
       _permissions = permissions;
       _isLoading = false;
     });
-
-    // Check if all permissions are granted
-    if (permissions.every((p) => p.isGranted || !p.isRequired)) {
-      widget.onAllGranted?.call();
+    if (_areAllRequiredGranted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _pageController.jumpToPage(_permissions.length);
+        }
+      });
     }
   }
 
   Future<void> _handlePermissionRequest(AppPermission permission) async {
-    // Special handling for auto-start permission
     if (permission.id == 'autostart') {
       _showAutoStartDialog(permission);
       return;
     }
 
     final granted = await PermissionService.requestPermission(permission.id);
+    if (granted) {
+      _updatePermissionState(permission, true);
+    } else {
+      if (mounted) _showSettingsDialog(permission);
+    }
+  }
 
+  void _updatePermissionState(AppPermission permission, bool granted) async {
     if (granted) {
       setState(() {
         permission.isGranted = true;
       });
-
-      // Show success feedback
+      await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('${permission.title} granted!'),
-                ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF4CAF50),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _nextPage();
       }
+    }
+  }
 
-      // Reload all permissions
-      await _loadPermissions();
+  Future<void> _nextPage() async {
+    if (_isNavigating || _currentIndex >= _permissions.length) return;
+
+    if (_currentIndex == _permissions.length - 1) {
+      if (_areAllRequiredGranted) {
+        _isNavigating = true;
+        await _pageController.nextPage(
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeInOut);
+        if (mounted) {
+          _isNavigating = false;
+        }
+      } else {
+        Navigator.pop(context);
+      }
     } else {
-      // Permission denied, show option to open settings
+      _isNavigating = true;
+      await _pageController.nextPage(
+          duration: const Duration(milliseconds: 600), curve: Curves.easeInOut);
       if (mounted) {
-        _showSettingsDialog(permission);
+        _isNavigating = false;
       }
     }
   }
@@ -128,60 +155,32 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            Icon(
-              permission.icon,
-              color: permission.iconColor,
-              size: 28,
-            ),
+            Icon(permission.icon, color: permission.iconColor, size: 28),
             const SizedBox(width: 12),
             const Expanded(
-              child: Text(
-                'Enable Auto-Start',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+                child: Text('Enable Auto-Start',
+                    style: TextStyle(color: Colors.white, fontSize: 18))),
           ],
         ),
         content: const Text(
-          'To ensure step counting continues after device restart, please enable auto-start permission from your device settings.\n\nWe\'ll take you to the settings page now. Please find StepWars and enable auto-start.',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 15,
-          ),
-        ),
+            'To ensure step counting works, please enable auto-start in settings.',
+            style: TextStyle(color: Colors.white70, fontSize: 15)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               await PermissionService.openSettings(permission.id);
-              // Reload permissions to show the updated status
               if (mounted) {
-                await _loadPermissions();
+                setState(() => permission.isGranted = true); 
+                _nextPage();
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: permission.iconColor,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
             child: const Text('Open Settings'),
           ),
         ],
@@ -190,70 +189,24 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
   }
 
   void _showSettingsDialog(AppPermission permission) {
-    // Special handling for auto-start permission
-    final isAutoStart = permission.id == 'autostart';
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF2a2a2a),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: Row(
-          children: [
-            Icon(
-              Icons.settings,
-              color: permission.iconColor,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                isAutoStart ? 'Manual Setup Required' : 'Permission Required',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          isAutoStart
-              ? 'Auto-start must be enabled manually from your device settings. We\'ll take you there now - please find StepWars and enable auto-start.'
-              : 'Please enable ${permission.title} from settings to continue using all features.',
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 15,
-          ),
-        ),
+        title: const Text('Permission Required',
+            style: TextStyle(color: Colors.white)),
+        content: Text('Please enable ${permission.title} in settings.',
+            style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               await PermissionService.openSettings(permission.id);
-              // Check permissions again after returning
-              Future.delayed(const Duration(seconds: 1), () {
-                if (mounted) _loadPermissions();
-              });
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: permission.iconColor,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text(isAutoStart ? 'Open Settings' : 'Open Settings'),
+            child: const Text('Open Settings'),
           ),
         ],
       ),
@@ -262,294 +215,214 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
 
   @override
   Widget build(BuildContext context) {
-    final allGranted = _permissions.every((p) => p.isGranted || !p.isRequired);
+    final height = MediaQuery.of(context).size.height * 0.55;
+    final itemCount = _permissions.length + 1;
 
-    return FadeTransition(
-      opacity: _fadeAnimation,
+    return Align(
+      alignment: Alignment.bottomCenter,
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1a1a1a),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
-        ),
-        child: SafeArea(
-          child: ResponsiveWrapper(
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+        height: height,
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 20,
+                spreadRadius: 5,
+              )
+            ]),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
-                  // Handle bar
                   Container(
-                    margin: const EdgeInsets.only(top: 12),
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2)),
                   ),
 
-                  // Header
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFC107).withOpacity(0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            allGranted ? Icons.check_circle : Icons.security,
-                            size: 48,
-                            color: allGranted
-                                ? const Color(0xFF4CAF50)
-                                : const Color(0xFFFFC107),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          allGranted ? 'All Set! 🎉' : 'Permissions Needed',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          allGranted
-                              ? 'All permissions are granted. You\'re ready to go!'
-                              : 'To provide you with the best experience, StepWars needs the following permissions:',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Permissions list
-                  if (_isLoading)
-                    const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFFFFC107),
-                        ),
+                  if (!_areAllRequiredGranted ||
+                      _currentIndex < _permissions.length)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(_permissions.length, (index) {
+                          bool isActive = index == _currentIndex;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: isActive ? 24 : 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? const Color(0xFFFFC107)
+                                  : Colors.white24,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          );
+                        }),
                       ),
-                    )
-                  else
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _permissions.length,
+                    ),
+
+                  Expanded(
+                    child: PageView.builder(
+                      controller: _pageController,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: itemCount,
+                      onPageChanged: (index) {
+                        setState(() {
+                          _currentIndex = index;
+                        });
+                        if (index == _permissions.length &&
+                            !_areAllRequiredGranted) {
+                          Future.delayed(Duration.zero, () {
+                            _pageController.animateToPage(
+                                _permissions.length - 1,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut);
+                          });
+                        }
+                      },
                       itemBuilder: (context, index) {
-                        final permission = _permissions[index];
-                        return _buildPermissionCard(permission);
+                        if (index == _permissions.length) {
+                          if (_areAllRequiredGranted) {
+                            return _buildSuccessPage();
+                          } else {
+                            return const SizedBox();
+                          }
+                        }
+                        return _buildPermissionPage(_permissions[index]);
                       },
                     ),
-
-                  // Bottom action button
-                  if (!allGranted && !_isLoading)
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        children: [
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () async {
-                                // Request all missing permissions
-                                for (final permission in _permissions) {
-                                  if (!permission.isGranted) {
-                                    await _handlePermissionRequest(permission);
-                                  }
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFFC107),
-                                foregroundColor: Colors.black,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: const Text(
-                                'Grant All Permissions',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (widget.showCloseButton) ...[
-                            const SizedBox(height: 12),
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text(
-                                'I\'ll do this later',
-                                style: TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    )
-                  else if (allGranted && widget.showCloseButton)
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4CAF50),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Continue',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                  ),
                 ],
               ),
-            ),
-          ),
-        ),
       ),
     );
   }
 
-  Widget _buildPermissionCard(AppPermission permission) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2a2a2a),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: permission.isGranted
-              ? permission.iconColor.withOpacity(0.3)
-              : Colors.white10,
-          width: 1,
-        ),
+  Widget _buildPermissionPage(AppPermission permission) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: permission.iconColor.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(permission.icon, color: permission.iconColor, size: 40),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            permission.title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            permission.description,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Colors.white70, fontSize: 16, height: 1.4),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                if (permission.isGranted) {
+                  _nextPage();
+                } else {
+                  _handlePermissionRequest(permission);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: permission.isGranted
+                    ? Colors.white10
+                    : const Color(0xFFFFC107),
+                foregroundColor:
+                    permission.isGranted ? Colors.white : Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text(
+                permission.isGranted ? 'Next' : 'Allow Access',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+
+          // Swipe hint
+          if (!permission.isGranted)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                "Swipe left to skip",
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.3), fontSize: 12),
+              ),
+            ),
+        ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: permission.isGranted
-              ? null
-              : () => _handlePermissionRequest(permission),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Icon
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: permission.iconColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    permission.icon,
-                    color: permission.iconColor,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
+    );
+  }
 
-                // Title and description
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        permission.title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        permission.description,
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // Status indicator
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: permission.isGranted
-                      ? Container(
-                          key: const ValueKey('granted'),
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50).withOpacity(0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.check_circle,
-                            color: Color(0xFF4CAF50),
-                            size: 24,
-                          ),
-                        )
-                      : Container(
-                          key: const ValueKey('pending'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: permission.iconColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            'Grant',
-                            style: TextStyle(
-                              color: permission.iconColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                ),
-              ],
+  Widget _buildSuccessPage() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 60),
+        const SizedBox(height: 16),
+        const Text(
+          'All Set!',
+          style: TextStyle(
+              color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            'You\'re ready to go.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                if (widget.onAllGranted != null) widget.onAllGranted!();
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4CAF50),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Continue'),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

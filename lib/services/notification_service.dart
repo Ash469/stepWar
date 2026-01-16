@@ -26,7 +26,6 @@ class NotificationService {
     _initCompleter = Completer<void>();
 
     _initializeLocalNotifications().then((_) async {
-      await _firebaseMessaging.requestPermission();
 
       // Attach foreground listener
       FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
@@ -134,7 +133,7 @@ class NotificationService {
     print("[FCM] Foreground message: ${message.notification?.title}");
     showLocalNotification(message);
   }
-  
+
   void _handleBackgroundMessage(RemoteMessage message) {
     print("[FCM] Foreground message: ${message.notification?.title}");
     showLocalNotification(message);

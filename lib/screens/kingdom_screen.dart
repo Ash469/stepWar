@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/auth_service.dart';
 import '../widget/footer.dart';
 
@@ -9,7 +10,7 @@ class KingdomItem {
   final String name;
   final String imagePath;
   final String rarity;
-  final String description; 
+  final String description;
   final Color rarityColor;
   final List<Color> gradientColors;
 
@@ -17,7 +18,7 @@ class KingdomItem {
     required this.name,
     required this.imagePath,
     required this.rarity,
-     required this.description,
+    required this.description,
     required this.rarityColor,
     required this.gradientColors,
   });
@@ -44,7 +45,7 @@ class KingdomItem {
     return KingdomItem(
       name: json['name'] ?? 'Unnamed',
       imagePath: json['imagePath'] ?? '',
-      description: json['description'] ?? 'No description available.', 
+      description: json['description'] ?? 'No description available.',
       rarity: rarity,
       rarityColor: rarityColor,
       gradientColors: [rarityColor.withOpacity(0.5), Colors.transparent],
@@ -79,7 +80,8 @@ class _KingdomScreenState extends State<KingdomScreen> {
     final cachedRewardsString = prefs.getString('userRewardsCache');
 
     if (cachedRewardsString != null) {
-      final rawRewards = Map<String, dynamic>.from(jsonDecode(cachedRewardsString));
+      final rawRewards =
+          Map<String, dynamic>.from(jsonDecode(cachedRewardsString));
       _processAndSetRewards(rawRewards);
     } else {
       await _fetchAndCacheRewards();
@@ -98,13 +100,28 @@ class _KingdomScreenState extends State<KingdomScreen> {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('userRewardsCache', jsonEncode(rawRewards));
+      // Save timestamp for cache expiry tracking
+      await prefs.setInt(
+          'userRewardsCacheTime', DateTime.now().millisecondsSinceEpoch);
 
       _processAndSetRewards(rawRewards);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✅ Rewards refreshed successfully!"),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       print("Error fetching rewards: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error fetching rewards: $e"), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text("Error fetching rewards: $e"),
+              backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -113,10 +130,52 @@ class _KingdomScreenState extends State<KingdomScreen> {
   }
 
   void _processAndSetRewards(Map<String, dynamic> rawRewards) {
-    final processedRewards = rawRewards.map((key, value) {
-      final items = (value as List).map((item) => KingdomItem.fromJson(item)).toList();
-      return MapEntry(key, items);
+    if (rawRewards.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _allRewards = {};
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    final processedRewards = <String, List<KingdomItem>>{};
+
+    rawRewards.forEach((key, value) {
+      if (value is List) {
+        final items = value
+            .map((item) {
+              if (item is Map<String, dynamic>) {
+                try {
+                  return KingdomItem.fromJson(item);
+                } catch (e) {
+                  print("Error parsing KingdomItem from map: $e");
+                  return null;
+                }
+              } else if (item is String) {
+                // Check if it's a JSON string
+                try {
+                  final decoded = jsonDecode(item);
+                  if (decoded is Map<String, dynamic>) {
+                    return KingdomItem.fromJson(decoded);
+                  }
+                } catch (_) {
+                  // Not a JSON string, likely an ID or invalid data
+                }
+                print("Skipping invalid reward item (String): $item");
+                return null;
+              }
+              print("Skipping invalid reward item (Unknown type): $item");
+              return null;
+            })
+            .whereType<KingdomItem>()
+            .toList();
+
+        processedRewards[key] = items;
+      }
     });
+
     if (mounted) {
       setState(() {
         _allRewards = processedRewards;
@@ -138,12 +197,39 @@ class _KingdomScreenState extends State<KingdomScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Image
-              Image.asset(item.imagePath, height: 120, errorBuilder: (c, e, s) => const Icon(Icons.error, color: Colors.red, size: 80)),
+              ClipOval(
+                child: CachedNetworkImage(
+                  imageUrl: item.imagePath,
+                  width: 120,
+                  height: 120,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    width: 120,
+                    height: 120,
+                    color: Colors.grey.shade800,
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.yellow,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    width: 120,
+                    height: 120,
+                    color: Colors.grey.shade800,
+                    child: const Icon(Icons.error, color: Colors.red, size: 40),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
               Text(
                 item.name,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               // Rarity Tag
@@ -153,13 +239,15 @@ class _KingdomScreenState extends State<KingdomScreen> {
               Text(
                 item.description,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 15, height: 1.4),
+                style: TextStyle(
+                    color: Colors.grey.shade400, fontSize: 15, height: 1.4),
               ),
             ],
           ),
           actions: [
             TextButton(
-              child: const Text('Close', style: TextStyle(color: Color(0xFFFFD700), fontSize: 16)),
+              child: const Text('Close',
+                  style: TextStyle(color: Color(0xFFFFD700), fontSize: 16)),
               onPressed: () {
                 Navigator.of(context).pop();
               },
@@ -173,15 +261,18 @@ class _KingdomScreenState extends State<KingdomScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.yellow));
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.yellow));
     }
 
-    if (_allRewards == null || _allRewards!.values.every((list) => list.isEmpty)) {
+    if (_allRewards == null ||
+        _allRewards!.values.every((list) => list.isEmpty)) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text("You haven't collected any rewards yet.", style: TextStyle(color: Colors.white70)),
+            const Text("You haven't collected any rewards yet.",
+                style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 16),
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.yellow),
@@ -203,28 +294,35 @@ class _KingdomScreenState extends State<KingdomScreen> {
       backgroundColor: const Color(0xFF121212),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            padding: EdgeInsets.all(16.0),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildFilterChips(availableFilters),
-                  const SizedBox(height: 24),
-                  Text(
-                    '${_currentItems.length} items',
-                    style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildKingdomGrid(),
-                  const SizedBox(height: 40 + 20), // Add extra spacing
-                  const StepWarsFooter(),
-                ],
+          return RefreshIndicator(
+            onRefresh: _fetchAndCacheRewards,
+            color: const Color(0xFFFFD700),
+            backgroundColor: const Color(0xFF1E1E1E),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHeader(),
+                    const SizedBox(height: 24),
+                    _buildFilterChips(availableFilters),
+                    const SizedBox(height: 24),
+                    Text(
+                      '${_currentItems.length} items',
+                      style:
+                          TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                    ),
+                    // const SizedBox(height: 12),
+                    _buildKingdomGrid(),
+                    const SizedBox(height: 40 + 20), // Add extra spacing
+                    const StepWarsFooter(),
+                  ],
+                ),
               ),
             ),
           );
@@ -282,10 +380,14 @@ class _KingdomScreenState extends State<KingdomScreen> {
             ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20.0),
-              side: BorderSide(color: isSelected ? const Color(0xFFFFD700) : Colors.grey.shade800),
+              side: BorderSide(
+                  color: isSelected
+                      ? const Color(0xFFFFD700)
+                      : Colors.grey.shade800),
             ),
             showCheckmark: false,
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           );
         },
       ),
@@ -320,7 +422,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
     );
   }
 
-   Widget _buildKingdomItemCard(KingdomItem item) {
+  Widget _buildKingdomItemCard(KingdomItem item) {
     return GestureDetector(
       onTap: () => _showRewardDetailsDialog(item),
       child: Container(
@@ -353,13 +455,46 @@ class _KingdomScreenState extends State<KingdomScreen> {
                   _buildRarityTag(item.rarity, item.rarityColor),
                   const Spacer(),
                   item.imagePath.isNotEmpty
-                      ? Image.network(item.imagePath, fit: BoxFit.contain, width: 60, height: 60)
-                      : const Icon(Icons.question_mark, color: Colors.white, size: 60),
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: item.imagePath,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                              width: 80,
+                              height: 80,
+                              color: Colors.grey.shade800,
+                              child: const Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.yellow,
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              width: 80,
+                              height: 80,
+                              color: Colors.grey.shade800,
+                              child: const Icon(Icons.error,
+                                  color: Colors.red, size: 30),
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.question_mark,
+                          color: Colors.white, size: 60),
                   const Spacer(),
                   Text(
                     item.name,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -380,7 +515,8 @@ class _KingdomScreenState extends State<KingdomScreen> {
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+        style:
+            TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
       ),
     );
   }
