@@ -23,8 +23,6 @@ class _BattleScreenState extends State<BattleScreen> {
   bool _isFetchingData = false;
   final BotService _botService = BotService();
   bool _isEndingBattle = false;
-
-  // 1. Add this subscription variable
   StreamSubscription? _battleStreamSubscription; 
 
   @override
@@ -33,13 +31,9 @@ class _BattleScreenState extends State<BattleScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchBattleDataIfNeeded();
     });
-
-    // 2. Add this listener to watch for Game End signal
     final battleService = context.read<ActiveBattleService>();
     _battleStreamSubscription = battleService.stream.listen((_) {
-      // If the service has a final state, the game is over.
       if (battleService.finalBattleState != null && mounted) {
-        // Force navigation to MainScreen to show the result dialog
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const MainScreen()),
           (route) => false,
@@ -50,7 +44,6 @@ class _BattleScreenState extends State<BattleScreen> {
 
   @override
   void dispose() {
-    // 3. Cancel the listener
     _battleStreamSubscription?.cancel();
     super.dispose();
   }
@@ -348,7 +341,7 @@ class _BattleScreenState extends State<BattleScreen> {
     final bool isAhead = scoreDiff > 0;
     final bool isDraw = scoreDiff.abs() <= 50;
 
-    const bool canEndBattle = true; //now you can end anytime
+    const bool canEndBattle = true; 
 
     String statusText;
     Color statusColor;

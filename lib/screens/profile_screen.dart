@@ -9,6 +9,7 @@ import '../services/step_history_service.dart';
 import '../providers/step_provider.dart';
 import 'login_screen.dart';
 import '../widget/footer.dart';
+import 'google_fit_stats_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -85,8 +86,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         _isLoading = false;
       });
-
-      // Update StepProvider with database value
       if (mounted) {
         final dbSteps = _user?.todaysStepCount ?? 0;
         context.read<StepProvider>().updateDbSteps(dbSteps);
@@ -190,12 +189,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final userId = _authService.currentUser?.uid;
       if (userId == null) throw Exception("User not logged in");
-
-      // 1. Fetch Backend Data
       final List<dynamic> history =
           await _authService.getActivityHistory(userId);
-
-      // Map backend data: "yyyy-MM-dd" -> stepCount
       final Map<String, int> backendMap = {};
       for (var dayData in history) {
         final date = DateTime.tryParse(dayData['date'])?.toLocal();
@@ -204,8 +199,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           backendMap[dateString] = dayData['stepCount'] ?? 0;
         }
       }
-
-      // 2. Load Local Data
       final stepHistoryService = StepHistoryService();
       await stepHistoryService.loadHistory();
 
@@ -225,19 +218,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       for (int i = 0; i < 7; i++) {
         final currentDate = startOfSelectedWeek.add(Duration(days: i));
         final dateString = DateFormat('yyyy-MM-dd').format(currentDate);
-
-        // Get max from backend and local
         final int backendSteps = backendMap[dateString] ?? 0;
         final int localSteps =
             stepHistoryService.getStepsForDate(dateString) ?? 0;
-
         final int maxSteps =
             (backendSteps > localSteps) ? backendSteps : localSteps;
-
         String dayAbbreviation = dayAbbreviations[currentDate.weekday - 1];
         processedHistory[dayAbbreviation] = maxSteps;
       }
-
       if (mounted) {
         setState(() {
           _stepHistory = processedHistory;
@@ -335,6 +323,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 24),
                       _buildStepsChart(),
+                      const SizedBox(height: 24),
+                      _buildGoogleFitConnect(),
                       const SizedBox(height: 40),
                       const StepWarsFooter(),
                     ],
@@ -417,9 +407,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileHeader() {
-    // Check if user is signed in with Play Games (we can check if provider is 'playgames.google.com')
     final isPlayGamesUser = _user!.email?.contains('playgames') ?? false;
-
     return Column(
       children: [
         Stack(
@@ -434,7 +422,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? const Icon(Icons.person, size: 50, color: Colors.white70)
                   : null,
             ),
-            // Play Games badge overlay if signed in via Play Games
             if (isPlayGamesUser)
               Positioned(
                 bottom: 0,
@@ -485,7 +472,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        // Show Play Games info if signed in via Play Games
         if (isPlayGamesUser)
           Container(
             margin: const EdgeInsets.only(bottom: 4),
@@ -1015,10 +1001,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String totalBattles,
     required int totalSteps,
   }) {
-    // Calculate dynamic total steps:
-    // Start with the loaded total steps from DB.
-    // Add the difference between current live steps and the steps recorded in DB for today.
-    // This ensures we show the most up-to-date total without needing a DB write.
     int displayedTotalSteps = totalSteps;
     if (_user != null) {
       final int dbTodaysSteps = _user!.todaysStepCount ?? 0;
@@ -1111,7 +1093,90 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
 
-    // Return as Expanded or just the Container based on the flag
     return isFullWidth ? content : Expanded(child: content);
+  }
+
+  Widget _buildGoogleFitConnect() {
+    return Consumer<StepProvider>(
+      builder: (context, stepProvider, child) {
+        final isConnected = stepProvider.isGoogleFitEnabled;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: InkWell(
+            onTap: () async {
+              if (isConnected) {
+                // Already connected, navigate to stats
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const GoogleFitStatsScreen(),
+                  ),
+                );
+              } else {
+                await stepProvider.requestGoogleFitAuthorization();
+              }
+            },
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isConnected
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.blue.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isConnected ? Icons.check_circle : Icons.health_and_safety,
+                    color: isConnected ? Colors.green : Colors.blue,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isConnected
+                            ? 'View Google Fit History'
+                            : 'Connect Google Fit',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isConnected
+                            ? 'View your detailed activity history'
+                            : 'Connect Google health data for better tracking of history',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white54,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

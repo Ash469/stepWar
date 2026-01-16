@@ -43,15 +43,10 @@ class StepProvider extends ChangeNotifier {
     _initializeGoogleFit();
   }
 
-  /// Initialize the provider synchronously for faster startup
   void _initializeSync() {
-    // Register callback to receive step updates from foreground service
     FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
 
-    // Load step history
     _stepHistoryService.loadHistory();
-
-    // Load initial step count synchronously from cache
     _loadInitialStepsSync();
 
     _isInitialized = true;
@@ -107,14 +102,10 @@ class StepProvider extends ChangeNotifier {
     }
   }
 
-  /// Handle case where steps appear stuck at database baseline
   void _handleStuckDetection() async {
-    // This logic can be implemented if needed
-    // For now, we'll keep it simple and let the foreground service handle it
     print('[StepProvider] Stuck detection triggered');
   }
 
-  /// Update the database baseline when user profile is refreshed
   void updateDbSteps(int steps) {
     if (_dbSteps != steps) {
       print('[StepProvider] Updating DB steps: $_dbSteps -> $steps');
@@ -136,17 +127,14 @@ class StepProvider extends ChangeNotifier {
     updateDbSteps(steps);
   }
 
-  /// Mark offset initialization as complete
   void markOffsetInitialized() {
     _offsetInitializationDone = true;
   }
 
-  /// Reset offset initialization flag (e.g., on new day)
   void resetOffsetInitialization() {
     _offsetInitializationDone = false;
   }
 
-  /// Manually refresh steps (useful for pull-to-refresh)
   void refresh() {
     _loadInitialStepsSync();
     _recoverFromHistory();
@@ -155,7 +143,6 @@ class StepProvider extends ChangeNotifier {
     }
   }
 
-  /// Recover steps from local history if current steps are 0 or missing
   Future<void> _recoverFromHistory() async {
     try {
       if (_currentSteps == 0) {
@@ -171,7 +158,6 @@ class StepProvider extends ChangeNotifier {
     }
   }
 
-  /// Get step history for the last N days
   Map<String, int> getStepHistory(int days) {
     return _stepHistoryService.getLastNDays(days);
   }
@@ -215,23 +201,17 @@ class StepProvider extends ChangeNotifier {
       _connectionStatus = status;
 
       if (status == HealthConnectStatus.notInstalled) {
-        // Prompt install
         await _googleFitService.installHealthConnect();
-        // Return status so UI can show "Installed? Click this" or something
-        // Actually, install is an intent, we might want to return here and let user come back
         return status;
       }
 
       if (status == HealthConnectStatus.authorized) {
-        // Already authorized
         _enableAndSync();
         return status;
       }
 
-      // 2. Request permissions
       final authorized = await _googleFitService.requestAuthorization();
 
-      // 3. Re-check status
       status = await _googleFitService.checkHealthConnectStatus();
       _connectionStatus = status;
 
@@ -373,49 +353,6 @@ class StepProvider extends ChangeNotifier {
     _lastGoogleFitSync = null;
     notifyListeners();
     print('[StepProvider] Google Fit disabled');
-  }
-
-  /// 🧪 TESTING ONLY: Load dummy Google Fit data for UI testing
-  void loadDummyGoogleFitData() {
-    print('[StepProvider] 🧪 Loading DUMMY Google Fit data for testing...');
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    // Generate dummy weekly data (last 7 days)
-    Map<DateTime, int> weeklyStepsMap = {};
-    for (int i = 0; i < 7; i++) {
-      final date = today.subtract(Duration(days: i));
-      // Generate random-ish steps between 3000-12000
-      final steps = 3000 + (i * 1234 + date.day * 567) % 9000;
-      weeklyStepsMap[date] = steps;
-    }
-
-    // Generate dummy monthly data (last 30 days)
-    Map<DateTime, int> monthlyStepsMap = {};
-    for (int i = 0; i < 30; i++) {
-      final date = today.subtract(Duration(days: i));
-      // Generate random-ish steps between 2000-15000
-      final steps = 2000 + (i * 789 + date.day * 432) % 13000;
-      monthlyStepsMap[date] = steps;
-    }
-
-    _weeklyStats = WeeklyStepStats.fromStepsMap(weeklyStepsMap);
-    _weeklySteps = _weeklyStats?.totalSteps ?? 0;
-
-    _monthlyStats = MonthlyStepStats.fromStepsMap(monthlyStepsMap);
-    _monthlySteps = _monthlyStats?.totalSteps ?? 0;
-
-    _isGoogleFitEnabled = true; // Pretend it's enabled
-    _lastGoogleFitSync = DateTime.now();
-
-    print('[StepProvider] 🧪 Dummy data loaded:');
-    print(
-        '  - Weekly: $_weeklySteps steps across ${_weeklyStats?.dailyData.length} days');
-    print(
-        '  - Monthly: $_monthlySteps steps across ${_monthlyStats?.dailyData.length} days');
-
-    notifyListeners();
   }
 
   @override

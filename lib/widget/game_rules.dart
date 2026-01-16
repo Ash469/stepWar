@@ -10,8 +10,6 @@ class GameRulesWidget extends StatelessWidget {
     final remoteConfig = context.read<FirebaseRemoteConfig>();
     final koDifference = 200;
     final drawDifference = 50;
-    // final koDifference = remoteConfig.getInt('ko_diff');
-    // final drawDifference = remoteConfig.getInt('draw_diff');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -32,18 +32,15 @@ class _LoadingScreenState extends State<LoadingScreen> {
 
     if (!mounted) return;
 
-    // Check if user is already logged in (any provider)
     final bool loggedIn = await _authService.isLoggedIn();
 
     if (loggedIn) {
-      // User is already authenticated, go to main screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainScreen()),
       );
       return;
     }
 
-    // User is not logged in - attempt automatic Play Games sign-in on Android
     if (Platform.isAndroid) {
       print('[LoadingScreen] Attempting automatic Play Games sign-in...');
       try {
@@ -52,20 +49,17 @@ class _LoadingScreenState extends State<LoadingScreen> {
         if (user != null && mounted) {
           print('[LoadingScreen] ✅ Automatic Play Games sign-in successful!');
 
-          // Check if this is a new user
           final isNew = await _authService.isNewUser(user.uid);
 
           if (!mounted) return;
 
           if (isNew) {
-            // New user - go to profile completion
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => ProfileCompletionScreen(user: user),
               ),
             );
           } else {
-            // Existing user - go to main screen
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(builder: (_) => const MainScreen()),
             );
@@ -77,12 +71,8 @@ class _LoadingScreenState extends State<LoadingScreen> {
         }
       } catch (e) {
         print('[LoadingScreen] Play Games automatic sign-in failed: $e');
-        // Continue to manual login screen
       }
     }
-
-    // If we get here, automatic sign-in failed or not available
-    // Show onboarding or login screen
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final bool hasSeenOnboarding = prefs.getBool('hasSeenOnboarding') ?? false;
 

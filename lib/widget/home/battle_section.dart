@@ -1,12 +1,13 @@
 // In lib/widget/home/battle_section.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:showcaseview/showcaseview.dart';
 import 'package:stepwars_app/models/user_model.dart';
 import 'package:stepwars_app/screens/battle_screen.dart';
 import 'package:stepwars_app/screens/matchmaking_screen.dart';
 import 'package:stepwars_app/screens/waiting_for_friend_screen.dart';
 import 'package:stepwars_app/services/active_battle_service.dart';
-import 'package:stepwars_app/models/battle_rb.dart';
+
 import 'section_title.dart';
 
 class BattleSection extends StatelessWidget {
@@ -16,6 +17,8 @@ class BattleSection extends StatelessWidget {
   final bool isCreatingBotGame;
   final VoidCallback onShowFriendBattleDialog;
   final Function(ActiveBattleService) onFetchOpponentProfile;
+  final GlobalKey onlineBattleKey;
+  final GlobalKey friendBattleKey;
 
   const BattleSection({
     super.key,
@@ -25,6 +28,8 @@ class BattleSection extends StatelessWidget {
     required this.isCreatingBotGame,
     required this.onShowFriendBattleDialog,
     required this.onFetchOpponentProfile,
+    required this.onlineBattleKey,
+    required this.friendBattleKey,
   });
 
   @override
@@ -35,21 +40,18 @@ class BattleSection extends StatelessWidget {
     if (isActive) {
       if (battleService.isWaitingForFriend) {
         return _buildWaitingForFriendCard(context, battleService);
-      }
-      else if (battleService.currentGame == null) {
-           return const Padding(
-             padding: EdgeInsets.symmetric(vertical: 24.0),
-             child: Center(child: CircularProgressIndicator(color: Colors.yellow)),
-           );
-      }
-      else if (opponentProfile == null) {
+      } else if (battleService.currentGame == null) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24.0),
+          child: Center(child: CircularProgressIndicator(color: Colors.yellow)),
+        );
+      } else if (opponentProfile == null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           final currentBattleService = context.read<ActiveBattleService>();
           if (currentBattleService.isBattleActive &&
               !currentBattleService.isWaitingForFriend &&
-              opponentProfile == null
-              ) {
-              onFetchOpponentProfile(currentBattleService);
+              opponentProfile == null) {
+            onFetchOpponentProfile(currentBattleService);
           }
         });
 
@@ -57,12 +59,10 @@ class BattleSection extends StatelessWidget {
           padding: EdgeInsets.symmetric(vertical: 24.0),
           child: Center(child: CircularProgressIndicator(color: Colors.yellow)),
         );
-      }
-      else {
+      } else {
         return _buildOngoingBattleCard(context, battleService);
       }
-    }
-    else {
+    } else {
       return Column(
         children: [
           const SizedBox(height: 24),
@@ -80,6 +80,8 @@ class BattleSection extends StatelessWidget {
         _buildBattleOption(
           'Online Battle',
           'assets/images/battle_online.png',
+          key: onlineBattleKey,
+          description: 'Match with players worldwide\nand earn rewards!',
           onTap: isCreatingGame
               ? null
               : () {
@@ -92,49 +94,63 @@ class BattleSection extends StatelessWidget {
         _buildBattleOption(
           'Battle a Friend',
           'assets/images/battle_friend.png',
+          key: friendBattleKey,
+          description: 'Challenge your friends\nin a private duel!',
           onTap: onShowFriendBattleDialog,
-           isLoading: isCreatingBotGame,
+          isLoading: isCreatingBotGame,
         ),
       ],
     );
   }
 
   Widget _buildBattleOption(String title, String imagePath,
-      {VoidCallback? onTap, bool isLoading = false}) {
+      {VoidCallback? onTap,
+      bool isLoading = false,
+      required GlobalKey key,
+      required String description}) {
     return Expanded(
-      child: GestureDetector(
-        onTap: isLoading ? null : onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 24),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade900,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade800),
-          ),
-          child: Column(
-            children: [
-              Image.asset(imagePath, height: 80),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFDD85D)),
+      child: Showcase(
+        key: key,
+        description: description,
+        tooltipBackgroundColor: const Color(0xFF1E1E1E),
+        textColor: Colors.white,
+        tooltipBorderRadius: BorderRadius.circular(12),
+        targetShapeBorder:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: GestureDetector(
+          onTap: isLoading ? null : onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade900,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade800),
+            ),
+            child: Column(
+              children: [
+                Image.asset(imagePath, height: 80),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFDD85D)),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(title,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 16)),
                 ),
-                child: isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : Text(title,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 16)),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -211,7 +227,6 @@ class BattleSection extends StatelessWidget {
     );
   }
 
-
   Widget _buildOngoingBattleCard(
       BuildContext context, ActiveBattleService battleService) {
     final game = battleService.currentGame!;
@@ -229,7 +244,6 @@ class BattleSection extends StatelessWidget {
 
     final scoreDiff = isUserPlayer1 ? (p1Score - p2Score) : (p2Score - p1Score);
     final userIsAhead = scoreDiff > 0;
-    
 
     String statusText;
     Color statusColor;
@@ -276,8 +290,7 @@ class BattleSection extends StatelessWidget {
                   Text(
                     statusText,
                     style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold),
+                        color: statusColor, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -285,10 +298,12 @@ class BattleSection extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                 _buildPlayerAvatar(player1, p1Steps, game.multiplier1, p1Score),
+                  _buildPlayerAvatar(
+                      player1, p1Steps, game.multiplier1, p1Score),
                   const Text("VS",
                       style: TextStyle(color: Colors.white54, fontSize: 20)),
-                _buildPlayerAvatar(player2, p2Steps, game.multiplier2, p2Score),
+                  _buildPlayerAvatar(
+                      player2, p2Steps, game.multiplier2, p2Score),
                 ],
               ),
               const SizedBox(height: 20),
@@ -314,8 +329,8 @@ class BattleSection extends StatelessWidget {
     );
   }
 
-
-  Widget _buildPlayerAvatar(UserModel player, int steps, double multiplier, int score) {
+  Widget _buildPlayerAvatar(
+      UserModel player, int steps, double multiplier, int score) {
     final playerName = player.username ?? 'Player';
     return Column(
       children: [
@@ -326,7 +341,11 @@ class BattleSection extends StatelessWidget {
               radius: 30,
               backgroundColor: Colors.grey.shade800,
               child: player.profileImageUrl == null
-                  ? const Icon(Icons.person, size: 25, color: Colors.white70,)
+                  ? const Icon(
+                      Icons.person,
+                      size: 25,
+                      color: Colors.white70,
+                    )
                   : ClipOval(
                       child: player.profileImageUrl!.startsWith('assets/')
                           ? Image.asset(
@@ -335,7 +354,11 @@ class BattleSection extends StatelessWidget {
                               width: 60,
                               height: 60,
                               errorBuilder: (context, error, stackTrace) =>
-                                  const Icon(Icons.person, size: 25, color: Colors.white70,),
+                                  const Icon(
+                                Icons.person,
+                                size: 25,
+                                color: Colors.white70,
+                              ),
                             )
                           : Image.network(
                               player.profileImageUrl!,
@@ -343,9 +366,17 @@ class BattleSection extends StatelessWidget {
                               width: 60,
                               height: 60,
                               loadingBuilder: (context, child, progress) =>
-                                   progress == null ? child : const CircularProgressIndicator(strokeWidth: 2,),
+                                  progress == null
+                                      ? child
+                                      : const CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                               errorBuilder: (context, error, stackTrace) =>
-                                  const Icon(Icons.person, size: 25, color: Colors.white70,),
+                                  const Icon(
+                                Icons.person,
+                                size: 25,
+                                color: Colors.white70,
+                              ),
                             ),
                     ),
             ),
@@ -381,7 +412,8 @@ class BattleSection extends StatelessWidget {
         // --- MODIFIED STEPS ---
         const SizedBox(height: 4),
         Text(steps.toString(),
-            style: TextStyle( // Steps are secondary
+            style: TextStyle(
+                // Steps are secondary
                 color: Colors.grey.shade400,
                 fontSize: 16,
                 fontWeight: FontWeight.normal)),

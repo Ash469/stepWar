@@ -6,24 +6,17 @@ import 'auth_service.dart';
 class PlayGamesService {
   final AuthService _authService = AuthService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  /// Attempt silent sign-in for automatic authentication
-  /// Returns User if successful, null if user needs to manually authenticate
   Future<User?> attemptSilentSignIn() async {
     try {
       if (!Platform.isAndroid) {
         print('[Play Games] Not on Android, skipping silent sign-in');
         return null;
       }
-
-      // Check if already signed in to Play Games
       final isSignedIn = await GamesServices.isSignedIn;
       if (!isSignedIn) {
         print(
             '[Play Games] User not signed in to Play Games, attempting sign-in...');
       }
-
-      // Attempt to sign in silently
       final String? serverAuthCode = await GamesServices.signIn();
 
       if (serverAuthCode == null) {
@@ -33,13 +26,9 @@ class PlayGamesService {
 
       print(
           '[Play Games] ✅ Silent sign-in successful, authenticating with Firebase...');
-
-      // Create Firebase Credential
       final AuthCredential credential = PlayGamesAuthProvider.credential(
         serverAuthCode: serverAuthCode,
       );
-
-      // Sign in to Firebase
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
       final user = userCredential.user;
@@ -47,8 +36,6 @@ class PlayGamesService {
       if (user != null) {
         print(
             '[Play Games] ✅ Firebase authentication successful for ${user.uid}');
-
-        // Sync user data to backend
         await _authService.syncUserWithBackend(
             uid: user.uid, email: user.email);
 
@@ -60,12 +47,9 @@ class PlayGamesService {
       return user;
     } catch (e) {
       print('[Play Games] Silent sign-in error: $e');
-      // Silent failure - don't throw, just return null
       return null;
     }
   }
-
-  /// Manual sign-in with Play Games (for button-triggered auth)
   Future<User?> signInWithPlayGames() async {
     try {
       if (!Platform.isAndroid) return null;
@@ -80,13 +64,9 @@ class PlayGamesService {
       }
 
       print('[Play Games] Got Auth Code. Swapping for Firebase Credential...');
-
-      // Create Firebase Credential
       final AuthCredential credential = PlayGamesAuthProvider.credential(
         serverAuthCode: serverAuthCode,
       );
-
-      // Sign in to Firebase
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
       final user = userCredential.user;
@@ -94,7 +74,6 @@ class PlayGamesService {
       if (user != null) {
         print(
             '[Play Games] ✅ Successfully signed in to Firebase via Play Games!');
-        // Sync user data to your backend
         await _authService.syncUserWithBackend(
             uid: user.uid, email: user.email);
 
@@ -109,8 +88,6 @@ class PlayGamesService {
       rethrow;
     }
   }
-
-  /// Get current player information from Play Games
   Future<Map<String, dynamic>?> getPlayerInfo() async {
     try {
       if (!Platform.isAndroid) {
@@ -125,10 +102,7 @@ class PlayGamesService {
       // Get player icon/avatar URL (if available)
       String? avatarUrl;
       try {
-        // Note: games_services package may not expose avatar directly
-        // You might need to use Play Games REST API for avatar
-        // For now, we'll use a placeholder approach
-        avatarUrl = null; // Will be handled by backend or manual fetch
+        avatarUrl = null;
       } catch (e) {
         print('[Play Games] Could not fetch avatar: $e');
       }
@@ -166,10 +140,6 @@ class PlayGamesService {
   /// Sign out from Play Games Services
   Future<void> signOut() async {
     try {
-      // if (Platform.isAndroid) {
-      //   await GamesServices.signOut();
-      // }
-      // await _googleSignIn.signOut();
       await _auth.signOut();
       await _authService.signOut();
     } catch (e) {

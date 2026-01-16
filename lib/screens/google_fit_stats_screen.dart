@@ -9,7 +9,6 @@ import '../models/user_model.dart';
 import '../const/app_theme.dart';
 import '../services/google_fit_service.dart';
 
-/// Professional Google Fit Statistics Screen with interactive charts
 class GoogleFitStatsScreen extends StatefulWidget {
   const GoogleFitStatsScreen({Key? key}) : super(key: key);
 
@@ -63,15 +62,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     if (stepProvider.isGoogleFitEnabled) {
       print('[GoogleFitStats] Syncing all Google Fit data...');
       await stepProvider.syncAllGoogleFitData();
-
-      print(
-          '[GoogleFitStats] After sync - Weekly stats: ${stepProvider.weeklyStats}');
-      print(
-          '[GoogleFitStats] After sync - Monthly stats: ${stepProvider.monthlyStats}');
-      print(
-          '[GoogleFitStats] After sync - Weekly steps: ${stepProvider.weeklySteps}');
-      print(
-          '[GoogleFitStats] After sync - Monthly steps: ${stepProvider.monthlySteps}');
     }
 
     setState(() => _isLoading = false);
@@ -116,13 +106,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
                 children: [
-                  // Today's Steps Hero Card
                   _buildTodayHeroCard(stepProvider),
-
-                  // // Sync Status
-                  // _buildSyncStatus(stepProvider),
-
-                  // Tabs for Weekly/Monthly
                   _buildTabSection(stepProvider),
                 ],
               ),
@@ -142,11 +126,11 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
           children: [
             Container(
               padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.surface,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.fitness_center,
                 size: 64,
                 color: AppColors.primary,
@@ -176,8 +160,8 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
 
                 if (status == HealthConnectStatus.authorized) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Connected successfully!'),
+                    const SnackBar(
+                      content: Text('Connected successfully!'),
                       backgroundColor: AppColors.success,
                     ),
                   );
@@ -245,7 +229,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [AppColors.primary, AppColors.primaryVariant],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -261,7 +245,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
       ),
       child: Row(
         children: [
-          // Left side - Steps count
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -310,7 +293,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
               ],
             ),
           ),
-          // Right side - Circular progress
           SizedBox(
             width: 80,
             height: 80,
@@ -357,60 +339,11 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     );
   }
 
-  Widget _buildSyncStatus(StepProvider stepProvider) {
-    final lastSync = stepProvider.lastGoogleFitSync;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.success.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.check_circle,
-              color: AppColors.success,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Synced with Google Fit',
-                  style: AppTextStyles.labelLarge.copyWith(color: Colors.white),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  lastSync != null
-                      ? 'Last sync: ${_formatLastSync(lastSync)}'
-                      : 'Never synced',
-                  style: AppTextStyles.caption,
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.sync, color: AppColors.onBackground, size: 20),
-        ],
-      ),
-    );
-  }
 
   Widget _buildTabSection(StepProvider stepProvider) {
     return Column(
       children: [
         Container(
-          // margin: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(16),
@@ -447,12 +380,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
 
   Widget _buildWeeklyChart(StepProvider stepProvider) {
     final weeklyStats = stepProvider.weeklyStats;
-
-    print('[GoogleFitStats] Building weekly chart...');
-    print('[GoogleFitStats] Weekly stats null? ${weeklyStats == null}');
-    print(
-        '[GoogleFitStats] Daily data count: ${weeklyStats?.dailyData.length ?? 0}');
-
     if (weeklyStats == null || weeklyStats.dailyData.isEmpty) {
       return _buildNoDataView('No weekly data available yet');
     }
@@ -472,7 +399,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Stats Row
           Row(
             children: [
               _buildStatBox(
@@ -491,7 +417,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
             ],
           ),
           const SizedBox(height: 32),
-          // Interactive Bar Chart
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -519,7 +444,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          // Step count (show on selection or if today)
                           if (isSelected || isToday)
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -617,11 +541,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
 
   Widget _buildMonthlyChart(StepProvider stepProvider) {
     final monthlyStats = stepProvider.monthlyStats;
-
-    print('[GoogleFitStats] Building monthly chart...');
-    print('[GoogleFitStats] Monthly stats null? ${monthlyStats == null}');
-    print(
-        '[GoogleFitStats] Daily data count: ${monthlyStats?.dailyData.length ?? 0}');
 
     if (monthlyStats == null || monthlyStats.dailyData.isEmpty) {
       return _buildNoDataView('No monthly data available yet');
@@ -828,7 +747,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
+          const Icon(
             Icons.bar_chart,
             size: 64,
             color: AppColors.onBackground,
@@ -862,16 +781,4 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     return number.toString();
   }
 
-  String _formatLastSync(DateTime syncTime) {
-    final diff = DateTime.now().difference(syncTime);
-    if (diff.inMinutes < 1) {
-      return 'Just now';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}h ago';
-    } else {
-      return '${diff.inDays}d ago';
-    }
-  }
 }

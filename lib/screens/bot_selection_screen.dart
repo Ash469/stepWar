@@ -151,7 +151,6 @@ class _BotSelectionScreenState extends State<BotSelectionScreen> {
       ),
       child: Column(
         children: [
-          // --- Multiplier Section ---
           const Row(
             children: [
               Icon(Icons.flash_on, color: Color(0xFFFFC107), size: 20),

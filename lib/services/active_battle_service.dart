@@ -37,8 +37,7 @@ class ActiveBattleService with ChangeNotifier {
   final FirebaseRemoteConfig _remoteConfig = FirebaseRemoteConfig.instance;
 
   DateTime _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(0);
-  // Sync at  once every 5 seconds to prevent firebase realtime DB flooding
-  final Duration _syncInterval = const Duration(seconds: 3);
+  final Duration _syncInterval = const Duration(seconds: 5);
 
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -75,8 +74,6 @@ class ActiveBattleService with ChangeNotifier {
     if (_isGameOver) return;
     _isGameOver = true;
     _currentGame = finishedGame;
-
-    // Construct the final state using REAL data from the updated Game model
     _finalBattleState = {
       'finalState': {
         'gameType':
@@ -112,7 +109,6 @@ class ActiveBattleService with ChangeNotifier {
     _initialPlayerSteps = -1;
     _lastSyncTime = DateTime.now();
     _gameSubscription = _gameService.getGameStream(gameId).listen((game) {
-      // Check if the battle is over before doing anything
       if (_isGameOver) {
         _gameSubscription?.cancel();
         _gameSubscription = null;
@@ -233,9 +229,6 @@ class ActiveBattleService with ChangeNotifier {
         isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
     final newScore = (stepsThisGame * multiplier).round();
     if (isUserPlayer1) {
-      // Create a temporary copy for UI only (don't overwrite _currentGame structure directly if immutable,
-      // but here we are assuming we rely on the stream for the "source of truth".
-      // Ideally, we wait for stream, but for responsiveness we can calculate locally)
     }
     final now = DateTime.now();
     if (now.difference(_lastSyncTime) >= _syncInterval) {
@@ -343,7 +336,6 @@ class ActiveBattleService with ChangeNotifier {
 
     _sendBattleStateToTask();
 
-    // Explicitly notify MainScreen
     if (_finalBattleState != null) {
       notifyListeners();
       _controller.add(null);

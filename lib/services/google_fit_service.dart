@@ -1,8 +1,6 @@
 import 'package:health/health.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Service to interact with Google Fit via Health Connect API
-/// Handles step data fetching for daily, weekly, and monthly periods
 enum HealthConnectStatus {
   notSupported,
   notInstalled,
@@ -22,8 +20,6 @@ class GoogleFitService {
   static const String _lastSyncKey = 'google_fit_last_sync';
   static const String _enabledKey = 'google_fit_enabled';
 
-  /// Helper to extract numeric value from HealthValue
-  /// In health package 13.x, NumericHealthValue.toJson() returns Map with 'numericValue' key
   int _extractSteps(dynamic healthValue) {
     try {
       final json = healthValue.toJson();
@@ -36,7 +32,6 @@ class GoogleFitService {
           return numericValue.toInt();
         }
       }
-      // Fallback: try toString and parse
       return int.tryParse(healthValue.toString()) ?? 0;
     } catch (e) {
       print(
@@ -141,8 +136,6 @@ class GoogleFitService {
     }
 
     try {
-      // 1. Check if Health Connect is installed/supported
-      // Note: isHealthConnectAvailable returns false if not installed
       final isAvailable = await _health!.isHealthConnectAvailable();
       if (!isAvailable) {
         return HealthConnectStatus.notInstalled;
@@ -561,132 +554,5 @@ class GoogleFitService {
       print('[GoogleFitService] Error writing steps: $e');
       return false;
     }
-  }
-
-  /// 🧪 DEBUG: Test and console log all Health Connect data
-  /// Call this method to see what data is available
-  Future<void> debugHealthConnectData() async {
-    print('');
-    print('=' * 60);
-    print('🧪 [DEBUG] TESTING HEALTH CONNECT DATA');
-    print('=' * 60);
-
-    // 1. Check initialization
-    print('\n📋 Step 1: Checking initialization...');
-    print('   _isInitialized: $_isInitialized');
-    print('   _hasPermissions: $_hasPermissions');
-    print('   _health is null: ${_health == null}');
-
-    if (!_isInitialized) {
-      print('   ⚠️ Not initialized, initializing now...');
-      final init = await initialize();
-      print('   Initialize result: $init');
-    }
-
-    // 2. Check permissions
-    print('\n📋 Step 2: Checking permissions...');
-    final hasPerms = await hasPermissions();
-    print('   hasPermissions() returned: $hasPerms');
-    print('   _hasPermissions is now: $_hasPermissions');
-
-    // 3. Check if Health Connect is available
-    print('\n📋 Step 3: Checking Health Connect availability...');
-    try {
-      final installed = await _health!.isHealthConnectAvailable();
-      print('   Health Connect available: $installed');
-    } catch (e) {
-      print('   ❌ Error checking Health Connect: $e');
-    }
-
-    // 4. Try to fetch raw data
-    print('\n📋 Step 4: Fetching raw step data for last 7 days...');
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final weekAgo = today.subtract(const Duration(days: 6));
-
-    print('   Date range: $weekAgo to ${today.add(const Duration(days: 1))}');
-
-    try {
-      final healthData = await _health!.getHealthDataFromTypes(
-        types: [HealthDataType.STEPS],
-        startTime: weekAgo,
-        endTime: today.add(const Duration(days: 1)),
-      );
-
-      print('   ✅ Raw data points returned: ${healthData.length}');
-
-      if (healthData.isEmpty) {
-        print('   ⚠️ NO DATA! Health Connect returned 0 data points.');
-        print('   This could mean:');
-        print('      - Google Fit is not syncing to Health Connect');
-        print('      - Permissions were not granted correctly');
-        print('      - No steps have been recorded');
-      } else {
-        print('\n📊 RAW DATA FROM HEALTH CONNECT:');
-        print('-' * 50);
-
-        // Track by source to identify duplicates
-        Map<String, Map<String, int>> stepsBySourceAndDate = {};
-
-        for (var data in healthData) {
-          final dateStr =
-              '${data.dateFrom.year}-${data.dateFrom.month.toString().padLeft(2, '0')}-${data.dateFrom.day.toString().padLeft(2, '0')}';
-          final steps = _extractSteps(data.value);
-          final source = data.sourceName ?? 'unknown';
-
-          stepsBySourceAndDate[source] ??= {};
-          stepsBySourceAndDate[source]![dateStr] =
-              (stepsBySourceAndDate[source]![dateStr] ?? 0) + steps;
-        }
-
-        // Show breakdown by source
-        print('\n📊 STEPS BY SOURCE:');
-        print('-' * 50);
-        stepsBySourceAndDate.forEach((source, dates) {
-          print('\n   Source: $source');
-          dates.forEach((date, steps) {
-            print('      $date: $steps steps');
-          });
-        });
-
-        // Show today's breakdown specifically
-        final todayStr =
-            '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
-        print('\n⚠️ TODAY ($todayStr) BY SOURCE:');
-        print('-' * 50);
-        int totalToday = 0;
-        stepsBySourceAndDate.forEach((source, dates) {
-          final todaySteps = dates[todayStr] ?? 0;
-          if (todaySteps > 0) {
-            print('   $source: $todaySteps steps');
-            totalToday += todaySteps;
-          }
-        });
-        print('   TOTAL (with duplicates): $totalToday steps');
-        print(
-            '   ⚠️ If this is ~2x the real value, we have duplicate sources!');
-
-        print(
-            '\n📈 SUMMARY BY DATE (all sources combined - may include duplicates):');
-        print('-' * 50);
-        Map<String, int> stepsByDate = {};
-        stepsBySourceAndDate.forEach((source, dates) {
-          dates.forEach((date, steps) {
-            stepsByDate[date] = (stepsByDate[date] ?? 0) + steps;
-          });
-        });
-        final sortedDates = stepsByDate.keys.toList()..sort();
-        for (var date in sortedDates) {
-          print('   $date: ${stepsByDate[date]} steps');
-        }
-      }
-    } catch (e) {
-      print('   ❌ Error fetching data: $e');
-    }
-
-    print('\n' + '=' * 60);
-    print('🧪 [DEBUG] END OF HEALTH CONNECT TEST');
-    print('=' * 60);
-    print('');
   }
 }

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/permission_model.dart';
 import '../services/permission_service.dart';
 
-/// Professional bottom sheet to display and manage app permissions sequentially
-/// Displays as a "card-like" overlay covering half the screen.
 class PermissionBottomSheet extends StatefulWidget {
   final VoidCallback? onAllGranted;
   final bool showCloseButton;
@@ -14,7 +12,6 @@ class PermissionBottomSheet extends StatefulWidget {
     this.showCloseButton = true,
   });
 
-  /// Show the permission bottom sheet
   static Future<void> show(
     BuildContext context, {
     VoidCallback? onAllGranted,
@@ -23,10 +20,8 @@ class PermissionBottomSheet extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      isDismissible: false, // User cannot just tap outside to close easily
-      enableDrag: true, // Allow dragging to close? User said "slide" for next.
-      // Let's keep dismiss false to ensure they interact,
-      // but maybe provide a skip/close button inside.
+      isDismissible: false, 
+      enableDrag: true, 
       backgroundColor: Colors.transparent,
       builder: (context) => PermissionBottomSheet(
         onAllGranted: onAllGranted,
@@ -45,8 +40,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
   bool _isLoading = true;
   late PageController _pageController;
   int _currentIndex = 0;
-
-  // Track if all required permissions are actually granted
+  bool _isNavigating = false;
   bool get _areAllRequiredGranted =>
       _permissions.every((p) => p.isGranted || !p.isRequired);
 
@@ -73,17 +67,14 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
   }
 
   Future<void> _checkPermissionsOnResume() async {
-    // Re-check all permissions when app resumes (e.g. from settings)
     final updatedPermissions = await PermissionService.checkAllPermissions();
     if (mounted) {
       setState(() {
         _permissions = updatedPermissions;
       });
-      // If the current page's permission became granted, auto-advance
       if (_currentIndex < _permissions.length) {
         final currentPerm = _permissions[_currentIndex];
         if (currentPerm.isGranted) {
-          // Small delay for UX
           await Future.delayed(const Duration(milliseconds: 500));
           if (mounted) _nextPage();
         }
@@ -99,12 +90,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
       _permissions = permissions;
       _isLoading = false;
     });
-
-    // If already all granted, maybe just close?
-    // Or let user see "All Set" if they opened it manually.
     if (_areAllRequiredGranted) {
-      // If opened automatically and all granted, we might want to skip logic,
-      // but here we just show the success state.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _pageController.jumpToPage(_permissions.length);
@@ -123,7 +109,6 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
     if (granted) {
       _updatePermissionState(permission, true);
     } else {
-      // If denied, we show settings dialog to guide them
       if (mounted) _showSettingsDialog(permission);
     }
   }
@@ -133,7 +118,6 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
       setState(() {
         permission.isGranted = true;
       });
-      // Auto-advance
       await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) {
         _nextPage();
@@ -141,23 +125,27 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
     }
   }
 
-  void _nextPage() {
-    if (_currentIndex < _permissions.length) {
-      // Allow going to "All Set" page index only if appropriate
-      // If we are at the last permission, check if we can go to success page
-      if (_currentIndex == _permissions.length - 1) {
-        if (_areAllRequiredGranted) {
-          _pageController.nextPage(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut);
-        } else {
-          // If missing permissions, we don't go to "All Set".
-          Navigator.pop(context);
+  Future<void> _nextPage() async {
+    if (_isNavigating || _currentIndex >= _permissions.length) return;
+
+    if (_currentIndex == _permissions.length - 1) {
+      if (_areAllRequiredGranted) {
+        _isNavigating = true;
+        await _pageController.nextPage(
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeInOut);
+        if (mounted) {
+          _isNavigating = false;
         }
       } else {
-        _pageController.nextPage(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut);
+        Navigator.pop(context);
+      }
+    } else {
+      _isNavigating = true;
+      await _pageController.nextPage(
+          duration: const Duration(milliseconds: 600), curve: Curves.easeInOut);
+      if (mounted) {
+        _isNavigating = false;
       }
     }
   }
@@ -189,7 +177,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
               Navigator.pop(context);
               await PermissionService.openSettings(permission.id);
               if (mounted) {
-                setState(() => permission.isGranted = true); // Optimistic
+                setState(() => permission.isGranted = true); 
                 _nextPage();
               }
             },
@@ -227,11 +215,7 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
 
   @override
   Widget build(BuildContext context) {
-    // Height is roughly half screen
     final height = MediaQuery.of(context).size.height * 0.55;
-
-    // Total pages = permissions + 1 (success)
-    // But success page only reachable if all granted.
     final itemCount = _permissions.length + 1;
 
     return Align(
@@ -253,7 +237,6 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  // Drag Handle
                   Container(
                     margin: const EdgeInsets.only(top: 12, bottom: 8),
                     width: 40,
@@ -263,7 +246,6 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                         borderRadius: BorderRadius.circular(2)),
                   ),
 
-                  // Progress Dots
                   if (!_areAllRequiredGranted ||
                       _currentIndex < _permissions.length)
                     Padding(
@@ -290,7 +272,6 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
 
                   Expanded(
                     child: PageView.builder(
-                      // IMPORTANT: Controller must be attached for programmatic navigation
                       controller: _pageController,
                       physics: const BouncingScrollPhysics(),
                       itemCount: itemCount,
@@ -298,13 +279,8 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                         setState(() {
                           _currentIndex = index;
                         });
-
-                        // If user swiped to success page but permissions missing,
-                        // block access to it.
                         if (index == _permissions.length &&
                             !_areAllRequiredGranted) {
-                          // Revert to last permission
-                          // We use a slight delay so they see they hit a wall, or just snap back
                           Future.delayed(Duration.zero, () {
                             _pageController.animateToPage(
                                 _permissions.length - 1,
@@ -315,13 +291,9 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                       },
                       itemBuilder: (context, index) {
                         if (index == _permissions.length) {
-                          // This is the success page
-                          // Only show if granted
                           if (_areAllRequiredGranted) {
                             return _buildSuccessPage();
                           } else {
-                            // Should not be reachable ideally due to onPageChanged guard
-                            // But return spacer just in case
                             return const SizedBox();
                           }
                         }
