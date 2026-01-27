@@ -47,7 +47,6 @@ class GameService {
       if (botId != null) {
         body['botId'] = botId;
       }
-
       final response = await http.post(
         Uri.parse('$_baseUrl/battle/bot'),
         headers: {'Content-Type': 'application/json'},

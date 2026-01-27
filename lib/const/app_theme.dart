@@ -135,12 +135,11 @@ class AppThemes {
       foregroundColor: Colors.white,
       elevation: 0,
       titleTextStyle: AppTextStyles.titleLarge,
-      // Ensure proper status bar handling for dark theme
-      systemOverlayStyle: SystemUiOverlayStyle(
+      systemOverlayStyle: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
-        systemNavigationBarColor: AppColors.surface, // Navigation bar color
-        systemNavigationBarIconBrightness: Brightness.light, // Navigation bar icons
+        systemNavigationBarColor: AppColors.surface, 
+        systemNavigationBarIconBrightness: Brightness.light, 
       ),
     ),
     textTheme: TextTheme(

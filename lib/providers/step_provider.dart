@@ -45,25 +45,21 @@ class StepProvider extends ChangeNotifier {
 
   void _initializeSync() {
     FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
-
     _stepHistoryService.loadHistory();
     _loadInitialStepsSync();
-
     _isInitialized = true;
     notifyListeners();
   }
 
-  /// Load initial step count from SharedPreferences cache synchronously
+  /// it prevents the "Flash of Zero" when you first open the app.
+  /// Instead of waiting for backend or a "heavy" library to initialize, it grabs the most recent step count from a local cache.
   void _loadInitialStepsSync() {
     try {
-      // SharedPreferences.getInstance() is cached after first call, so this is fast
       SharedPreferences.getInstance().then((prefs) {
         final cachedProfile = prefs.getString('userProfile');
-
         if (cachedProfile != null) {
           // Parse the cached user profile to get today's step count
           final profileData = cachedProfile;
-          // Simple regex to extract todaysStepCount value
           final match =
               RegExp(r'"todaysStepCount"\s*:\s*(\d+)').firstMatch(profileData);
           if (match != null) {
@@ -71,7 +67,7 @@ class StepProvider extends ChangeNotifier {
             _dbSteps = steps;
             _currentSteps = steps;
             print('[StepProvider] Initialized from cache: $steps steps');
-            notifyListeners();
+            notifyListeners(); // this makes every screen to latest steps count
           }
         }
       });
@@ -85,38 +81,17 @@ class StepProvider extends ChangeNotifier {
     if (data is Map<String, dynamic>) {
       if (data.containsKey('steps')) {
         final stepsFromService = data['steps'] as int;
-
-        // Only update if value changed
         if (_currentSteps != stepsFromService) {
           print(
               '[StepProvider] Received steps from service: $stepsFromService (previous: $_currentSteps)');
           _currentSteps = stepsFromService;
           notifyListeners();
         }
-
         // Handle stuck detection (similar to HomeScreen logic)
         if (_offsetInitializationDone && stepsFromService == _dbSteps) {
-          _handleStuckDetection();
+          print('[StepProvider] Stuck detection triggered');
         }
       }
-    }
-  }
-
-  void _handleStuckDetection() async {
-    print('[StepProvider] Stuck detection triggered');
-  }
-
-  void updateDbSteps(int steps) {
-    if (_dbSteps != steps) {
-      print('[StepProvider] Updating DB steps: $_dbSteps -> $steps');
-      _dbSteps = steps;
-
-      // If current steps are lower than DB steps, update current steps
-      if (_currentSteps < steps) {
-        _currentSteps = steps;
-      }
-
-      notifyListeners();
     }
   }
 
@@ -125,6 +100,18 @@ class StepProvider extends ChangeNotifier {
     print('[StepProvider] Sending DB steps ($steps) to service');
     FlutterForegroundTask.sendDataToTask({'dbSteps': steps});
     updateDbSteps(steps);
+  }
+
+  void updateDbSteps(int steps) {
+    if (_dbSteps != steps) {
+      print('[StepProvider] Updating DB steps: $_dbSteps -> $steps');
+      _dbSteps = steps;
+      // If current steps are lower than DB steps, update current steps
+      if (_currentSteps < steps) {
+        _currentSteps = steps;
+      }
+      notifyListeners();
+    }
   }
 
   void markOffsetInitialized() {
@@ -163,7 +150,7 @@ class StepProvider extends ChangeNotifier {
   }
 
   // ========== Google Fit Integration Methods ==========
-
+  //these are permission handling methods should not be here
   HealthConnectStatus _connectionStatus = HealthConnectStatus.notAuthorized;
   HealthConnectStatus get connectionStatus => _connectionStatus;
 
@@ -174,15 +161,12 @@ class StepProvider extends ChangeNotifier {
       if (enabled) {
         final initialized = await _googleFitService.initialize();
         if (initialized) {
-          // Check status
           _connectionStatus =
               await _googleFitService.checkHealthConnectStatus();
-
           if (_connectionStatus == HealthConnectStatus.authorized) {
             _isGoogleFitEnabled = true;
             _isGoogleFitInitialized = true;
             print('[StepProvider] Google Fit initialized and enabled');
-            // Perform initial sync
             syncWithGoogleFit();
           }
         }
@@ -196,29 +180,22 @@ class StepProvider extends ChangeNotifier {
   /// Request Google Fit authorization
   Future<HealthConnectStatus> requestGoogleFitAuthorization() async {
     try {
-      // 1. Check current status
       var status = await _googleFitService.checkHealthConnectStatus();
       _connectionStatus = status;
-
       if (status == HealthConnectStatus.notInstalled) {
         await _googleFitService.installHealthConnect();
         return status;
       }
-
       if (status == HealthConnectStatus.authorized) {
         _enableAndSync();
         return status;
       }
-
-      final authorized = await _googleFitService.requestAuthorization();
-
+      await _googleFitService.requestAuthorization();
       status = await _googleFitService.checkHealthConnectStatus();
       _connectionStatus = status;
-
       if (status == HealthConnectStatus.authorized) {
         _enableAndSync();
       }
-
       notifyListeners();
       return status;
     } catch (e) {
@@ -239,16 +216,11 @@ class StepProvider extends ChangeNotifier {
     if (!_isGoogleFitEnabled || !_isGoogleFitInitialized) {
       return;
     }
-
     try {
-      // Get today's steps from Google Fit
       final googleFitSteps = await _googleFitService.getTodaySteps();
-
       if (googleFitSteps > 0) {
         print(
             '[StepProvider] Google Fit steps: $googleFitSteps, Current steps: $_currentSteps');
-
-        // Use the higher value between Google Fit and current steps
         if (googleFitSteps > _currentSteps) {
           _currentSteps = googleFitSteps;
           print(
@@ -256,7 +228,6 @@ class StepProvider extends ChangeNotifier {
           notifyListeners();
         }
       }
-
       _lastGoogleFitSync = DateTime.now();
       notifyListeners();
     } catch (e) {
@@ -271,13 +242,10 @@ class StepProvider extends ChangeNotifier {
           '[StepProvider] Cannot sync weekly steps - Google Fit not enabled/initialized');
       return;
     }
-
     try {
-      print('[StepProvider] Fetching weekly steps from Google Fit...');
       final weeklyStepsMap = await _googleFitService.getWeeklySteps();
       print(
           '[StepProvider] Weekly steps map received: ${weeklyStepsMap.length} days');
-
       if (weeklyStepsMap.isEmpty) {
         print('[StepProvider] WARNING: Weekly steps map is empty!');
       } else {
@@ -286,10 +254,8 @@ class StepProvider extends ChangeNotifier {
               '[StepProvider] Weekly data - ${date.toIso8601String().split('T')[0]}: $steps steps');
         });
       }
-
       _weeklyStats = WeeklyStepStats.fromStepsMap(weeklyStepsMap);
       _weeklySteps = _weeklyStats?.totalSteps ?? 0;
-
       print(
           '[StepProvider] Weekly stats synced: $_weeklySteps total steps, ${_weeklyStats?.dailyData.length ?? 0} days');
       notifyListeners();
@@ -306,20 +272,15 @@ class StepProvider extends ChangeNotifier {
           '[StepProvider] Cannot sync monthly steps - Google Fit not enabled/initialized');
       return;
     }
-
     try {
-      print('[StepProvider] Fetching monthly steps from Google Fit...');
       final monthlyStepsMap = await _googleFitService.getMonthlySteps();
       print(
           '[StepProvider] Monthly steps map received: ${monthlyStepsMap.length} days');
-
       if (monthlyStepsMap.isEmpty) {
         print('[StepProvider] WARNING: Monthly steps map is empty!');
       }
-
       _monthlyStats = MonthlyStepStats.fromStepsMap(monthlyStepsMap);
       _monthlySteps = _monthlyStats?.totalSteps ?? 0;
-
       print(
           '[StepProvider] Monthly stats synced: $_monthlySteps total steps, ${_monthlyStats?.dailyData.length ?? 0} days');
       notifyListeners();
@@ -334,7 +295,6 @@ class StepProvider extends ChangeNotifier {
     if (!_isGoogleFitEnabled || !_isGoogleFitInitialized) {
       return;
     }
-
     await Future.wait([
       syncWithGoogleFit(),
       syncWeeklySteps(),
@@ -343,6 +303,7 @@ class StepProvider extends ChangeNotifier {
   }
 
   /// Disable Google Fit integration
+  /// this is done just to that user can disable google fit but never used
   Future<void> disableGoogleFit() async {
     await _googleFitService.disable();
     _isGoogleFitEnabled = false;

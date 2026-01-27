@@ -47,6 +47,7 @@ class PermissionService {
       ),
     ];
   }
+
   static Future<List<AppPermission>> checkAllPermissions() async {
     final permissions = getAllPermissions();
 
@@ -79,6 +80,7 @@ class PermissionService {
 
     return permissions;
   }
+
   static Future<bool> requestPermission(String permissionId) async {
     switch (permissionId) {
       case 'activity_recognition':
