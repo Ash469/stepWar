@@ -38,6 +38,7 @@ class StepTaskHandler extends TaskHandler {
       DateTime.now().subtract(const Duration(minutes: 20));
   final GoogleFitService _googleFitService = GoogleFitService();
   bool _googleFitEnabled = false;
+  int _syncIntervalMinutes = 15; // Default fallback
 
   String _getCurrentDateString() {
     return DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -90,12 +91,13 @@ class StepTaskHandler extends TaskHandler {
           }
 
           if (rebootDetected) {
-            print('🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=$_lastSavedPedometerReading, Current=$_steps');
+            print(
+                '🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=$_lastSavedPedometerReading, Current=$_steps');
             int baseline = _lastKnownDbSteps ?? 0;
             if (_localStepCount != null && _localStepCount! > baseline) {
               baseline = _localStepCount!;
             }
-  if (_localStepCount != null && _localStepCount! > baseline) {
+            if (_localStepCount != null && _localStepCount! > baseline) {
               baseline = _localStepCount!;
             }
 
@@ -174,6 +176,7 @@ class StepTaskHandler extends TaskHandler {
     int? loadedOffset;
     int? lastSavedReading;
     try {
+      final String todayString = _getCurrentDateString();
       final prefs = await SharedPreferences.getInstance();
       loadedOffset = prefs.getInt('dailyStepOffset');
       offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
@@ -181,7 +184,7 @@ class StepTaskHandler extends TaskHandler {
       _localStepCount = prefs.getInt('local_step_count');
       final String? localStepCountDate =
           prefs.getString('local_step_count_date');
-      final String todayString = _getCurrentDateString();
+
       if (_localStepCount != null && localStepCountDate != null) {
         if (localStepCountDate != todayString) {
           print(
@@ -196,22 +199,7 @@ class StepTaskHandler extends TaskHandler {
         _localStepCount = null;
         await prefs.remove('local_step_count');
       }
-      prefs.getString('local_step_count_date');
-      _getCurrentDateString();
-      if (_localStepCount != null && localStepCountDate != null) {
-        if (localStepCountDate != todayString) {
-          print(
-              '🔑 StepTaskHandler: Local step count is from $localStepCountDate, today is $todayString. Resetting to null.');
-          _localStepCount = null;
-          await prefs.remove('local_step_count');
-          await prefs.remove('local_step_count_date');
-        }
-      } else if (_localStepCount != null && localStepCountDate == null) {
-        print(
-            '🔑 StepTaskHandler: Local step count has no date. Resetting to null.');
-        _localStepCount = null;
-        await prefs.remove('local_step_count');
-      }
+
       if (_localStepCount == null) {
         final historicalSteps = _historyService.getStepsForDate(todayString);
         if (historicalSteps != null) {
@@ -222,8 +210,15 @@ class StepTaskHandler extends TaskHandler {
       }
       print('StepTaskHandler loaded offset onStart: $loadedOffset');
       print('StepTaskHandler loaded lastPedometerReading: $lastSavedReading');
-      print(
-          '🔑 StepTaskHandler loaded LOCAL step count: $_localStepCount (date: $_localStepCountDate)');
+      if (loadedOffset != null && offsetTimestampMillis != null) {
+        final String loadedDateString = DateFormat('yyyy-MM-dd').format(
+            DateTime.fromMillisecondsSinceEpoch(offsetTimestampMillis!));
+        if (loadedDateString != todayString) {
+          await _handleMidnightTransition(todayString);
+          loadedOffset = prefs.getInt('dailyStepOffset');
+          offsetTimestampMillis = prefs.getInt('dailyOffsetTimestamp');
+        }
+      }
     } catch (e) {
       print(
           'StepTaskHandler ERROR reading offset onStart: $e. Treating as null.');
@@ -257,6 +252,28 @@ class StepTaskHandler extends TaskHandler {
     }
 
     await _initializePedometerStream();
+
+    // Get IDs from persistent task data
+    _userId = await FlutterForegroundTask.getData(key: 'userId');
+    _backendUrl = await FlutterForegroundTask.getData(key: 'backendUrl');
+    final int? storedSyncInterval =
+        await FlutterForegroundTask.getData(key: 'syncInterval');
+    if (storedSyncInterval != null && storedSyncInterval > 0) {
+      _syncIntervalMinutes = storedSyncInterval;
+    }
+
+    if (_userId != null) {
+      print('StepTaskHandler initialized with userId: $_userId');
+    } else {
+      print('StepTaskHandler WARNING: No userId found in task data');
+    }
+    if (_backendUrl != null) {
+      print('StepTaskHandler initialized with backendUrl: $_backendUrl');
+    } else {
+      print('StepTaskHandler WARNING: No backendUrl found in task data');
+    }
+    print('StepTaskHandler sync interval: $_syncIntervalMinutes minutes');
+
     // Immediately show notification with loaded values (prevent blank/late notification)
     _updateAndSendData();
     _updateAndSendData();
@@ -335,8 +352,14 @@ class StepTaskHandler extends TaskHandler {
     if (_userId == null || _backendUrl == null) {
       _userId = await FlutterForegroundTask.getData(key: 'userId');
       _backendUrl = await FlutterForegroundTask.getData(key: 'backendUrl');
-      if (_userId == null) return;
     }
+
+    if (_userId == null || _backendUrl == null) {
+      print(
+          "StepTaskHandler: Background sync skipped - missing userId or backendUrl");
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final String? pendingDate = prefs.getString('pending_past_date');
     final int? pendingSteps = prefs.getInt('pending_past_steps');
@@ -348,7 +371,7 @@ class StepTaskHandler extends TaskHandler {
       }
     }
     final now = DateTime.now();
-    if (now.difference(_lastSyncTime).inMinutes >= 15) {
+    if (now.difference(_lastSyncTime).inMinutes >= _syncIntervalMinutes) {
       final int currentSteps = _calculateStepsToShow();
       if (currentSteps > 0 || _lastKnownDbSteps != 0) {
         await _syncCurrentSteps(currentSteps);
@@ -356,11 +379,12 @@ class StepTaskHandler extends TaskHandler {
       }
     }
   }
+
   Future<void> _attemptGoogleFitSync() async {
     if (!_googleFitEnabled) return;
 
     final now = DateTime.now();
-    if (now.difference(_lastGoogleFitSync).inMinutes >= 15) {
+    if (now.difference(_lastGoogleFitSync).inMinutes >= _syncIntervalMinutes) {
       try {
         // Get today's steps from Google Fit
         final googleFitSteps = await _googleFitService.getTodaySteps();

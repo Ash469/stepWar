@@ -39,6 +39,7 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import '../providers/step_provider.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'google_fit_stats_screen.dart';
+import '../const/string.dart';
 
 class HomeScreen extends StatefulWidget {
   final GlobalKey onlineBattleKey;
@@ -141,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen>
       print("Error checking for ongoing battle: $e");
     }
   }
+
   @override
   void dispose() {
     _stepSubscription?.cancel();
@@ -266,6 +268,28 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<ServiceRequestResult> _startService() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      await FlutterForegroundTask.saveData(
+          key: 'userId', value: currentUser.uid);
+      await FlutterForegroundTask.saveData(
+        key: 'backendUrl',
+        value: getBackendUrl(),
+      );
+
+      // Get sync interval from Remote Config
+      final remoteConfig = FirebaseRemoteConfig.instance;
+      final int syncIntervalMinutes =
+          remoteConfig.getInt('step_save_debounce_minutes');
+      await FlutterForegroundTask.saveData(
+        key: 'syncInterval',
+        value: syncIntervalMinutes > 0 ? syncIntervalMinutes : 15,
+      );
+
+      print(
+        "StepTaskHandler: Saved userId, backendUrl, and syncInterval ($syncIntervalMinutes min) to background task data",
+      );
+    }
     if (await FlutterForegroundTask.isRunningService) {
       return FlutterForegroundTask.restartService();
     } else {
@@ -273,8 +297,6 @@ class _HomeScreenState extends State<HomeScreen>
         serviceId: 101,
         notificationTitle: 'Step Counter Running',
         notificationText: 'Steps: 0',
-        // notificationIcon:
-        //     const NotificationIcon(metaDataName: '@drawable/ic_notification'),
         notificationInitialRoute: '/',
         callback: startCallback,
       );
@@ -550,6 +572,7 @@ class _HomeScreenState extends State<HomeScreen>
     print("[Cache Load] No rewards found in SharedPreferences cache.");
     return null;
   }
+
   Future<void> _fetchFreshDataInBackground(
     SharedPreferences prefs,
     User? currentUser,
@@ -1457,7 +1480,7 @@ class _HomeScreenState extends State<HomeScreen>
       //         label: const Text('Google Fit'),
       //         backgroundColor: Colors.blue,
       //         foregroundColor: Colors.white,
-      //       ), 
+      //       ),
       //     );
       //   },
       // ),

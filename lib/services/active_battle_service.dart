@@ -35,7 +35,6 @@ class ActiveBattleService with ChangeNotifier {
   bool get isEndingBattle => _isEndingBattle;
   UserModel? _currentUser;
   final FirebaseRemoteConfig _remoteConfig = FirebaseRemoteConfig.instance;
-
   DateTime _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(0);
   final Duration _syncInterval = const Duration(seconds: 5);
 
@@ -51,7 +50,6 @@ class ActiveBattleService with ChangeNotifier {
       FlutterForegroundTask.sendDataToTask({'battleActive': false});
       return;
     }
-
     bool isUserPlayer1 = _currentGame!.player1Id == _currentUser!.userId;
     int myScore =
         isUserPlayer1 ? _currentGame!.player1Score : _currentGame!.player2Score;
@@ -61,7 +59,6 @@ class ActiveBattleService with ChangeNotifier {
     bool battleActive = !_isGameOver && _gameId != null;
     print(
         "ActiveBattleService: Sending battle state to task - battleActive: $battleActive, myScore: $myScore, opponentScore: $opponentScore");
-
     FlutterForegroundTask.sendDataToTask({
       'battleActive': battleActive,
       'myScore': myScore,
@@ -90,7 +87,6 @@ class ActiveBattleService with ChangeNotifier {
         }
       }
     };
-
     _botStepTimer?.cancel();
     _gameTimer?.cancel();
     notifyListeners();
@@ -114,7 +110,6 @@ class ActiveBattleService with ChangeNotifier {
         _gameSubscription = null;
         return;
       }
-
       if (game == null) return;
       if (game.gameStatus == GameStatus.completed) {
         _handleRemoteGameEnd(game);
@@ -144,7 +139,6 @@ class ActiveBattleService with ChangeNotifier {
         _stepSubscription = null;
         return;
       }
-
       _onPlayerStep(stepsStr, user.userId);
     });
     await Future.delayed(const Duration(milliseconds: 100));
@@ -233,11 +227,9 @@ class ActiveBattleService with ChangeNotifier {
     final now = DateTime.now();
     if (now.difference(_lastSyncTime) >= _syncInterval) {
       print("Syncing steps to DB: $stepsThisGame");
-
       final updateData = isUserPlayer1
           ? {'step1Count': stepsThisGame, 'player1Score': newScore}
           : {'step2Count': stepsThisGame, 'player2Score': newScore};
-
       _gameService.updateGame(_currentGame!.gameId, updateData);
       _lastSyncTime = now;
     }
@@ -253,7 +245,6 @@ class ActiveBattleService with ChangeNotifier {
         timer.cancel();
         return;
       }
-
       final elapsed = DateTime.now().difference(startTime);
       if (elapsed >= gameDuration) {
         _timeLeft = Duration.zero;
@@ -262,7 +253,6 @@ class ActiveBattleService with ChangeNotifier {
         _timeLeft = gameDuration - elapsed;
         _sendBattleStateToTask();
       }
-
       notifyListeners();
     });
   }
@@ -273,7 +263,6 @@ class ActiveBattleService with ChangeNotifier {
         timer.cancel();
         return;
       }
-
       final botId = _currentGame!.player2Id!;
       final botType = _botService.getBotTypeFromId(botId);
       if (botType != null) {
@@ -333,9 +322,7 @@ class ActiveBattleService with ChangeNotifier {
       _isEndingBattle = false;
       notifyListeners();
     }
-
     _sendBattleStateToTask();
-
     if (_finalBattleState != null) {
       notifyListeners();
       _controller.add(null);

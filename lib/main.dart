@@ -11,7 +11,6 @@ import 'services/active_battle_service.dart';
 import 'services/notification_service.dart';
 import 'package:clarity_flutter/clarity_flutter.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'providers/step_provider.dart';
 

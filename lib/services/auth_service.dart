@@ -65,6 +65,7 @@ class AuthService {
     return await refreshUserProfile(userId);
   }
 
+//everytime user logs in this function is called
   Future<void> syncUserWithBackend({String? uid, String? email}) async {
     try {
       final response = await http.post(
@@ -191,7 +192,6 @@ class AuthService {
     if (user.dob != null) {
       userJson['dob'] = user.dob!.toIso8601String();
     }
-
     final userProfileString = jsonEncode(userJson);
     await prefs.setString('userProfile', userProfileString);
   }
@@ -225,6 +225,7 @@ class AuthService {
     return null;
   }
 
+///this is our main thing which send steps to backend
   Future<void> syncStepsToBackend(String userId, int steps) async {
     if (userId.isEmpty) return;
 
