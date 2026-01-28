@@ -196,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen>
       _stepSubscription?.cancel(); // Add this
       if (mounted) {
         final currentSteps = context.read<StepProvider>().currentSteps;
-        await _saveLatestSteps(currentSteps);
+        final dbSteps = _user?.todaysStepCount ?? 0;
       }
     }
     if (state == AppLifecycleState.resumed) {
@@ -284,6 +284,13 @@ class _HomeScreenState extends State<HomeScreen>
       await FlutterForegroundTask.saveData(
         key: 'syncInterval',
         value: syncIntervalMinutes > 0 ? syncIntervalMinutes : 15,
+      );
+
+      // ✅ Save DB steps so service can use it as baseline
+      final int dbSteps = _user?.todaysStepCount ?? 0;
+      await FlutterForegroundTask.saveData(
+        key: 'initialDbSteps',
+        value: dbSteps,
       );
 
       print(
@@ -791,32 +798,46 @@ class _HomeScreenState extends State<HomeScreen>
           _sendDbStepsToService(loadedUser.todaysStepCount);
           if (loadedUser.todaysStepCount == 0 &&
               prefs.getInt('dailyStepOffset') != null) {
-            final storedTimestamp = prefs.getInt('dailyOffsetTimestamp');
-            if (storedTimestamp != null) {
-              final offsetDate = DateTime.fromMillisecondsSinceEpoch(
-                storedTimestamp,
-              );
-              final now = DateTime.now();
-              if (offsetDate.year == now.year &&
-                  offsetDate.month == now.month &&
-                  offsetDate.day == now.day) {
-                print(
-                  "[Data Sync] Server reported 0 steps but offset is from today; keeping stored offset.",
+            final localStepCount = prefs.getInt('local_step_count');
+            final localStepCountDate = prefs.getString('local_step_count_date');
+            final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+            // Only clear offset if NO valid local steps for today
+            if (localStepCount == null ||
+                localStepCount == 0 ||
+                localStepCountDate != today) {
+              final storedTimestamp = prefs.getInt('dailyOffsetTimestamp');
+              if (storedTimestamp != null) {
+                final offsetDate = DateTime.fromMillisecondsSinceEpoch(
+                  storedTimestamp,
                 );
+                final now = DateTime.now();
+                if (offsetDate.year == now.year &&
+                    offsetDate.month == now.month &&
+                    offsetDate.day == now.day) {
+                  print(
+                    "[Data Sync] Server reported 0 steps but offset is from today; keeping stored offset.",
+                  );
+                } else {
+                  print(
+                    "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.",
+                  );
+                  await prefs.remove('dailyStepOffset');
+                  await prefs.remove('dailyOffsetTimestamp');
+                  _offsetInitializationDone = false;
+                }
               } else {
                 print(
-                  "[Data Sync] Server reported 0 steps. Clearing local step offset from previous day.",
+                  "[Data Sync] Server reported 0 steps and no offset timestamp found; clearing offset.",
                 );
                 await prefs.remove('dailyStepOffset');
-                await prefs.remove('dailyOffsetTimestamp');
                 _offsetInitializationDone = false;
               }
             } else {
+              // ✅ KEEP offset - we have valid local steps!
               print(
-                "[Data Sync] Server reported 0 steps and no offset timestamp found; keeping stored offset to avoid recalculation.",
+                "[Data Sync] ✅ DB returned 0 but local_step_count is $localStepCount from $localStepCountDate. KEEPING offset to preserve steps.",
               );
-              await prefs.remove('dailyStepOffset');
-              _offsetInitializationDone = false;
             }
           }
           if (serverRewards != null) {

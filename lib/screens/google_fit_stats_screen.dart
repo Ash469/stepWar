@@ -71,44 +71,75 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        title: Text(
-          'Google Fit Stats',
-          style: AppTextStyles.titleLarge.copyWith(color: Colors.white),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _isLoading ? null : _loadData,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
       body: Consumer<StepProvider>(
         builder: (context, stepProvider, child) {
           if (!stepProvider.isGoogleFitEnabled) {
-            return _buildNotConnectedView(stepProvider);
-          }
-
-          if (_isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+            return Scaffold(
+              backgroundColor: AppColors.background,
+              appBar: AppBar(
+                backgroundColor: AppColors.background,
+                elevation: 0,
+                title: Text(
+                  'Google Fit Stats',
+                  style: AppTextStyles.titleLarge.copyWith(color: Colors.white),
+                ),
+              ),
+              body: _buildNotConnectedView(stepProvider),
             );
           }
 
-          return RefreshIndicator(
-            onRefresh: _loadData,
-            color: AppColors.warning,
-            backgroundColor: AppColors.surface,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                children: [
-                  _buildTodayHeroCard(stepProvider),
-                  _buildTabSection(stepProvider),
-                ],
+          if (_isLoading) {
+            return Scaffold(
+              backgroundColor: AppColors.background,
+              appBar: AppBar(
+                backgroundColor: AppColors.background,
+                elevation: 0,
+                title: Text(
+                  'Google Fit Stats',
+                  style: AppTextStyles.titleLarge.copyWith(color: Colors.white),
+                ),
+              ),
+              body: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            );
+          }
+
+          return NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
+              return [
+                SliverAppBar(
+                  backgroundColor: AppColors.background,
+                  elevation: 0,
+                  pinned: true,
+                  floating: false,
+                  title: Text(
+                    'Google Fit Stats',
+                    style:
+                        AppTextStyles.titleLarge.copyWith(color: Colors.white),
+                  ),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      onPressed: _isLoading ? null : _loadData,
+                      tooltip: 'Refresh',
+                    ),
+                  ],
+                ),
+              ];
+            },
+            body: RefreshIndicator(
+              onRefresh: _loadData,
+              color: AppColors.warning,
+              backgroundColor: AppColors.surface,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  children: [
+                    _buildTodayHeroCard(stepProvider),
+                    _buildTabSection(stepProvider),
+                  ],
+                ),
               ),
             ),
           );
@@ -120,7 +151,7 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
   Widget _buildNotConnectedView(StepProvider stepProvider) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -338,7 +369,6 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
       ),
     );
   }
-
 
   Widget _buildTabSection(StepProvider stepProvider) {
     return Column(
@@ -780,5 +810,4 @@ class _GoogleFitStatsScreenState extends State<GoogleFitStatsScreen>
     }
     return number.toString();
   }
-
 }
