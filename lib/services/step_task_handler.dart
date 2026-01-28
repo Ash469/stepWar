@@ -120,14 +120,16 @@ class StepTaskHandler extends TaskHandler {
             if (_localStepCount != null && _localStepCount! > baseline) {
               baseline = _localStepCount!;
             }
-            if (_localStepCount != null && _localStepCount! > baseline) {
-              baseline = _localStepCount!;
-            }
+
+            print(
+                '🔧 StepTaskHandler: Calculating INITIAL offset. Pedometer: $_steps, Baseline (max of DB:$_lastKnownDbSteps, Local:$_localStepCount) = $baseline');
 
             final String todayString = _getCurrentDateString();
             final int newOffset = _steps - baseline;
             _dailyStepOffset = newOffset;
             _offsetDateString = todayString;
+            print(
+                '✅ StepTaskHandler: NEW offset calculated: $_steps - $baseline = $newOffset');
             SharedPreferences.getInstance().then((prefs) async {
               await prefs.setInt('dailyStepOffset', newOffset);
               await prefs.setInt('dailyOffsetTimestamp',
@@ -249,6 +251,17 @@ class StepTaskHandler extends TaskHandler {
     } catch (e) {
       print(
           'StepTaskHandler ERROR reading lastKnownDbSteps from SharedPreferences: $e.');
+    }
+
+    // ✅ Load initialDbSteps from task data if we don't have lastKnownDbSteps
+    if (_lastKnownDbSteps == null) {
+      final int? initialDbSteps =
+          await FlutterForegroundTask.getData(key: 'initialDbSteps');
+      if (initialDbSteps != null) {
+        _lastKnownDbSteps = initialDbSteps;
+        print(
+            '✅ StepTaskHandler loaded initialDbSteps from task data: $_lastKnownDbSteps');
+      }
     }
 
     await _initializePedometerStream();
