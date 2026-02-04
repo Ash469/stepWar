@@ -279,6 +279,8 @@ class AuthService {
     }
   }
 
+
+  //this can be removed later we are using google fit for activity history
   Future<List<dynamic>> getActivityHistory(String userId) async {
     if (userId.isEmpty) {
       throw Exception("User ID is required to fetch activity history.");
@@ -299,6 +301,7 @@ class AuthService {
       rethrow;
     }
   }
+
   Future<Map<String, dynamic>> getLifetimeStats(String userId) async {
     if (userId.isEmpty) {
       throw Exception("User ID is required to fetch lifetime stats.");

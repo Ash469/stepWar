@@ -169,7 +169,7 @@ class NotificationService {
       return false;
     }
   }
-
+  //not used currently but may be used in future
   Future<void> unregisterTokenFromBackend(String uid, String token) async {
     try {
       final response = await http.post(

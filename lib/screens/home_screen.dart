@@ -40,6 +40,7 @@ import '../providers/step_provider.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'google_fit_stats_screen.dart';
 import '../const/string.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class HomeScreen extends StatefulWidget {
   final GlobalKey onlineBattleKey;
@@ -120,6 +121,8 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       await Future.delayed(const Duration(milliseconds: 100));
       final battleService = context.read<ActiveBattleService>();
+
+      // 1. Check in-memory state first (normal flow)
       if (battleService.isBattleActive &&
           battleService.isWaitingForFriend &&
           _user != null) {
@@ -136,7 +139,18 @@ class _HomeScreenState extends State<HomeScreen>
               );
             }
           });
+          return;
         }
+      }
+
+      // 2. Check persisted state (recovery flow)
+      final prefs = await SharedPreferences.getInstance();
+      final persistedGameId = prefs.getString('active_battle_id');
+
+      if (persistedGameId != null &&
+          _user != null &&
+          !battleService.isBattleActive) {
+        await battleService.recoverAndEndBattle(persistedGameId, _user!);
       }
     } catch (e) {
       print("Error checking for ongoing battle: $e");
@@ -192,6 +206,10 @@ class _HomeScreenState extends State<HomeScreen>
         state == AppLifecycleState.detached) {
       _lastPausedTime = DateTime.now();
       print("App is pausing. Forcing final step save.");
+
+      // Note: Battle ending on app termination is handled by ActiveBattleService
+      // We should NOT end battles here when the app goes to background
+
       _debounce?.cancel();
       _stepSubscription?.cancel(); // Add this
       if (mounted) {
@@ -426,19 +444,37 @@ class _HomeScreenState extends State<HomeScreen>
         );
         break;
       case 'collectible':
-        final item = reward['item'];
+        var itemData = reward['item'];
+        // Handle case where item might be a JSON string (common in some parts of the app)
+        if (itemData is String) {
+          try {
+            itemData = jsonDecode(itemData);
+          } catch (e) {
+            print("StepWars: Error decoding reward item JSON: $e");
+          }
+        }
+
+        final Map<String, dynamic> item =
+            (itemData is Map) ? Map<String, dynamic>.from(itemData) : {};
+
         titleText = "New Collectible!";
-        subtitleText = item?['name'] ?? 'A new item';
-        final imagePath = (item is Map && item.containsKey('imagePath'))
-            ? item['imagePath']
-            : null;
+        subtitleText = item['name'] ?? 'A new item';
+        String? imagePath = item['imagePath'];
+
         rewardContent = imagePath != null
-            ? Image.asset(
-                imagePath,
-                height: 80,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield, size: 80, color: Colors.black),
-              )
+            ? (imagePath.startsWith('http')
+                ? CachedNetworkImage(
+                    imageUrl: imagePath,
+                    height: 80,
+                    errorWidget: (_, __, ___) =>
+                        const Icon(Icons.shield, size: 80, color: Colors.black),
+                  )
+                : Image.asset(
+                    imagePath,
+                    height: 80,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.shield, size: 80, color: Colors.black),
+                  ))
             : const Icon(Icons.shield, size: 80, color: Colors.black);
         break;
       default:

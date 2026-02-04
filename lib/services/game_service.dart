@@ -10,6 +10,19 @@ class GameService {
 
   String get _baseUrl => '${getBackendUrl()}/api';
 
+  Future<Game?> getGame(String gameId) async {
+    try {
+      final snapshot = await _dbRef.child('games').child(gameId).get();
+      if (snapshot.exists) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        return Game.fromMap(data, gameId);
+      }
+    } catch (e) {
+      print("Error fetching game data: $e");
+    }
+    return null;
+  }
+
   Future<String> createPvpBattle(String player1Id, String player2Id) async {
     try {
       final response = await http.post(

@@ -7,8 +7,9 @@ import 'bot_service.dart';
 import 'step_counting.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class ActiveBattleService with ChangeNotifier {
+class ActiveBattleService with ChangeNotifier, WidgetsBindingObserver {
   final _controller = StreamController<void>.broadcast();
   String? _gameId;
   final GameService _gameService = GameService();
@@ -37,6 +38,102 @@ class ActiveBattleService with ChangeNotifier {
   final FirebaseRemoteConfig _remoteConfig = FirebaseRemoteConfig.instance;
   DateTime _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(0);
   final Duration _syncInterval = const Duration(seconds: 5);
+  bool _isHandlingTermination = false;
+
+  ActiveBattleService() {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    print("ActiveBattleService: App lifecycle state changed to: $state");
+
+    // Only handle actual app termination, not background states
+    // Background states: inactive, paused
+    // Termination state: detached
+    if (state == AppLifecycleState.detached) {
+      print("ActiveBattleService: App is being terminated (detached state)");
+      _handleAppTermination();
+    } else if (state == AppLifecycleState.paused) {
+      print(
+          "ActiveBattleService: App went to background (paused state) - battle continues");
+    } else if (state == AppLifecycleState.resumed) {
+      print("ActiveBattleService: App resumed from background");
+    }
+  }
+
+  Future<void> _handleAppTermination() async {
+    if (_isHandlingTermination) {
+      print("ActiveBattleService: Already handling termination, skipping...");
+      return;
+    }
+
+    _isHandlingTermination = true;
+    print("ActiveBattleService: Handling app termination...");
+
+    if (_gameId != null && _gameId!.isNotEmpty) {
+      await _gameService.endBattle(_gameId!);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('active_battle_id');
+      } catch (e) {
+        print("ActiveBattleService: Error clearing battle ID: $e");
+      }
+    } else {
+      print(
+          "ActiveBattleService: App closing, checking for active battle ID in SharedPreferences...");
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final storedGameId = prefs.getString('active_battle_id');
+        if (storedGameId != null && storedGameId.isNotEmpty) {
+          print(
+              "ActiveBattleService: Found active battle $storedGameId, calling endBattle API...");
+          await _gameService.endBattle(storedGameId);
+          await prefs.remove('active_battle_id');
+          print("ActiveBattleService: Battle ended and ID cleared.");
+        }
+      } catch (e) {
+        print(
+            "ActiveBattleService: Error ending battle during app termination: $e");
+      }
+    }
+
+    _isHandlingTermination = false;
+  }
+
+  Future<void> recoverAndEndBattle(String gameId, UserModel user) async {
+    print("ActiveBattleService: Recovering and ending battle $gameId");
+    try {
+      _currentUser = user;
+      final game = await _gameService.getGame(gameId);
+      if (game != null) {
+        _currentGame = game;
+        if (game.gameStatus != GameStatus.completed) {
+          print(
+              "ActiveBattleService: Battle is not completed, ending it now via API...");
+          await endBattle();
+        } else {
+          print("ActiveBattleService: Battle already completed, cleaning up.");
+          await _clearActiveBattleId();
+          _cleanup();
+        }
+      } else {
+        print("ActiveBattleService: Game $gameId not found in DB.");
+        await _clearActiveBattleId();
+        _cleanup();
+      }
+    } catch (e) {
+      print("ActiveBattleService: Error in recoverAndEndBattle: $e");
+      await _clearActiveBattleId();
+      _cleanup();
+    }
+  }
 
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -57,10 +154,21 @@ class ActiveBattleService with ChangeNotifier {
         isUserPlayer1 ? _currentGame!.player2Score : _currentGame!.player1Score;
 
     bool battleActive = !_isGameOver && _gameId != null;
+
+    // Calculate end time
+    int? endTimeMillis;
+    if (_currentGame!.startTime != null) {
+      final battleMinutes = _remoteConfig.getInt('battle_time_minutes');
+      endTimeMillis = _currentGame!.startTime! + (battleMinutes * 60 * 1000);
+    }
+
     print(
-        "ActiveBattleService: Sending battle state to task - battleActive: $battleActive, myScore: $myScore, opponentScore: $opponentScore");
+        "ActiveBattleService: Sending battle state to task - battleActive: $battleActive, gameId: $_gameId");
     FlutterForegroundTask.sendDataToTask({
       'battleActive': battleActive,
+      'gameId': _gameId,
+      'endTimeMillis': endTimeMillis,
+      'myIsPlayer1': isUserPlayer1,
       'myScore': myScore,
       'opponentScore': opponentScore,
       'timeLeft': _formatDuration(_timeLeft),
@@ -100,6 +208,7 @@ class ActiveBattleService with ChangeNotifier {
     }
     _cleanup();
     _gameId = gameId;
+    _saveActiveBattleId(gameId); // Save ID for recovery
     _isGameOver = false;
     _currentUser = user;
     _initialPlayerSteps = -1;
@@ -222,8 +331,7 @@ class ActiveBattleService with ChangeNotifier {
     final multiplier =
         isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
     final newScore = (stepsThisGame * multiplier).round();
-    if (isUserPlayer1) {
-    }
+    if (isUserPlayer1) {}
     final now = DateTime.now();
     if (now.difference(_lastSyncTime) >= _syncInterval) {
       print("Syncing steps to DB: $stepsThisGame");
@@ -343,6 +451,9 @@ class ActiveBattleService with ChangeNotifier {
 
   void _cleanup() {
     print("ActiveBattleService: Cleaning up battle state");
+    if (_gameId != null) {
+      _clearActiveBattleId();
+    }
     _gameSubscription?.cancel();
     _stepSubscription?.cancel();
     _botStepTimer?.cancel();
@@ -387,6 +498,26 @@ class ActiveBattleService with ChangeNotifier {
       print("Error cancelling battle: $e");
     } finally {
       _cleanup();
+    }
+  }
+
+  Future<void> _saveActiveBattleId(String gameId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('active_battle_id', gameId);
+      print("ActiveBattleService: Persisted battle ID: $gameId");
+    } catch (e) {
+      print("ActiveBattleService: Error persisting battle ID: $e");
+    }
+  }
+
+  Future<void> _clearActiveBattleId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('active_battle_id');
+      print("ActiveBattleService: Cleared persisted battle ID");
+    } catch (e) {
+      print("ActiveBattleService: Error clearing battle ID: $e");
     }
   }
 }

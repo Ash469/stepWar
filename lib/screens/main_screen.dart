@@ -95,8 +95,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         battleService.currentGame?.gameStatus == GameStatus.ongoing;
 
     if (state == AppLifecycleState.resumed) {
-     if (battleService.isBattleActive &&
-          isBattleOngoing && 
+      if (battleService.isBattleActive &&
+          isBattleOngoing &&
           (battleService.timeLeft.isNegative ||
               battleService.timeLeft.inSeconds == 0)) {
         print(
@@ -646,7 +646,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         });
 
         return UpgradeAlert(
-          // upgrader: Upgrader(debugDisplayAlways: true), 
+          // upgrader: Upgrader(debugDisplayAlways: true),
           child: AnnotatedRegion<SystemUiOverlayStyle>(
             value: const SystemUiOverlayStyle(
               statusBarColor: Colors.transparent,
@@ -681,7 +681,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-        );  
+        );
       },
     );
   }

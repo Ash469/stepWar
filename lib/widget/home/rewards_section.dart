@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:stepwars_app/screens/kingdom_screen.dart' show KingdomItem;
+import 'package:cached_network_image/cached_network_image.dart';
 
 class RewardsSection extends StatelessWidget {
   final KingdomItem? latestReward;
@@ -52,12 +53,21 @@ class RewardsSection extends StatelessWidget {
           Row(
             children: [
               latestReward!.imagePath.isNotEmpty
-                  ? Image.asset(
-                      latestReward!.imagePath,
-                      height: 30,
-                      errorBuilder: (c, e, s) => Icon(Icons.location_city,
-                          color: latestReward!.rarityColor, size: 30),
-                    )
+                  ? (latestReward!.imagePath.startsWith('http')
+                      ? CachedNetworkImage(
+                          imageUrl: latestReward!.imagePath,
+                          height: 30,
+                          errorWidget: (context, url, error) => Icon(
+                              Icons.location_city,
+                              color: latestReward!.rarityColor,
+                              size: 30),
+                        )
+                      : Image.asset(
+                          latestReward!.imagePath,
+                          height: 30,
+                          errorBuilder: (c, e, s) => Icon(Icons.location_city,
+                              color: latestReward!.rarityColor, size: 30),
+                        ))
                   : Icon(Icons.location_city,
                       color: latestReward!.rarityColor, size: 30),
               const SizedBox(width: 12),

@@ -66,7 +66,16 @@ class _KingdomScreenState extends State<KingdomScreen> {
   Map<String, List<KingdomItem>>? _allRewards;
   bool _isLoading = true;
   String _selectedFilter = 'All';
+  String _selectedRarity = 'All';
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
   List<KingdomItem> _currentItems = [];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -284,11 +293,33 @@ class _KingdomScreenState extends State<KingdomScreen> {
     }
 
     final availableFilters = ['All', ..._allRewards!.keys];
+    final rarities = ['All', 'Rare', 'Epic', 'Mythic', 'Legendary'];
+
+    // Updated filtering logic
+    List<KingdomItem> items = [];
     if (_selectedFilter == 'All') {
-      _currentItems = _allRewards!.values.expand((list) => list).toList();
+      items = _allRewards!.values.expand((list) => list).toList();
     } else {
-      _currentItems = _allRewards![_selectedFilter] ?? [];
+      items = _allRewards![_selectedFilter] ?? [];
     }
+
+    // Apply Rarity Filter
+    if (_selectedRarity != 'All') {
+      items = items.where((item) => item.rarity == _selectedRarity).toList();
+    }
+
+    // Apply Search Filter
+    if (_searchQuery.isNotEmpty) {
+      items = items
+          .where((item) =>
+              item.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+              item.description
+                  .toLowerCase()
+                  .contains(_searchQuery.toLowerCase()))
+          .toList();
+    }
+
+    _currentItems = items;
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -309,15 +340,25 @@ class _KingdomScreenState extends State<KingdomScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildHeader(),
+                    const SizedBox(height: 16),
+                    _buildSearchBar(),
                     const SizedBox(height: 24),
-                    _buildFilterChips(availableFilters),
+                    _buildFilterSection(
+                        'Categories', availableFilters, _selectedFilter, (val) {
+                      setState(() => _selectedFilter = val);
+                    }),
+                    const SizedBox(height: 16),
+                    _buildFilterSection('Rarity', rarities, _selectedRarity,
+                        (val) {
+                      setState(() => _selectedRarity = val);
+                    }),
                     const SizedBox(height: 24),
                     Text(
                       '${_currentItems.length} items',
                       style:
                           TextStyle(color: Colors.grey.shade400, fontSize: 14),
                     ),
-                    // const SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     _buildKingdomGrid(),
                     const SizedBox(height: 40 + 20), // Add extra spacing
                     const StepWarsFooter(),
@@ -352,45 +393,97 @@ class _KingdomScreenState extends State<KingdomScreen> {
     );
   }
 
-  Widget _buildFilterChips(List<String> availableFilters) {
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: availableFilters.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final filter = availableFilters[index];
-          final isSelected = _selectedFilter == filter;
-          return ChoiceChip(
-            label: Text(filter),
-            selected: isSelected,
-            onSelected: (selected) {
-              if (selected) {
-                setState(() {
-                  _selectedFilter = filter;
-                });
-              }
-            },
-            backgroundColor: Colors.grey.shade900,
-            selectedColor: const Color(0xFFFFD700),
-            labelStyle: TextStyle(
-              color: isSelected ? Colors.black : Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20.0),
-              side: BorderSide(
-                  color: isSelected
-                      ? const Color(0xFFFFD700)
-                      : Colors.grey.shade800),
-            ),
-            showCheckmark: false,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          );
-        },
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade800),
       ),
+      child: TextField(
+        controller: _searchController,
+        style: const TextStyle(color: Colors.white),
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value;
+          });
+        },
+        decoration: InputDecoration(
+          hintText: 'Search rewards...',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+          prefixIcon: Icon(Icons.search, color: Colors.grey.shade500),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.yellow),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchQuery = '';
+                    });
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterSection(String title, List<String> options,
+      String selectedValue, Function(String) onSelected) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 38,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: options.length,
+            separatorBuilder: (context, index) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final option = options[index];
+              final isSelected = selectedValue == option;
+              return ChoiceChip(
+                label: Text(option),
+                selected: isSelected,
+                onSelected: (selected) {
+                  if (selected) {
+                    onSelected(option);
+                  }
+                },
+                backgroundColor: Colors.grey.shade900,
+                selectedColor: const Color(0xFFFFD700),
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20.0),
+                  side: BorderSide(
+                      color: isSelected
+                          ? const Color(0xFFFFD700)
+                          : Colors.grey.shade800),
+                ),
+                showCheckmark: false,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12.0, vertical: 0.0),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

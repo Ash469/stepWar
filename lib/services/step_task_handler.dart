@@ -24,10 +24,14 @@ class StepTaskHandler extends TaskHandler {
   int? offsetTimestampMillis;
   String? _offsetDateString;
   bool _isBattleActive = false;
+  String? _activeGameId;
+  int? _endTimeMillis;
+  bool _myIsPlayer1 = true;
   int _myScore = 0;
   int _opponentScore = 0;
   String _timeLeftString = '';
   int _lastSavedPedometerReading = 0;
+  bool _isBackgroundEnding = false;
 
   final StepHistoryService _historyService = StepHistoryService();
 
@@ -57,46 +61,32 @@ class StepTaskHandler extends TaskHandler {
         _stepStream = Pedometer.stepCountStream.listen((event) {
           _steps = event.steps;
           bool rebootDetected = false;
+
+          // 🔄 Check for Reboot / Pedometer Reset
           if (_lastSavedPedometerReading > 10 &&
               _steps < _lastSavedPedometerReading &&
               (_lastSavedPedometerReading - _steps) > 10) {
+            print(
+                "StepTaskHandler: Reboot Detected via Reading Drop! Current: $_steps, Last: $_lastSavedPedometerReading");
             rebootDetected = true;
-          }
-          if (_dailyStepOffset != null && _steps < _dailyStepOffset!) {
+          } else if (_dailyStepOffset != null && _steps < _dailyStepOffset!) {
             print(
                 "StepTaskHandler: Reboot Detected via Offset Check! Steps: $_steps < Offset: $_dailyStepOffset");
             rebootDetected = true;
-          }
-          int currentCalculated = _steps - (_dailyStepOffset ?? 0);
-          if (_localStepCount != null &&
-              currentCalculated < (_localStepCount! - 10)) {
-            print(
-                "StepTaskHandler: Reboot Detected via Local Count Check! Calculated: $currentCalculated < Local: $_localStepCount");
-            rebootDetected = true;
-          }
-          if (rebootDetected) {
-            rebootDetected = true;
-          }
-          if (_dailyStepOffset != null && _steps < _dailyStepOffset!) {
-            print(
-                "StepTaskHandler: Reboot Detected via Offset Check! Steps: $_steps < Offset: $_dailyStepOffset");
-            rebootDetected = true;
-          }
-
-          if (_localStepCount != null &&
-              currentCalculated < (_localStepCount! - 10)) {
-            print(
-                "StepTaskHandler: Reboot Detected via Local Count Check! Calculated: $currentCalculated < Local: $_localStepCount");
-            rebootDetected = true;
-          }
-
-          if (rebootDetected) {
-            print(
-                '🔄 StepTaskHandler: REBOOT DETECTED! LastSaved=$_lastSavedPedometerReading, Current=$_steps');
-            int baseline = _lastKnownDbSteps ?? 0;
-            if (_localStepCount != null && _localStepCount! > baseline) {
-              baseline = _localStepCount!;
+          } else {
+            int currentCalculated = _steps - (_dailyStepOffset ?? 0);
+            if (_localStepCount != null &&
+                currentCalculated < (_localStepCount! - 10)) {
+              print(
+                  "StepTaskHandler: Reboot Detected via Local Count Check! Calculated: $currentCalculated < Local: $_localStepCount");
+              rebootDetected = true;
             }
+          }
+
+          if (rebootDetected) {
+            print(
+                '🔄 StepTaskHandler: REBOOT DETECTED! Recalibrating offset...');
+            int baseline = _lastKnownDbSteps ?? 0;
             if (_localStepCount != null && _localStepCount! > baseline) {
               baseline = _localStepCount!;
             }
@@ -111,8 +101,7 @@ class StepTaskHandler extends TaskHandler {
                   DateTime.now().millisecondsSinceEpoch);
               await prefs.setInt('lastPedometerReading', _steps);
             }).catchError((e) {
-              print('StepTaskHandler ERROR saving reboot offset: ' +
-                  e.toString());
+              print('StepTaskHandler ERROR saving reboot offset: $e');
             });
           }
           if (_dailyStepOffset == null) {
@@ -264,6 +253,21 @@ class StepTaskHandler extends TaskHandler {
       }
     }
 
+    // Load battle data
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _activeGameId = prefs.getString('active_battle_id');
+      _endTimeMillis = prefs.getInt('active_battle_end_time');
+      _myIsPlayer1 = prefs.getBool('active_battle_is_p1') ?? true;
+      if (_activeGameId != null) {
+        print(
+            "StepTaskHandler: Loaded active battle $_activeGameId (Ends: $_endTimeMillis)");
+        // If we have an end time and it's in the past, we'll handle it in onRepeatEvent
+      }
+    } catch (e) {
+      print("StepTaskHandler: Error loading battle data: $e");
+    }
+
     await _initializePedometerStream();
 
     // Get IDs from persistent task data
@@ -285,10 +289,25 @@ class StepTaskHandler extends TaskHandler {
     } else {
       print('StepTaskHandler WARNING: No backendUrl found in task data');
     }
-    print('StepTaskHandler sync interval: $_syncIntervalMinutes minutes');
 
-    // Immediately show notification with loaded values (prevent blank/late notification)
-    _updateAndSendData();
+    // Load persisted sync timestamps
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastSyncMs = prefs.getInt('last_sync_timestamp');
+      if (lastSyncMs != null) {
+        _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncMs);
+        print('StepTaskHandler: Loaded last sync time: $_lastSyncTime');
+      }
+      final lastGFitSyncMs = prefs.getInt('last_google_fit_sync_timestamp');
+      if (lastGFitSyncMs != null) {
+        _lastGoogleFitSync =
+            DateTime.fromMillisecondsSinceEpoch(lastGFitSyncMs);
+        print(
+            'StepTaskHandler: Loaded last Google Fit sync time: $_lastGoogleFitSync');
+      }
+    } catch (e) {
+      print('StepTaskHandler: Error loading sync timestamps: $e');
+    }
     _updateAndSendData();
   }
 
@@ -298,15 +317,73 @@ class StepTaskHandler extends TaskHandler {
     if (_steps > 0) {
       SharedPreferences.getInstance().then((prefs) async {
         await prefs.setInt('lastPedometerReading', _steps);
-      }).catchError((_) {});
+      }).catchError((_) => null);
     }
 
     final String todayString = _getCurrentDateString();
     if (_offsetDateString != null && _offsetDateString != todayString) {
       _handleMidnightTransition(todayString);
     }
+    _evalBattleTimeout();
     _attemptBackgroundSync();
     _attemptGoogleFitSync();
+  }
+
+  void _evalBattleTimeout() {
+    if (_isBackgroundEnding ||
+        _activeGameId == null ||
+        _endTimeMillis == null) {
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now >= _endTimeMillis!) {
+      print(
+          "StepTaskHandler: Battle timeout reached for $_activeGameId. Ending in background...");
+      _endBattleInBackground();
+    }
+  }
+
+  Future<void> _endBattleInBackground() async {
+    if (_isBackgroundEnding || _activeGameId == null || _backendUrl == null) {
+      return;
+    }
+
+    _isBackgroundEnding = true;
+    final gameId = _activeGameId!;
+
+    try {
+      print("StepTaskHandler: Calling endBattle API for $gameId...");
+      final response = await http
+          .post(
+            Uri.parse('$_backendUrl/api/battle/end'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'gameId': gameId}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        print(
+            "StepTaskHandler: Successfully ended battle $gameId in background.");
+        _isBattleActive = false;
+        _activeGameId = null;
+        _endTimeMillis = null;
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('active_battle_id');
+        await prefs.remove('active_battle_end_time');
+        await prefs.remove('active_battle_is_p1');
+
+        _updateAndSendData();
+      } else {
+        print(
+            "StepTaskHandler: Failed to end battle $gameId. Status: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("StepTaskHandler: Error ending battle in background: $e");
+    } finally {
+      _isBackgroundEnding = false;
+    }
   }
 
   Future<void> _handleMidnightTransition(String todayString) async {
@@ -377,18 +454,34 @@ class StepTaskHandler extends TaskHandler {
     final String? pendingDate = prefs.getString('pending_past_date');
     final int? pendingSteps = prefs.getInt('pending_past_steps');
     if (pendingDate != null && pendingSteps != null) {
+      print(
+          "StepTaskHandler: Found pending past steps for $pendingDate. Syncing...");
       bool success = await _syncPastSteps(pendingDate, pendingSteps);
       if (success) {
         await prefs.remove('pending_past_date');
         await prefs.remove('pending_past_steps');
+        print("StepTaskHandler: Successfully synced pending past steps.");
+      } else {
+        print(
+            "StepTaskHandler: Failed to sync pending past steps. Will retry.");
       }
     }
+
+    // Check for missing history from last 7 days
+    await _syncMissingHistory();
+
     final now = DateTime.now();
-    if (now.difference(_lastSyncTime).inMinutes >= _syncIntervalMinutes) {
+    final int diff = now.difference(_lastSyncTime).inMinutes;
+    if (diff >= _syncIntervalMinutes) {
       final int currentSteps = _calculateStepsToShow();
+      print(
+          "StepTaskHandler: Attempting interval sync ($diff mins since last). Steps: $currentSteps");
       if (currentSteps > 0 || _lastKnownDbSteps != 0) {
-        await _syncCurrentSteps(currentSteps);
-        _lastSyncTime = now;
+        bool success = await _syncCurrentSteps(currentSteps);
+        if (success) {
+          _lastSyncTime = now;
+          await prefs.setInt('last_sync_timestamp', now.millisecondsSinceEpoch);
+        }
       }
     }
   }
@@ -399,6 +492,7 @@ class StepTaskHandler extends TaskHandler {
     final now = DateTime.now();
     if (now.difference(_lastGoogleFitSync).inMinutes >= _syncIntervalMinutes) {
       try {
+        print('[StepTaskHandler] Attempting Google Fit sync...');
         // Get today's steps from Google Fit
         final googleFitSteps = await _googleFitService.getTodaySteps();
 
@@ -419,6 +513,11 @@ class StepTaskHandler extends TaskHandler {
         }
 
         _lastGoogleFitSync = now;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(
+            'last_google_fit_sync_timestamp', now.millisecondsSinceEpoch);
+        print(
+            '[StepTaskHandler] Google Fit sync completed and timestamp saved.');
       } catch (e) {
         print('[StepTaskHandler] Error syncing with Google Fit: $e');
       }
@@ -438,16 +537,61 @@ class StepTaskHandler extends TaskHandler {
     }
   }
 
-  Future<void> _syncCurrentSteps(int steps) async {
+  Future<bool> _syncCurrentSteps(int steps) async {
     try {
-      await http.post(
-        Uri.parse('$_backendUrl/api/user/sync-steps'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'uid': _userId, 'todaysStepCount': steps}),
-      );
-      _lastKnownDbSteps = steps;
+      print(
+          "StepTaskHandler: Syncing $steps steps to $_backendUrl/api/user/sync-steps for $_userId");
+      final response = await http
+          .post(
+            Uri.parse('$_backendUrl/api/user/sync-steps'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'uid': _userId, 'todaysStepCount': steps}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        print("StepTaskHandler: Successfully synced steps ($steps).");
+        _lastKnownDbSteps = steps;
+        return true;
+      } else {
+        print(
+            "StepTaskHandler: Error syncing current steps. Status: ${response.statusCode}, Body: ${response.body}");
+        return false;
+      }
     } catch (e) {
-      print("Error syncing current steps: $e");
+      print("StepTaskHandler: Exception during current steps sync: $e");
+      return false;
+    }
+  }
+
+  Future<void> _syncMissingHistory() async {
+    try {
+      final now = DateTime.now();
+      final prefs = await SharedPreferences.getInstance();
+
+      // Iterate last 7 days (excluding today)
+      for (int i = 1; i <= 7; i++) {
+        final date = now.subtract(Duration(days: i));
+        final dateString = DateFormat('yyyy-MM-dd').format(date);
+
+        // Skip if we already synced this date successfully
+        final isSynced = prefs.getBool('synced_history_$dateString') ?? false;
+        if (isSynced) continue;
+
+        // Check if we have history for this date
+        final steps = _historyService.getStepsForDate(dateString);
+        if (steps != null && steps > 0) {
+          print(
+              "StepTaskHandler: Found unsynced history for $dateString: $steps steps. Attempting sync...");
+          final success = await _syncPastSteps(dateString, steps);
+          if (success) {
+            await prefs.setBool('synced_history_$dateString', true);
+            print("StepTaskHandler: Marked $dateString as fully synced.");
+          }
+        }
+      }
+    } catch (e) {
+      print("StepTaskHandler: Error in _syncMissingHistory: $e");
     }
   }
 
@@ -517,13 +661,34 @@ class StepTaskHandler extends TaskHandler {
         bool newBattleActive = data['battleActive'] ?? false;
         _isBattleActive = newBattleActive;
         if (_isBattleActive) {
+          _activeGameId = data['gameId'] as String?;
+          _endTimeMillis = data['endTimeMillis'] as int?;
+          _myIsPlayer1 = data['myIsPlayer1'] ?? true;
           _myScore = data['myScore'] ?? 0;
           _opponentScore = data['opponentScore'] ?? 0;
           _timeLeftString = data['timeLeft'] ?? '??:??';
           print(
-              'StepTaskHandler: Battle ACTIVE - Score $_myScore-$_opponentScore | Time $_timeLeftString');
+              'StepTaskHandler: Battle ACTIVE - ID: $_activeGameId, Ends: $_endTimeMillis, Score $_myScore-$_opponentScore');
+
+          // Persist for reboot recovery
+          SharedPreferences.getInstance().then((prefs) {
+            if (_activeGameId != null) {
+              prefs.setString('active_battle_id', _activeGameId!);
+              if (_endTimeMillis != null) {
+                prefs.setInt('active_battle_end_time', _endTimeMillis!);
+              }
+              prefs.setBool('active_battle_is_p1', _myIsPlayer1);
+            }
+          }).catchError((e) => print("Error persisting battle data: $e"));
         } else {
           print('StepTaskHandler: Battle INACTIVE');
+          _activeGameId = null;
+          _endTimeMillis = null;
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.remove('active_battle_id');
+            prefs.remove('active_battle_end_time');
+            prefs.remove('active_battle_is_p1');
+          }).catchError((_) {});
         }
         needsUpdate = true;
       }

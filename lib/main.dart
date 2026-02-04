@@ -71,7 +71,7 @@ void main() async {
   }
 
   final config =
-      ClarityConfig(projectId: "ttsnh3p3bl", logLevel: LogLevel.None);
+      ClarityConfig(projectId: "vbhoaxfkni", logLevel: LogLevel.None);
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
