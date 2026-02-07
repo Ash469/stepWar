@@ -9,9 +9,6 @@ class MysteryBoxSection extends StatefulWidget {
   final bool isOpeningBronze;
   final bool isOpeningSilver;
   final bool isOpeningGold;
-  final Duration bronzeTimeLeft;
-  final Duration silverTimeLeft;
-  final Duration goldTimeLeft;
 
   const MysteryBoxSection({
     super.key,
@@ -19,9 +16,6 @@ class MysteryBoxSection extends StatefulWidget {
     required this.isOpeningBronze,
     required this.isOpeningSilver,
     required this.isOpeningGold,
-    required this.bronzeTimeLeft,
-    required this.silverTimeLeft,
-    required this.goldTimeLeft,
   });
 
   @override
@@ -46,14 +40,6 @@ class _MysteryBoxSectionState extends State<MysteryBoxSection> {
     });
   }
 
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String hours = twoDigits(duration.inHours);
-    String minutes = twoDigits(duration.inMinutes.remainder(60));
-    String seconds = twoDigits(duration.inSeconds.remainder(60));
-    return "$hours:$minutes:$seconds";
-  }
-
   @override
   Widget build(BuildContext context) {
     final remoteConfig = context.read<FirebaseRemoteConfig>();
@@ -70,21 +56,18 @@ class _MysteryBoxSectionState extends State<MysteryBoxSection> {
           boxType: 'bronze',
           price: bronzePrice,
           isLoading: widget.isOpeningBronze,
-          timeLeft: widget.bronzeTimeLeft,
         ),
         _buildMysteryBox(
           imagePath: 'assets/images/silver_box.png',
           boxType: 'silver',
           price: silverPrice,
           isLoading: widget.isOpeningSilver,
-          timeLeft: widget.silverTimeLeft,
         ),
         _buildMysteryBox(
           imagePath: 'assets/images/gold_box.png',
           boxType: 'gold',
           price: goldPrice,
           isLoading: widget.isOpeningGold,
-          timeLeft: widget.goldTimeLeft,
         ),
       ],
     );
@@ -95,15 +78,10 @@ class _MysteryBoxSectionState extends State<MysteryBoxSection> {
     required String boxType,
     required int price,
     required bool isLoading,
-    required Duration timeLeft,
   }) {
-    final bool isOpenedToday = timeLeft > Duration.zero;
-
     return Expanded(
       child: GestureDetector(
-        onTap: (isOpenedToday || isLoading)
-            ? null
-            : () => widget.onOpenBox(boxType, price),
+        onTap: isLoading ? null : () => widget.onOpenBox(boxType, price),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
           child: Column(
@@ -121,14 +99,6 @@ class _MysteryBoxSectionState extends State<MysteryBoxSection> {
                     ),
                     if (isLoading)
                       const CircularProgressIndicator(color: Colors.white),
-                    if (isOpenedToday && !isLoading)
-                      Container(
-                        height: 120,
-                        width: double.infinity,
-                        color: Colors.black.withOpacity(0.6),
-                        child: const Icon(Icons.lock_clock,
-                            color: Colors.white, size: 40),
-                      ),
                   ],
                 ),
               ),
@@ -137,35 +107,24 @@ class _MysteryBoxSectionState extends State<MysteryBoxSection> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isOpenedToday
-                      ? Colors.transparent
-                      : Colors.yellow.shade800,
+                  color: Colors.yellow.shade800,
                   borderRadius: BorderRadius.circular(20),
-                  border: isOpenedToday
-                      ? Border.all(color: Colors.grey.shade700)
-                      : null,
                 ),
-                child: isOpenedToday
-                    ? Text(
-                        _formatDuration(timeLeft),
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 14),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset(
-                            'assets/images/coin_icon.png',
-                            width: 20,
-                            height: 20,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            price.toString(),
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/images/coin_icon.png',
+                      width: 20,
+                      height: 20,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      price.toString(),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

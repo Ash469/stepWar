@@ -18,6 +18,7 @@ import 'matchmaking_screen.dart';
 import 'waiting_for_friend_screen.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:upgrader/upgrader.dart';
+import '../widget/home/app_showcase.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -700,6 +701,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           // _googleFitKey,
           _kingdomButtonKey,
           _profileButtonKey,
+          AppShowcase.tutorialInfoKey,
         ]);
         await prefs.setBool('showcase_shown_v2', true);
       }

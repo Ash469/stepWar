@@ -3,8 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import 'profile_completion_screen.dart';
+import '../models/user_model.dart';
 import 'main_screen.dart';
+import 'preferences_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -70,17 +71,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
+    
     if (isNew) {
+      await _authService.createMinimalUserProfile(user);
+      
+      if (!mounted) return;
+      
+    
+      final userModel = UserModel(
+        userId: user.uid,
+        email: user.email,
+        username: user.displayName ?? user.email?.split('@').first ?? 'User',
+        profileImageUrl: user.photoURL,
+      );
+      
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => ProfileCompletionScreen(user: user),
+          builder: (_) => PreferencesScreen(user: userModel),
         ),
       );
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScreen()),
-      );
+      return;
     }
+
+    
+    final existingUser = await _authService.getUserProfile(user.uid);
+    if (!mounted) return;
+    
+    if (existingUser != null && 
+        (existingUser.interestAreas == null || existingUser.interestAreas!.isEmpty)) {
+    
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => PreferencesScreen(user: existingUser),
+        ),
+      );
+      return;
+    }
+
+   
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainScreen()),
+    );
   }
 
   Future<void> _signInWithGoogle() async {

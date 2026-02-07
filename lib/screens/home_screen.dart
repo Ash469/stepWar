@@ -40,6 +40,7 @@ import '../providers/step_provider.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'google_fit_stats_screen.dart';
 import '../const/string.dart';
+import 'onboarding_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final GlobalKey onlineBattleKey;
@@ -80,10 +81,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isOpeningBronzeBox = false;
   bool _isOpeningSilverBox = false;
   bool _isOpeningGoldBox = false;
-  Timer? _boxTimer;
-  Duration _bronzeTimeLeft = Duration.zero;
-  Duration _silverTimeLeft = Duration.zero;
-  Duration _goldTimeLeft = Duration.zero;
   KingdomItem? _latestReward;
   bool _isLoadingData = false;
   bool _isPedometerPermissionGranted = true;
@@ -104,7 +101,6 @@ class _HomeScreenState extends State<HomeScreen>
 
     _loadData(isInitialLoad: true);
     WidgetsBinding.instance.addObserver(this);
-    _startBoxTimers();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _handleNotifications();
       _initService();
@@ -149,41 +145,10 @@ class _HomeScreenState extends State<HomeScreen>
     _debounce?.cancel();
     _healthService.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    _boxTimer?.cancel();
     super.dispose();
   }
 
-  void _startBoxTimers() {
-    _boxTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted || _user?.mysteryBoxLastOpened == null) return;
 
-      if (mounted) {
-        setState(() {
-          _bronzeTimeLeft = _calculateTimeLeft('bronze');
-          _silverTimeLeft = _calculateTimeLeft('silver');
-          _goldTimeLeft = _calculateTimeLeft('gold');
-        });
-      }
-    });
-  }
-
-  Duration _calculateTimeLeft(String boxType) {
-    final lastOpenedString = _user?.mysteryBoxLastOpened?[boxType];
-    if (lastOpenedString == null) return Duration.zero;
-
-    try {
-      final lastOpenedDate = DateTime.parse(lastOpenedString).toLocal();
-      final now = DateTime.now();
-      final nextAvailableTime = lastOpenedDate.add(const Duration(hours: 24));
-
-      if (now.isBefore(nextAvailableTime)) {
-        return nextAvailableTime.difference(now);
-      }
-    } catch (e) {
-      print("Error parsing mystery box date for $boxType: $e");
-    }
-    return Duration.zero;
-  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
@@ -1332,6 +1297,13 @@ class _HomeScreenState extends State<HomeScreen>
                     HomeHeader(
                       username: safeUser.username ?? 'User',
                       coins: safeUser.coins ?? 0,
+                      onTutorialTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const OnboardingScreen(),
+                          ),
+                        );
+                      },
                     ),
                     if (!_isPedometerPermissionGranted ||
                         !_isBatteryOptimizationEnabled)
@@ -1466,9 +1438,6 @@ class _HomeScreenState extends State<HomeScreen>
                       isOpeningBronze: _isOpeningBronzeBox,
                       isOpeningSilver: _isOpeningSilverBox,
                       isOpeningGold: _isOpeningGoldBox,
-                      bronzeTimeLeft: _bronzeTimeLeft,
-                      silverTimeLeft: _silverTimeLeft,
-                      goldTimeLeft: _goldTimeLeft,
                     ),
                     const SizedBox(height: 16),
                     const StepWarsFooter(),

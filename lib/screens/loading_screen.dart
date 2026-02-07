@@ -78,15 +78,10 @@ class _LoadingScreenState extends State<LoadingScreen> {
 
     if (!mounted) return;
 
-    if (hasSeenOnboarding) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-      );
-    }
+    // V1.5: Skip pre-login onboarding, tutorial is now accessible via info icon on home screen
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   @override

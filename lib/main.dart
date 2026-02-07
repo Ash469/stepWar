@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
+import 'screens/preferences_screen.dart';
 import 'firebase_options.dart';
 import 'screens/loading_screen.dart';
 import 'const/app_theme.dart';
@@ -36,9 +37,9 @@ final Map<String, dynamic> remoteConfigDefaults = {
   'ko_diff': 200,
   'draw_diff': 50,
   'step_save_debounce_minutes': 15,
-  'bronze_box_price': 5000,
-  'silver_box_price': 10000,
-  'gold_box_price': 20000,
+  'bronze_box_price': 1000,   
+  'silver_box_price': 5000,   
+  'gold_box_price': 10000,    
   'matchmaking_timeout_seconds': 15,
 };
 
@@ -105,6 +106,7 @@ class MyApp extends StatelessWidget {
       theme: AppThemes.darkTheme,
       debugShowCheckedModeBanner: false,
       home: const LoadingScreen(),
+
       // Add proper handling for different screen sizes and orientations
       builder: (context, child) {
         return MediaQuery(
