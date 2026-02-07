@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:stepwars_app/screens/profile_completion_screen.dart';
 
 import '../services/auth_service.dart';
 import '../models/user_model.dart';
+import 'home_screen.dart';
 import 'main_screen.dart';
 import 'preferences_screen.dart';
 
@@ -87,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
       
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => PreferencesScreen(user: userModel),
+          builder: (_) => ProfileCompletionScreen(user: user),
         ),
       );
       return;
@@ -136,6 +138,25 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted && _authService.currentUser == null) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+  // guest signin
+  Future<void> signInAsGuest() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = await _authService.signInAsGuest();
+
+      if (user != null && mounted) {
+        await _navigateAfterLogin();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Guest sign-in failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -324,10 +345,39 @@ class _LoginScreenState extends State<LoginScreen> {
         _buildButton('Sign in with Email', Icons.email, () {
           setState(() => _loginState = LoginState.enterEmail);
         }),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         _buildButton(
             'Sign in with Google', Icons.g_mobiledata, _signInWithGoogle,
             isLoading: _isLoading),
+        const SizedBox(height: 16),
+        GestureDetector(
+          onTap: () async {
+            await signInAsGuest();
+          },
+          child: RichText(
+            text: const TextSpan(
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.black54,
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.w500,
+              ),
+              children: [
+                TextSpan(text: 'Continue as a '),
+                TextSpan(
+                  text: 'Guest',
+                  style: TextStyle(
+                    decoration: TextDecoration.underline,
+                    decorationColor: Colors.black54,
+                    decorationThickness: 1.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
       ],
     );
   }

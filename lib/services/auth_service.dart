@@ -6,6 +6,16 @@ import '../models/user_model.dart';
 import 'package:http/http.dart' as http;
 import 'notification_service.dart';
 import '../const/string.dart';
+import 'dart:math';
+
+String generateRandomUsername({int length = 6}) {
+  const chars =
+      'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  final rand = Random.secure();
+
+  return List.generate(length, (index) => chars[rand.nextInt(chars.length)])
+      .join();
+}
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -180,6 +190,41 @@ class AuthService {
       print("Error verifying OTP and signing in: $e");
       rethrow;
     }
+  }
+
+  // guest login
+  Future<User?> signInAsGuest() async {
+    try {
+      if (_auth.currentUser != null) {
+        return _auth.currentUser;
+      }
+
+      final userCredential = await _auth.signInAnonymously();
+      final user = userCredential.user;
+
+      if (user == null) return null;
+
+      final fakeEmail = "guest_${user.uid}@stepwars.app";
+
+        final username = generateRandomUsername();
+
+        await createUserProfile(
+          UserModel(
+            userId: user.uid,
+            username: username,
+            email: fakeEmail,
+          ),
+        );
+
+        await syncUserWithBackend(uid: user.uid, email: fakeEmail);
+
+
+      await cacheUserProfile(user.uid);
+      return user;
+    } catch (e) {
+  print("Guest login error: $e");
+  }
+    return null;
   }
 
   Future<void> signOut() async {
