@@ -89,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
       
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => ProfileCompletionScreen(user: user),
+          builder: (_) => PreferencesScreen(user:  userModel),
         ),
       );
       return;
