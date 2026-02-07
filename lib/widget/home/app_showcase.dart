@@ -6,6 +6,7 @@ class AppShowcase {
   static final GlobalKey friendBattleKey = GlobalKey();
   static final GlobalKey kingdomButtonKey = GlobalKey();
   static final GlobalKey profileButtonKey = GlobalKey();
+  static final GlobalKey tutorialInfoKey = GlobalKey();
 
   // Method to start the showcase with a consistent order
   static List<GlobalKey> get tutorialOrder => [
@@ -14,5 +15,6 @@ class AppShowcase {
         friendBattleKey,
         kingdomButtonKey,
         profileButtonKey,
+        tutorialInfoKey,
       ];
 }

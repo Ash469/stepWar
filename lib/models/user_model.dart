@@ -17,6 +17,9 @@ class UserModel {
   final Map<String, dynamic>? rewards;
   final Map<String, dynamic>? stats;
   final Map<String, String>? mysteryBoxLastOpened; // --- NEW ---
+  // V1.5: User preferences
+  final List<String>? interestAreas;
+  final String? avgDailySteps;
 
   UserModel({
     required this.userId,
@@ -35,6 +38,8 @@ class UserModel {
     this.rewards,
     this.stats,
     this.mysteryBoxLastOpened, // --- NEW ---
+    this.interestAreas,
+    this.avgDailySteps,
   });
 
   Map<String, dynamic> toJson() {
@@ -55,6 +60,8 @@ class UserModel {
       'rewards': rewards,
       'stats': stats,
       'mysteryBoxLastOpened': mysteryBoxLastOpened, // --- NEW ---
+      'interestAreas': interestAreas,
+      'avgDailySteps': avgDailySteps,
     };
   }
 
@@ -89,6 +96,8 @@ class UserModel {
       // --- NEW --- Safely parse the map from JSON
       mysteryBoxLastOpened: (json['mysteryBoxLastOpened'] as Map<String, dynamic>?)
           ?.map((key, value) => MapEntry(key, value.toString())),
+      interestAreas: (json['interestAreas'] as List<dynamic>?)?.cast<String>(),
+      avgDailySteps: json['avgDailySteps'] as String?,
     );
   }
 
@@ -109,6 +118,8 @@ class UserModel {
     Map<String, dynamic>? rewards,
     Map<String, dynamic>? stats,
     Map<String, String>? mysteryBoxLastOpened,
+    List<String>? interestAreas,
+    String? avgDailySteps,
   }) {
     return UserModel(
       userId: userId ?? this.userId,
@@ -127,6 +138,8 @@ class UserModel {
       rewards: rewards ?? this.rewards,
       stats: stats ?? this.stats,
       mysteryBoxLastOpened: mysteryBoxLastOpened ?? this.mysteryBoxLastOpened,
+      interestAreas: interestAreas ?? this.interestAreas,
+      avgDailySteps: avgDailySteps ?? this.avgDailySteps,
     );
   }
 }

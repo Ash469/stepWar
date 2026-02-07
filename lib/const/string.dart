@@ -1,9 +1,7 @@
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 
-// const String baseUrl = 'http://10.106.238.52:5000';
 const String baseUrl = 'http://3.109.141.189:5000';
 
-// Get backend URL from Remote Config with fallback
 String getBackendUrl() {
   try {
     final remoteConfig = FirebaseRemoteConfig.instance;
@@ -12,8 +10,8 @@ String getBackendUrl() {
   } catch (e) {
     return baseUrl;
   }
-  // return baseUrl;
 }
+
 const String KO_diff = "200";
 const String Draw = "50";
 const String Battle_Time = "10";

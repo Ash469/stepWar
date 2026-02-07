@@ -32,6 +32,24 @@ class AuthService {
     await updateUserProfile(user);
   }
 
+
+
+  Future<void> createMinimalUserProfile(User firebaseUser) async {
+    final username = firebaseUser.displayName ?? 
+                     firebaseUser.email?.split('@').first ?? 
+                     'User${DateTime.now().millisecondsSinceEpoch}';
+    
+    final userModel = UserModel(
+      userId: firebaseUser.uid,
+      email: firebaseUser.email,
+      username: username,
+      profileImageUrl: firebaseUser.photoURL,
+      todaysStepCount: 0,
+    );
+    
+    await updateUserProfile(userModel);
+  }
+
   Future<void> updateUserProfile(UserModel user) async {
     if (user.userId.isEmpty) {
       throw Exception("Attempted to update profile with an empty user ID.");
