@@ -142,7 +142,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                    
                     const SizedBox(height: 40),
                     _buildStepsCard(),
-                    // Figma gap: button top(876) - steps bottom(616+192=808) = 68
+                    
                     const SizedBox(height: 68),
                     _buildContinueButton(),
                     const SizedBox(height: 30),
@@ -167,7 +167,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
         ),
         borderRadius: BorderRadius.circular(20),
       ),
-      padding: const EdgeInsets.all(1), // 1px border width
+      padding: const EdgeInsets.all(1), 
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -267,8 +267,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     );
   }
 
-  /// "Active Daily Steps" card
-  /// Figma: 412×192, radius 20, border 1px gradient, bg #1F1F1F
+ 
   Widget _buildStepsCard() {
     return _buildGradientBorderCard(
       child: Column(
@@ -326,8 +325,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     );
   }
 
-  /// "Continue" button
-  /// Figma: 412×56, radius 12, bg #FDD85D
+ 
   Widget _buildContinueButton() {
     return SizedBox(
       width: double.infinity,

@@ -16,8 +16,7 @@ class UserModel {
   final Map<String, dynamic>? multipliers;
   final Map<String, dynamic>? rewards;
   final Map<String, dynamic>? stats;
-  final Map<String, String>? mysteryBoxLastOpened; // --- NEW ---
-  // V1.5: User preferences
+  final Map<String, String>? mysteryBoxLastOpened; 
   final List<String>? interestAreas;
   final String? avgDailySteps;
 
@@ -37,7 +36,7 @@ class UserModel {
     this.multipliers,
     this.rewards,
     this.stats,
-    this.mysteryBoxLastOpened, // --- NEW ---
+    this.mysteryBoxLastOpened, 
     this.interestAreas,
     this.avgDailySteps,
   });
@@ -59,7 +58,7 @@ class UserModel {
       'multipliers': multipliers,
       'rewards': rewards,
       'stats': stats,
-      'mysteryBoxLastOpened': mysteryBoxLastOpened, // --- NEW ---
+      'mysteryBoxLastOpened': mysteryBoxLastOpened, 
       'interestAreas': interestAreas,
       'avgDailySteps': avgDailySteps,
     };

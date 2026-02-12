@@ -376,7 +376,52 @@ class _HomeScreenState extends State<HomeScreen>
     switch (reward['type']) {
       case 'coins':
         titleText = "${reward['amount']} Coins!";
-        rewardContent = Image.asset('assets/images/coin_icon.png', height: 80);
+        rewardContent = Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset('assets/images/coin_icon.png', height: 28),
+                const SizedBox(width: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'SW',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    reward['amount'].toString(),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
         break;
       case 'multiplier':
         titleText = "Multiplier Token!";
@@ -398,13 +443,16 @@ class _HomeScreenState extends State<HomeScreen>
             ? item['imagePath']
             : null;
         rewardContent = imagePath != null
-            ? Image.asset(
-                imagePath,
-                height: 80,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.shield, size: 80, color: Colors.black),
-              )
-            : const Icon(Icons.shield, size: 80, color: Colors.black);
+          ? CircleAvatar(
+            radius: 60,
+            backgroundColor: Colors.transparent,
+            backgroundImage: imagePath.startsWith('http')
+              ? NetworkImage(imagePath)
+              : AssetImage(imagePath) as ImageProvider,
+            onBackgroundImageError: (_, __) {},
+            child: null,
+            )
+          : const Icon(Icons.shield, size: 80, color: Colors.black);
         break;
       default:
         titleText = "Special Reward!";
@@ -1294,6 +1342,7 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+
                     HomeHeader(
                       username: safeUser.username ?? 'User',
                       coins: safeUser.coins ?? 0,

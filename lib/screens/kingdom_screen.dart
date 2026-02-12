@@ -413,7 +413,7 @@ class _KingdomScreenState extends State<KingdomScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 12.0,
         mainAxisSpacing: 12.0,
-        childAspectRatio: 0.9,
+        mainAxisExtent: 260,
       ),
       itemCount: _currentItems.length,
       itemBuilder: (context, index) {
@@ -449,9 +449,10 @@ class _KingdomScreenState extends State<KingdomScreen> {
             Padding(
               padding: const EdgeInsets.all(12.0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                //mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  const SizedBox(height: 8),
                   _buildRarityTag(item.rarity, item.rarityColor),
                   const Spacer(),
                   item.imagePath.isNotEmpty
@@ -487,18 +488,26 @@ class _KingdomScreenState extends State<KingdomScreen> {
                         )
                       : const Icon(Icons.question_mark,
                           color: Colors.white, size: 60),
-                  const Spacer(),
-                  Text(
-                    item.name,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 42,
+                    child: Text(
+                      item.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
-                        fontWeight: FontWeight.w600),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
+                  const Spacer(),
                 ],
               ),
             ),
+
           ],
         ),
       ),

@@ -19,6 +19,8 @@ class HomeHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        Expanded(
+          child:
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -28,6 +30,8 @@ class HomeHeader extends StatelessWidget {
             ),
             Text(
               username,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 28,
@@ -36,6 +40,7 @@ class HomeHeader extends StatelessWidget {
             ),
           ],
         ),
+    ),
         Row(
           children: [
             // Tutorial info icon with showcase

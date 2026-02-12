@@ -123,10 +123,17 @@ class ActiveBattleService with ChangeNotifier {
       if (isBotMatch && _botStepTimer == null) {
         _initializeBotStepGenerator();
       }
-      final koDifference = _remoteConfig.getInt('ko_diff');
-      if (!_isGameOver &&
-          (game.player1Score - game.player2Score).abs() >= koDifference) {
-        endBattle();
+      // KO logic removed
+      // Check for win_steps winner
+      final winSteps = _remoteConfig.getInt('win_steps');
+      if (!_isGameOver) {
+        if (game.player1Score >= winSteps && game.player2Score >= winSteps) {
+          endBattle();
+        } else if (game.player1Score >= winSteps) {
+          endBattle();
+        } else if (game.player2Score >= winSteps) {
+          endBattle();
+        }
       }
       _sendBattleStateToTask();
       notifyListeners();
@@ -222,7 +229,16 @@ class ActiveBattleService with ChangeNotifier {
     final multiplier =
         isUserPlayer1 ? _currentGame!.multiplier1 : _currentGame!.multiplier2;
     final newScore = (stepsThisGame * multiplier).round();
-    if (isUserPlayer1) {
+    final winSteps = _remoteConfig.getInt('win_steps');
+    // Check for win_steps winner on local step update
+    if (!_isGameOver) {
+      if (isUserPlayer1 && newScore >= winSteps) {
+        endBattle();
+        return;
+      } else if (!isUserPlayer1 && newScore >= winSteps) {
+        endBattle();
+        return;
+      }
     }
     final now = DateTime.now();
     if (now.difference(_lastSyncTime) >= _syncInterval) {
@@ -248,7 +264,7 @@ class ActiveBattleService with ChangeNotifier {
       final elapsed = DateTime.now().difference(startTime);
       if (elapsed >= gameDuration) {
         _timeLeft = Duration.zero;
-        endBattle();
+        // Do not end battle by timer
       } else {
         _timeLeft = gameDuration - elapsed;
         _sendBattleStateToTask();
@@ -263,16 +279,26 @@ class ActiveBattleService with ChangeNotifier {
         timer.cancel();
         return;
       }
+      final winSteps = _remoteConfig.getInt('win_steps');
       final botId = _currentGame!.player2Id!;
       final botType = _botService.getBotTypeFromId(botId);
       if (botType != null) {
         final generatedSteps = _botService.generateStepsForOneSecond(botType);
         final newBotSteps = (_currentGame!.step2Count) + generatedSteps;
         final newBotScore = (newBotSteps * _currentGame!.multiplier2).round();
-        _gameService.updateGame(_currentGame!.gameId, {
-          'step2Count': newBotSteps,
-          'player2Score': newBotScore,
-        });
+        if (newBotScore >= winSteps) {
+          _gameService.updateGame(_currentGame!.gameId, {
+            'step2Count': newBotSteps,
+            'player2Score': newBotScore,
+          });
+          endBattle();
+          timer.cancel();
+        } else {
+          _gameService.updateGame(_currentGame!.gameId, {
+            'step2Count': newBotSteps,
+            'player2Score': newBotScore,
+          });
+        }
       }
     });
   }

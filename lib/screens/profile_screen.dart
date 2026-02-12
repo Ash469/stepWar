@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/step_history_service.dart';
+import '../services/interest_service.dart';
 import '../providers/step_provider.dart';
 import 'login_screen.dart';
 import '../widget/footer.dart';
@@ -19,6 +20,16 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final InterestService _interestService = InterestService();
+  List<String> _allInterests = [];
+  bool _isLoadingInterests = true;
+  final List<String> _stepRanges = [
+    '< 1000',
+    '1000 - 3000',
+    '3000 - 6000',
+    '6000 - 10000',
+    '10000 +',
+  ];
   UserModel? _user;
   bool _isLoading = true;
   final AuthService _authService = AuthService();
@@ -37,6 +48,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserProfile();
     _loadStepHistory();
     _loadLifetimeStats();
+    _loadAllInterests();
+  }
+
+  Future<void> _loadAllInterests() async {
+    final interests = await _interestService.fetchInterests();
+    if (mounted) {
+      setState(() {
+        _allInterests = interests;
+        _isLoadingInterests = false;
+      });
+    }
   }
 
   DateTime _getStartOfWeek(DateTime date) {
@@ -83,7 +105,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           contactNo: userJson['contactNo'],
           stepGoal: (userJson['stepGoal'] as num?)?.toInt(),
           todaysStepCount: (userJson['todaysStepCount'] as num?)?.toInt(),
+          interestAreas: (userJson['interestAreas'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList(),
+          avgDailySteps: userJson['avgDailySteps'] as String?,
         );
+
         _isLoading = false;
       });
       if (mounted) {
@@ -156,7 +183,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
+              (route) => false,
         );
       }
     }
@@ -190,7 +217,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final userId = _authService.currentUser?.uid;
       if (userId == null) throw Exception("User not logged in");
       final List<dynamic> history =
-          await _authService.getActivityHistory(userId);
+      await _authService.getActivityHistory(userId);
       final Map<String, int> backendMap = {};
       for (var dayData in history) {
         final date = DateTime.tryParse(dayData['date'])?.toLocal();
@@ -222,7 +249,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final int localSteps =
             stepHistoryService.getStepsForDate(dateString) ?? 0;
         final int maxSteps =
-            (backendSteps > localSteps) ? backendSteps : localSteps;
+        (backendSteps > localSteps) ? backendSteps : localSteps;
         String dayAbbreviation = dayAbbreviations[currentDate.weekday - 1];
         processedHistory[dayAbbreviation] = maxSteps;
       }
@@ -277,11 +304,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
     final lifetimeBattlesWon =
-        (_lifetimeStats?['totalBattlesWon'] ?? 0).toString();
+    (_lifetimeStats?['totalBattlesWon'] ?? 0).toString();
     final lifetimeKnockouts =
-        (_lifetimeStats?['totalKnockouts'] ?? 0).toString();
+    (_lifetimeStats?['totalKnockouts'] ?? 0).toString();
     final lifetimeTotalBattles =
-        (_lifetimeStats?['totalBattles'] ?? 0).toString();
+    (_lifetimeStats?['totalBattles'] ?? 0).toString();
     final lifetimeTotalSteps = _lifetimeStats?['totalSteps'] ?? 0;
     return Stack(
       children: [
@@ -348,8 +375,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showEditSheet(
       {required String title,
-      required Widget content,
-      required VoidCallback onSave}) {
+        required Widget content,
+        required VoidCallback onSave}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -357,7 +384,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) {
         return Padding(
           padding:
-              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: const BoxDecoration(
@@ -480,7 +507,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               color: const Color(0xFF4CAF50).withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
               border:
-                  Border.all(color: const Color(0xFF4CAF50).withOpacity(0.5)),
+              Border.all(color: const Color(0xFF4CAF50).withOpacity(0.5)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -567,26 +594,269 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildDetailItem('Email', _user!.email ?? 'Not provided',
-            isColumn: true),
+        _buildDetailItem('Email', _user!.email ?? 'Not provided', isColumn: true),
         const SizedBox(height: 16),
-        _buildDetailItem(
-          'Contact No.',
-          _user!.contactNo ?? 'Not provided',
-          isColumn: true,
-          onEditTap: _showEditContactSheet,
-        ),
+        _buildDetailItem('Contact No.', _user!.contactNo ?? 'Not provided', isColumn: true, onEditTap: _showEditContactSheet),
         const SizedBox(height: 16),
-        _buildDetailItem(
-          'Daily Step Goal',
+        _buildDetailItem('Daily Step Goal',
           _user?.stepGoal != null && _user!.stepGoal! > 0
               ? NumberFormat.decimalPattern().format(_user!.stepGoal)
               : 'Not Set',
           isColumn: true,
           onEditTap: _showSetGoalSheet,
         ),
+        const SizedBox(height: 16),
+        _buildDetailItem(
+          'Interests',
+          (_user?.interestAreas != null && _user!.interestAreas!.isNotEmpty)
+              ? _user!.interestAreas!.join(', ')
+              : 'Not Set',
+          isColumn: true,
+          onEditTap: _showEditInterestsSheet,
+        ),
+        const SizedBox(height: 16),
+        _buildDetailItem(
+          'Avg Daily Steps',
+          _user?.avgDailySteps != null && _user!.avgDailySteps!.isNotEmpty
+              ? _user!.avgDailySteps!
+              : 'Not Set',
+          isColumn: true,
+          onEditTap: _showEditAvgDailyStepsSheet,
+        ),
       ],
     );
+  }
+
+
+  void _showEditInterestsSheet() {
+    final original = List<String>.from(_user?.interestAreas ?? []);
+    List<String> selected = List<String>.from(original);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(28),
+                topRight: Radius.circular(28),
+              ),
+            ),
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                final selectedSet = Set<String>.from(selected);
+                final unselected = _allInterests.where((i) => !selectedSet.contains(i)).toList();
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Edit Interests', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.black),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    if (selected.isNotEmpty)
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: selected.map((name) => GestureDetector(
+                          onTap: () {
+                            setState(() { selected.remove(name); });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.yellow.shade700,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.yellow.shade700, width: 1),
+                            ),
+                            child: Text(name, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          ),
+                        )).toList(),
+                      ),
+                    if (selected.isNotEmpty) const SizedBox(height: 18),
+                    if (unselected.isNotEmpty)
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: unselected.map((name) => GestureDetector(
+                          onTap: () {
+                            setState(() { selected.add(name); });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.grey.shade800, width: 1),
+                            ),
+                            child: Text(name, style: const TextStyle(color: Colors.white)),
+                          ),
+                        )).toList(),
+                      ),
+                    const SizedBox(height: 32),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              final updatedUser = _user!.copyWith(interestAreas: List<String>.from(selected));
+                              await _authService.updateUserProfile(updatedUser);
+                              await _loadUserProfile(forceReload: true);
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.yellow.shade700,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.black,
+                              side: BorderSide(color: Colors.grey.shade400),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      // If closed by cancel or X, restore original (no-op, since not saved)
+    });
+  }
+
+  void _showEditAvgDailyStepsSheet() {
+    final original = _user?.avgDailySteps ?? '';
+    String selected = original;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(28),
+                topRight: Radius.circular(28),
+              ),
+            ),
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Edit Avg Daily Steps', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.black),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _stepRanges.map((range) {
+                        final isSelected = selected == range;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() { selected = range; });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? Colors.yellow.shade700 : Colors.black,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: isSelected ? Colors.yellow.shade700 : Colors.grey.shade800, width: 1),
+                            ),
+                            child: Text(range, style: TextStyle(color: isSelected ? Colors.black : Colors.white, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 32),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              final updatedUser = _user!.copyWith(avgDailySteps: selected);
+                              await _authService.updateUserProfile(updatedUser);
+                              await _loadUserProfile(forceReload: true);
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.yellow.shade700,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.black,
+                              side: BorderSide(color: Colors.grey.shade400),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      // If closed by cancel or X, restore original (no-op, since not saved)
+    });
   }
 
   void _showEditUsernameSheet() {
@@ -617,7 +887,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return;
         }
         final updatedUser =
-            _user!.copyWith(username: usernameController.text.trim());
+        _user!.copyWith(username: usernameController.text.trim());
         _updateAndReloadProfile(updatedUser);
       },
     );
@@ -625,9 +895,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showEditAboutYouSheet() {
     final weightController =
-        TextEditingController(text: _user?.weight?.toStringAsFixed(1));
+    TextEditingController(text: _user?.weight?.toStringAsFixed(1));
     final heightController =
-        TextEditingController(text: _user?.height?.toStringAsFixed(0));
+    TextEditingController(text: _user?.height?.toStringAsFixed(0));
     DateTime? selectedDob = _user?.dob;
     String? selectedGender = _user?.gender;
 
@@ -786,7 +1056,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       onSave: () {
         final updatedUser =
-            _user!.copyWith(contactNo: contactController.text.trim());
+        _user!.copyWith(contactNo: contactController.text.trim());
         _updateAndReloadProfile(updatedUser);
       },
     );
@@ -794,7 +1064,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showSetGoalSheet() {
     final goalController =
-        TextEditingController(text: _user?.stepGoal?.toString());
+    TextEditingController(text: _user?.stepGoal?.toString());
 
     const textStyle = TextStyle(color: Colors.black);
     const labelStyle = TextStyle(color: Colors.black54);
@@ -831,7 +1101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       {bool isColumn = false, VoidCallback? onEditTap}) {
     final content = Column(
       crossAxisAlignment:
-          isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      isColumn ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
         Text(value, style: const TextStyle(color: Colors.white, fontSize: 16)),
         const SizedBox(height: 4),
@@ -880,7 +1150,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final bool hasData = stepsData.values.any((steps) => steps > 0);
     const int maxStepsDefault = 50000;
     final int maxSteps =
-        (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
+    (_user?.stepGoal ?? 0) > 0 ? _user!.stepGoal! : maxStepsDefault;
 
     return Column(
       children: [
@@ -906,7 +1176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             IconButton(
               icon: const Icon(Icons.chevron_right, color: Colors.white),
               onPressed:
-                  _isCurrentWeek(_currentWeekStart) ? null : _goToNextWeek,
+              _isCurrentWeek(_currentWeekStart) ? null : _goToNextWeek,
               color: _isCurrentWeek(_currentWeekStart)
                   ? Colors.grey.shade700
                   : Colors.white,
@@ -919,26 +1189,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           height: 150,
           child: _isChartLoading
               ? const Center(
-                  child: CircularProgressIndicator(color: Colors.yellow))
+              child: CircularProgressIndicator(color: Colors.yellow))
               : !hasData
-                  ? Center(
-                      child: Text(
-                        "No step data available for this week.",
-                        style: TextStyle(color: Colors.grey.shade500),
-                      ),
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: stepsData.entries.map((entry) {
-                        return _buildBar(
-                          day: entry.key,
-                          steps: entry.value,
-                          maxSteps: maxSteps,
-                          goalSteps: _user?.stepGoal,
-                        );
-                      }).toList(),
-                    ),
+              ? Center(
+            child: Text(
+              "No step data available for this week.",
+              style: TextStyle(color: Colors.grey.shade500),
+            ),
+          )
+              : Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: stepsData.entries.map((entry) {
+              return _buildBar(
+                day: entry.key,
+                steps: entry.value,
+                maxSteps: maxSteps,
+                goalSteps: _user?.stepGoal,
+              );
+            }).toList(),
+          ),
         ),
       ],
     );
@@ -953,11 +1223,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }) {
     final double relativeMax = (maxSteps > 0 ? maxSteps : 10000).toDouble();
     final double barHeight =
-        (steps / relativeMax * maxBarHeight).clamp(5.0, maxBarHeight);
+    (steps / relativeMax * maxBarHeight).clamp(5.0, maxBarHeight);
     final Color barColor =
-        (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
-            ? Colors.green.shade400
-            : Colors.yellow.shade700;
+    (goalSteps != null && goalSteps > 0 && steps >= goalSteps)
+        ? Colors.green.shade400
+        : Colors.yellow.shade700;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -981,7 +1251,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   color: barColor,
                   borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(4)),
+                  const BorderRadius.vertical(top: Radius.circular(4)),
                 ),
               ),
               const SizedBox(height: 8),
@@ -1021,28 +1291,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // --- Show a loader while stats are loading ---
         _isStatsLoading
             ? const Center(
-                child: CircularProgressIndicator(color: Colors.yellow))
+            child: CircularProgressIndicator(color: Colors.yellow))
             : Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildScorecardItem('assets/images/battle_won.png',
-                          battlesWon, 'Battle won'),
-                      _buildScorecardItem(
-                          'assets/images/ko_won.png', knockouts, 'Knockouts'),
-                      _buildScorecardItem('assets/images/coin_won.png',
-                          totalBattles, 'Total Battles'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _buildScorecardItem(
-                      'assets/images/step_icon.png',
-                      NumberFormat.decimalPattern().format(totalSteps),
-                      'Total Lifetime Steps', // Updated label
-                      isFullWidth: true),
-                ],
-              ),
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildScorecardItem('assets/images/battle_won.png',
+                    battlesWon, 'Battle won'),
+                _buildScorecardItem(
+                    'assets/images/ko_won.png', knockouts, 'Knockouts'),
+                _buildScorecardItem('assets/images/coin_won.png',
+                    totalBattles, 'Total Battles'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _buildScorecardItem(
+                'assets/images/step_icon.png',
+                NumberFormat.decimalPattern().format(totalSteps),
+                'Total Lifetime Steps', // Updated label
+                isFullWidth: true),
+          ],
+        ),
       ],
     );
   }

@@ -1,15 +1,16 @@
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 const String baseUrl = 'http://3.109.141.189:5000';
-
+//const String baseUrl = 'http://localhost:5000';
 String getBackendUrl() {
-  try {
+   try {
     final remoteConfig = FirebaseRemoteConfig.instance;
-    final url = remoteConfig.getString('backend_url');
-    return url.isNotEmpty ? url : baseUrl;
-  } catch (e) {
-    return baseUrl;
-  }
+     final url = remoteConfig.getString('backend_url');
+     return url.isNotEmpty ? url : baseUrl;
+   } catch (e) {
+     return baseUrl;
+   }
+  return baseUrl;
 }
 
 const String KO_diff = "200";
