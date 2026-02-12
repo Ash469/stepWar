@@ -2,9 +2,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/bot_service.dart';
 import 'home_screen.dart' as app_screens;
 import 'kingdom_screen.dart';
 import 'profile_screen.dart';
+import 'home_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
@@ -37,9 +39,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final GlobalKey _kingdomButtonKey = GlobalKey();
   final GlobalKey _profileButtonKey = GlobalKey();
   final GlobalKey _stepCountKey = GlobalKey();
-
+  final BotService _botService = BotService();
+  Map<String, dynamic>? _lifetimeStats;
   late final List<Widget> _pages;
 
+  late UserModel _user;
   void _onTabTapped(int index) {
     setState(() {
       _currentIndex = index;
@@ -97,7 +101,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (state == AppLifecycleState.resumed) {
      if (battleService.isBattleActive &&
-          isBattleOngoing && 
+          isBattleOngoing &&
           (battleService.timeLeft.isNegative ||
               battleService.timeLeft.inSeconds == 0)) {
         print(
@@ -113,7 +117,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _permissionCheckFuture ??= _doCheckPermissions();
     return _permissionCheckFuture!;
   }
-
+  BotType get currentBot {
+  return _botService.getNextBot(_lifetimeStats?['totalBattlesWon'] ?? 0);
+}
   Future<void> _doCheckPermissions() async {
     final allGranted = await PermissionService.areAllPermissionsGranted();
 
@@ -439,7 +445,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             case 'BOT':
                               Navigator.of(context).push(MaterialPageRoute(
                                   builder: (_) =>
-                                      BotSelectionScreen(user: user)));
+                                      BotSelectionScreen(user: user,botType: currentBot,)));
                               break;
                             case 'FRIEND':
                               break;
@@ -504,6 +510,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ),
     );
   }
+
 
   void _showSimpleBattleEndDialog() {
     final battleService = context.read<ActiveBattleService>();
@@ -647,7 +654,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         });
 
         return UpgradeAlert(
-          // upgrader: Upgrader(debugDisplayAlways: true), 
+          // upgrader: Upgrader(debugDisplayAlways: true),
           child: AnnotatedRegion<SystemUiOverlayStyle>(
             value: const SystemUiOverlayStyle(
               statusBarColor: Colors.transparent,
@@ -682,7 +689,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-        );  
+        );
       },
     );
   }
@@ -822,3 +829,4 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return content;
   }
 }
+

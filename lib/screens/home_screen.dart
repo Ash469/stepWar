@@ -2,12 +2,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:stepwars_app/screens/bot_selection_screen.dart';
 import 'package:stepwars_app/services/active_battle_service.dart';
 import 'package:stepwars_app/services/bot_service.dart';
 import '../models/user_model.dart';
@@ -16,6 +18,7 @@ import '../services/game_service.dart';
 import '../services/step_counting.dart';
 import '../services/permission_service.dart';
 import '../widget/footer.dart';
+import '../widget/home/game_card.dart';
 import '../widgets/permission_bottom_sheet.dart';
 import 'battle_screen.dart';
 import 'waiting_for_friend_screen.dart';
@@ -54,6 +57,8 @@ class HomeScreen extends StatefulWidget {
     required this.friendBattleKey,
     // required this.googleFitKey,
     required this.stepCountKey,
+
+
   });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -86,8 +91,10 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPedometerPermissionGranted = true;
   bool _isBatteryOptimizationEnabled = true;
   bool _offsetInitializationDone = false;
+  bool _showWelcomeOverlay = false;
   DateTime? _lastPausedTime;
   DateTime _lastOpponentFetchTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Map<String, dynamic>? _lifetimeStats;
 
   @override
   bool get wantKeepAlive => true;
@@ -108,7 +115,25 @@ class _HomeScreenState extends State<HomeScreen>
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) _checkForOngoingBattle();
       });
+      Future.delayed(Duration(seconds: 15), () => _checkWelcomeOverlay());
+
     });
+  }
+
+
+  BotType get currentBot {
+    return _botService.getNextBot(_lifetimeStats?['totalBattlesWon'] ?? 0);
+  }
+
+  void _checkWelcomeOverlay() {
+    if (!mounted) return;
+    if (_user == null) return;
+
+    if (shouldShowZeroCoinSilverOverlay()) {
+      setState(() {
+        _showWelcomeOverlay = true;
+      });
+    }
   }
 
   Future<void> _checkForOngoingBattle() async {
@@ -147,8 +172,6 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-
-
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
@@ -275,10 +298,180 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _deductCoinsAndNavigate(int fee) async {
+    if (_user == null) return;
+    final int currentCoins = _user!.coins ?? 0;
+    if (currentCoins < fee) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Insufficient coins!")),
+      );
+      return;
+    }
+
+    final int newBalance = currentCoins - fee;
+
+    setState(() {
+      _user = _user!.copyWith(coins: newBalance);
+      _authService.saveUserSession(_user!);
+    });
+
+    try {
+      _authService.saveUserSession(_user!);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_user!.userId)
+          .update({'coins': newBalance});
+
+      debugPrint("Firestore updated to: $newBalance");
+    } catch (e) {
+      debugPrint("Database Error: $e");
+    }
+
+    // 4. Navigate
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BotSelectionScreen(
+          user: _user!,
+          botType: currentBot,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWelcomeOverlay() {
+    return Container(
+      color: Colors.black.withOpacity(0.65),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          width: MediaQuery.of(context).size.width * 0.85,
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 🖼 Big Mystery Box Image
+              GestureDetector(
+                onTap: _claimWelcomeReward,
+                child: Image.asset(
+                  'assets/images/silver_box.png',
+                  width: 200, // bigger image
+                  height: 200,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Only Claim Reward Button
+              ElevatedButton(
+                onPressed: _claimWelcomeReward,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber,
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                child: const Text(
+                  "Claim Reward",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  Future<void> _claimWelcomeReward() async {
+    setState(() {
+      _showWelcomeOverlay = false; // remove overlay
+    });
+    // actually open the silver mystery box for free
+    await _openMysteryBox('silver', 0);
+  }
+
+  Future<void> _showEntryConfirmation(BuildContext context, int fee) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Colors.amber, width: 1),
+        ),
+        title: const Text(
+          "Enter Battle?",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          "This will deduct $fee coins from your balance. Are you ready?",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child:
+                const Text("CANCEL", style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              _deductCoinsAndNavigate(fee); // Execute deduction
+            },
+            child: const Text("CONFIRM",
+                style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool shouldShowZeroCoinSilverOverlay() {
+    if (_user == null) return false;
+
+    // If user has coins → NO overlay
+    if ((_user!.coins ?? 0) > 0) return false;
+
+    final lastGiven = _user!.zeroCoinSilverLastGiven;
+
+    // Never given before → show overlay
+    if (lastGiven == null) return true;
+
+    final now = DateTime.now();
+    final lastDate =
+        lastGiven is String ? DateTime.parse(lastGiven) : lastGiven as DateTime;
+
+    final lastOnlyDate = DateTime(lastDate.year, lastDate.month, lastDate.day);
+    final todayOnlyDate = DateTime(now.year, now.month, now.day);
+
+    // Show only if not given today
+    return lastOnlyDate != todayOnlyDate;
+  }
+
   Future<void> _openMysteryBox(String boxType, int price) async {
     if (_user == null || _isLoadingData) return;
-    final canAfford = (_user!.coins ?? 0) >= price;
-    if (!canAfford) {
+    final hasCoins = (_user!.coins ?? 0) >= price;
+    final isZeroCoinUser = (_user!.coins ?? 0) == 0;
+
+    if (!hasCoins && !(isZeroCoinUser && boxType == 'silver')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("You don't have enough coins!"),
@@ -1270,210 +1463,234 @@ class _HomeScreenState extends State<HomeScreen>
     }
     final safeUser = _user!;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: RefreshIndicator(
-        onRefresh: () => _loadData(forceRefresh: true),
-        color: Colors.yellow,
-        backgroundColor: Colors.grey.shade900,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                16.0,
-                16.0,
-                16.0,
-                40.0 +
-                    MediaQuery.of(
-                      context,
-                    ).padding.bottom, // Add bottom padding for all devices
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    HomeHeader(
-                      username: safeUser.username ?? 'User',
-                      coins: safeUser.coins ?? 0,
-                      onTutorialTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const OnboardingScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    if (!_isPedometerPermissionGranted ||
-                        !_isBatteryOptimizationEnabled)
-                      Container(
-                        margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              const Color(0xFFFFC107).withOpacity(0.15),
-                              const Color(0xFFFF9800).withOpacity(0.1),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          border: Border.all(
-                            color: const Color(0xFFFFC107).withOpacity(0.3),
-                            width: 1.5,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFF121212),
+          body: RefreshIndicator(
+            onRefresh: () => _loadData(forceRefresh: true),
+            color: Colors.yellow,
+            backgroundColor: Colors.grey.shade900,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    16.0,
+                    16.0,
+                    16.0,
+                    40.0 +
+                        MediaQuery.of(
+                          context,
+                        ).padding.bottom, // Add bottom padding for all devices
+                  ),
+                  child: ConstrainedBox(
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        HomeHeader(
+                          username: safeUser.username ?? 'User',
+                          coins: safeUser.coins ?? 0,
+                          onTutorialTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const OnboardingScreen(),
+                              ),
+                            );
+                          },
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFC107).withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.security,
-                                color: Color(0xFFFFC107),
-                                size: 24,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Permissions Needed",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    !_isPedometerPermissionGranted
-                                        ? "Grant permissions for full app experience"
-                                        : "Battery optimization needed for background tracking",
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 13,
-                                    ),
-                                  ),
+                        if (!_isPedometerPermissionGranted ||
+                            !_isBatteryOptimizationEnabled)
+                          Container(
+                            margin: const EdgeInsets.only(top: 16),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFFFFC107).withOpacity(0.15),
+                                  const Color(0xFFFF9800).withOpacity(0.1),
                                 ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
+                              border: Border.all(
+                                color: const Color(0xFFFFC107).withOpacity(0.3),
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            const SizedBox(width: 12),
-                            ElevatedButton(
-                              onPressed: _showPermissionSheet,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFFC107),
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 10,
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFC107)
+                                        .withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.security,
+                                    color: Color(0xFFFFC107),
+                                    size: 24,
+                                  ),
                                 ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        "Permissions Needed",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        !_isPedometerPermissionGranted
+                                            ? "Grant permissions for full app experience"
+                                            : "Battery optimization needed for background tracking",
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                elevation: 0,
-                              ),
-                              child: const Text(
-                                "Fix",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                                const SizedBox(width: 12),
+                                ElevatedButton(
+                                  onPressed: _showPermissionSheet,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFFFC107),
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  child: const Text(
+                                    "Fix",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    Consumer<StepProvider>(
-                      builder: (context, stepProvider, child) {
-                        return Showcase(
-                          key: widget.stepCountKey,
-                          title: 'Daily Steps',
-                          description:
-                              'Your steps are your power!\nWalk more to collect rewards.',
-                          tooltipBackgroundColor: const Color(0xFF1E1E1E),
-                          textColor: Colors.white,
-                          tooltipBorderRadius: BorderRadius.circular(12),
-                          targetShapeBorder: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                          child: StepCounterCard(
-                            steps: stepProvider.currentSteps,
                           ),
-                        );
-                      },
+                        SizedBox(height: 12),
+                        Consumer<StepProvider>(
+                          builder: (context, stepProvider, child) {
+                            return Showcase(
+                              key: widget.stepCountKey,
+                              title: 'Daily Steps',
+                              description:
+                                  'Your steps are your power!\nWalk more to collect rewards.',
+                              tooltipBackgroundColor: const Color(0xFF1E1E1E),
+                              textColor: Colors.white,
+                              tooltipBorderRadius: BorderRadius.circular(12),
+                              targetShapeBorder: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                              child: StepCounterCard(
+                                steps: stepProvider.currentSteps,
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        const SectionTitle(
+                          title: "--------Start a Step Race --------",
+                        ),
+                        const SizedBox(height: 16),
+                        GameCard(
+                          level:
+                              _botService.getBotLevel(currentBot), // Returns 1
+                          title:
+                              "${currentBot.name[0].toUpperCase()}${currentBot.name.substring(1).toLowerCase()} – ${_botService.getBotDisplayName(currentBot)}",
+
+                          description:
+                              _botService.getBotDescription(currentBot),
+                          reward: _botService.getBotReward(currentBot),
+                          entryFee: _botService.getEntryFee(currentBot),
+                          imagePath: _botService.getBotImagePath(currentBot),
+                          coinImagePath: 'assets/images/coin_icon.png',
+                          onTap: () {
+                            final userCopy = _user;
+                            if (userCopy != null) {
+                              // Check if they can afford it before showing the dialog
+                              int fee = _botService.getEntryFee(currentBot);
+
+                              if ((userCopy.coins ?? 0) >= fee) {
+                                _showEntryConfirmation(context, fee);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text("Not enough coins!")),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 24),
+                        const SectionTitle(
+                          title: "---------- Mystery Box ----------",
+                        ),
+                        const SizedBox(height: 16),
+                        MysteryBoxSection(
+                          onOpenBox: _openMysteryBox,
+                          isOpeningBronze: _isOpeningBronzeBox,
+                          isOpeningSilver: _isOpeningSilverBox,
+                          isOpeningGold: _isOpeningGoldBox,
+                        ),
+                        const SizedBox(height: 16),
+                        const StepWarsFooter(),
+                      ],
                     ),
-                    const SizedBox(height: 24),
-                    const SectionTitle(
-                      title: "---------- Today's Scorecard ----------",
-                    ),
-                    const SizedBox(height: 16),
-                    ScorecardSection(stats: safeUser.stats ?? {}),
-                    const SizedBox(height: 16),
-                    BattleSection(
-                      user: safeUser,
-                      opponentProfile: _opponentProfile,
-                      isCreatingGame: _isCreatingGame,
-                      isCreatingBotGame: _isCreatingBotGame,
-                      onShowFriendBattleDialog: _showFriendBattleDialog,
-                      onFetchOpponentProfile: _fetchOpponentProfile,
-                      onlineBattleKey: widget.onlineBattleKey,
-                      friendBattleKey: widget.friendBattleKey,
-                    ),
-                    const SizedBox(height: 16),
-                    const GameRulesWidget(),
-                    const SizedBox(height: 24),
-                    const SectionTitle(
-                      title: "---------- Mystery Box ----------",
-                    ),
-                    const SizedBox(height: 16),
-                    MysteryBoxSection(
-                      onOpenBox: _openMysteryBox,
-                      isOpeningBronze: _isOpeningBronzeBox,
-                      isOpeningSilver: _isOpeningSilverBox,
-                      isOpeningGold: _isOpeningGoldBox,
-                    ),
-                    const SizedBox(height: 16),
-                    const StepWarsFooter(),
-                  ],
-                ),
-              ),
-            );
-          },
+                  ),
+                );
+              },
+            ),
+          ),
+          // floatingActionButton: Consumer<StepProvider>(
+          //   builder: (context, stepProvider, child) {
+          //     return Showcase(
+          //       key: widget.googleFitKey,
+          //       description: 'Check your detailed\nGoogle Fit statistics',
+          //       tooltipBackgroundColor: const Color(0xFF1E1E1E),
+          //       textColor: Colors.white,
+          //       tooltipBorderRadius: BorderRadius.circular(12),
+          //       targetShapeBorder: const CircleBorder(),
+          //       child: FloatingActionButton.extended(
+          //         onPressed: () {
+          //           Navigator.push(
+          //             context,
+          //             MaterialPageRoute(
+          //               builder: (context) => const GoogleFitStatsScreen(),
+          //             ),
+          //           );
+          //         },
+          //         icon: const Icon(Icons.bar_chart),
+          //         label: const Text('Google Fit'),
+          //         backgroundColor: Colors.blue,
+          //         foregroundColor: Colors.white,
+          //       ),
+          //     );
+          //   },
+          // ),
         ),
-      ),
-      // floatingActionButton: Consumer<StepProvider>(
-      //   builder: (context, stepProvider, child) {
-      //     return Showcase(
-      //       key: widget.googleFitKey,
-      //       description: 'Check your detailed\nGoogle Fit statistics',
-      //       tooltipBackgroundColor: const Color(0xFF1E1E1E),
-      //       textColor: Colors.white,
-      //       tooltipBorderRadius: BorderRadius.circular(12),
-      //       targetShapeBorder: const CircleBorder(),
-      //       child: FloatingActionButton.extended(
-      //         onPressed: () {
-      //           Navigator.push(
-      //             context,
-      //             MaterialPageRoute(
-      //               builder: (context) => const GoogleFitStatsScreen(),
-      //             ),
-      //           );
-      //         },
-      //         icon: const Icon(Icons.bar_chart),
-      //         label: const Text('Google Fit'),
-      //         backgroundColor: Colors.blue,
-      //         foregroundColor: Colors.white,
-      //       ),
-      //     );
-      //   },
-      // ),
+        if (_showWelcomeOverlay) _buildWelcomeOverlay(),
+      ],
     );
   }
 

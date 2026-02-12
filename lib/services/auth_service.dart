@@ -203,10 +203,8 @@ class AuthService {
       final user = userCredential.user;
 
       if (user == null) return null;
-
-      final fakeEmail = "guest_${user.uid}@stepwars.app";
-
-        final username = generateRandomUsername();
+        final username = "guest_${generateRandomUsername()}";
+      final fakeEmail = "$username@stepwars.app";
 
         await createUserProfile(
           UserModel(

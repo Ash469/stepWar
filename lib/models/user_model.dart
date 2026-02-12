@@ -20,6 +20,8 @@ class UserModel {
   // V1.5: User preferences
   final List<String>? interestAreas;
   final String? avgDailySteps;
+  final String? zeroCoinSilverLastGiven;
+
 
   UserModel({
     required this.userId,
@@ -40,6 +42,7 @@ class UserModel {
     this.mysteryBoxLastOpened, // --- NEW ---
     this.interestAreas,
     this.avgDailySteps,
+    this.zeroCoinSilverLastGiven,
   });
 
   Map<String, dynamic> toJson() {
@@ -62,6 +65,8 @@ class UserModel {
       'mysteryBoxLastOpened': mysteryBoxLastOpened, // --- NEW ---
       'interestAreas': interestAreas,
       'avgDailySteps': avgDailySteps,
+      'zeroCoinSilverLastGiven': zeroCoinSilverLastGiven,
+
     };
   }
 
@@ -98,7 +103,9 @@ class UserModel {
           ?.map((key, value) => MapEntry(key, value.toString())),
       interestAreas: (json['interestAreas'] as List<dynamic>?)?.cast<String>(),
       avgDailySteps: json['avgDailySteps'] as String?,
+      zeroCoinSilverLastGiven: json['zeroCoinSilverLastGiven'] as String?,
     );
+
   }
 
   UserModel copyWith({
@@ -120,6 +127,8 @@ class UserModel {
     Map<String, String>? mysteryBoxLastOpened,
     List<String>? interestAreas,
     String? avgDailySteps,
+    String? zeroCoinSilverLastGiven,
+
   }) {
     return UserModel(
       userId: userId ?? this.userId,
@@ -140,6 +149,7 @@ class UserModel {
       mysteryBoxLastOpened: mysteryBoxLastOpened ?? this.mysteryBoxLastOpened,
       interestAreas: interestAreas ?? this.interestAreas,
       avgDailySteps: avgDailySteps ?? this.avgDailySteps,
+      zeroCoinSilverLastGiven: zeroCoinSilverLastGiven ?? this.zeroCoinSilverLastGiven,
     );
   }
 }

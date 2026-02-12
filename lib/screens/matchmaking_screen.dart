@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/active_battle_service.dart';
+import '../services/bot_service.dart';
 import '../services/game_service.dart';
 import 'battle_screen.dart';
 import 'bot_selection_screen.dart';
@@ -227,7 +228,7 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
     if (mounted) {
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => BotSelectionScreen(user: widget.user),
+          builder: (_) => BotSelectionScreen(user: widget.user,botType:BotType.pawn ,),
         ),
       );
     }
